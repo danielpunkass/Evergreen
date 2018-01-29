@@ -14,7 +14,11 @@ private let kWindowFrameKey = "MainWindow"
 
 class MainWindowController : NSWindowController, NSUserInterfaceValidations {
     
-    // MARK: NSWindowController
+	var isOpen: Bool {
+		return isWindowLoaded && window!.isVisible
+	}
+
+	// MARK: NSWindowController
 
 	private let windowAutosaveName = NSWindow.FrameAutosaveName(rawValue: kWindowFrameKey)
 	private var unreadCount: Int = 0 {
@@ -291,7 +295,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 		sidebarViewController?.gotoStarred(sender)
 	}
-	
+
 	@IBAction func toolbarShowShareMenu(_ sender: Any?) {
 
 		guard let selectedArticles = selectedArticles, !selectedArticles.isEmpty else {
@@ -328,7 +332,7 @@ extension MainWindowController: NSSharingServicePickerDelegate {
 
 	func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker, sharingServicesForItems items: [Any], proposedSharingServices proposedServices: [NSSharingService]) -> [NSSharingService] {
 
-		let sendToServices = appDelegate.sendToCommands.flatMap { (sendToCommand) -> NSSharingService? in
+		let sendToServices = appDelegate.sendToCommands.compactMap { (sendToCommand) -> NSSharingService? in
 
 			guard let object = items.first else {
 				return nil
