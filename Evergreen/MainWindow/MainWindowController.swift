@@ -6,7 +6,7 @@
 //  Copyright © 2015 Ranchero Software, LLC. All rights reserved.
 //
 
-import Cocoa
+import AppKit
 import Data
 import Account
 
@@ -16,6 +16,13 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
     
 	var isOpen: Bool {
 		return isWindowLoaded && window!.isVisible
+	}
+
+	var isDisplayingSheet: Bool {
+		if let _ = window?.attachedSheet {
+			return true
+		}
+		return false
 	}
 
 	// MARK: NSWindowController
