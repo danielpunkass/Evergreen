@@ -15,7 +15,8 @@ import Account
 class TimelineViewController: NSViewController, UndoableCommandRunner {
 
 	@IBOutlet var tableView: TimelineTableView!
-
+	@IBOutlet var contextualMenuDelegate: TimelineContextualMenuDelegate?
+	
 	var selectedArticles: [Article] {
 		get {
 			return Array(articles.articlesForIndexes(tableView.selectedRowIndexes))
@@ -28,6 +29,16 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 		}
 	}
 
+	var articles = ArticleArray() {
+		didSet {
+			if articles != oldValue {
+				clearUndoableCommands()
+				updateShowAvatars()
+				tableView.reloadData()
+			}
+		}
+	}
+
 	var undoableCommands = [UndoableCommand]()
 	private var cellAppearance: TimelineCellAppearance!
 	private var cellAppearanceWithAvatar: TimelineCellAppearance!
@@ -36,7 +47,7 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 		didSet {
 			if showFeedNames != oldValue {
 				updateShowAvatars()
-				tableView.rowHeight = currentRowHeight
+				updateTableViewRowHeight()
 			}
 		}
 	}
@@ -60,16 +71,6 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 			}
 		}
 	}
-	private var articles = ArticleArray() {
-		didSet {
-			if articles != oldValue {
-				clearUndoableCommands()
-				updateShowAvatars()
-				tableView.reloadData()
-			}
-		}
-	}
-
 	private var fontSize: FontSize = AppDefaults.shared.timelineFontSize {
 		didSet {
 			if fontSize != oldValue {
@@ -147,7 +148,9 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 		cellAppearance = TimelineCellAppearance(theme: appDelegate.currentTheme, showAvatar: false, fontSize: fontSize)
 		cellAppearanceWithAvatar = TimelineCellAppearance(theme: appDelegate.currentTheme, showAvatar: true, fontSize: fontSize)
 		updateRowHeights()
-		tableView.reloadData()
+		performBlockAndRestoreSelection {
+			tableView.reloadData()
+		}
 	}
 
 	// MARK: - API
@@ -416,6 +419,7 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 
 		rowHeightWithFeedName = calculateRowHeight(showingFeedNames: true)
 		rowHeightWithoutFeedName = calculateRowHeight(showingFeedNames: false)
+		updateTableViewRowHeight()
 	}
 }
 
@@ -587,6 +591,11 @@ private extension TimelineViewController {
 		}
 	}
 
+	func updateTableViewRowHeight() {
+
+		tableView.rowHeight = currentRowHeight
+	}
+
 	func updateShowAvatars() {
 
 		if showFeedNames {
@@ -617,17 +626,32 @@ private extension TimelineViewController {
 
 	func sortDirectionDidChange() {
 
-		let selectedArticleIDs = selectedArticles.articleIDs()
+		performBlockAndRestoreSelection {
+			let unsortedArticles = Set(articles)
+			updateArticles(with: unsortedArticles)
+		}
+	}
 
-		let unsortedArticles = Set(articles)
-		updateArticles(with: unsortedArticles)
+	func selectedArticleIDs() -> [String] {
 
-		selectArticles(selectedArticleIDs)
+		return selectedArticles.articleIDs()
+	}
+
+	func restoreSelection(_ articleIDs: [String]) {
+
+		selectArticles(articleIDs)
 		if tableView.selectedRow != -1 {
 			tableView.scrollRowToVisible(tableView.selectedRow)
 		}
 	}
 
+	func performBlockAndRestoreSelection(_ block: (() -> Void)) {
+
+		let savedSelection = selectedArticleIDs()
+		block()
+		restoreSelection(savedSelection)
+	}
+	
 	// MARK: Fetching Articles
 
 	func fetchArticles() {
@@ -672,15 +696,13 @@ private extension TimelineViewController {
 			return
 		}
 
-		let selectedArticleIDs = selectedArticles.articleIDs()
-
-		var unsortedArticles = fetchUnsortedArticles(for: representedObjects)
-		unsortedArticles.formUnion(Set(articles))
-		updateArticles(with: unsortedArticles)
-
-		selectArticles(selectedArticleIDs)
+		performBlockAndRestoreSelection {
+			var unsortedArticles = fetchUnsortedArticles(for: representedObjects)
+			unsortedArticles.formUnion(Set(articles))
+			updateArticles(with: unsortedArticles)
+		}
 	}
-
+	
 	func selectArticles(_ articleIDs: [String]) {
 
 		let indexesToSelect = articles.indexesForArticleIDs(Set(articleIDs))

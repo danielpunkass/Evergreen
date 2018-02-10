@@ -101,6 +101,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		addFolderWindowController!.runSheetOnWindow(window)
 	}
 
+	func showAddFeedSheetOnWindow(_ window: NSWindow, urlString: String?, name: String?) {
+
+		addFeedController = AddFeedController(hostWindow: window)
+		addFeedController?.showAddFeedSheet(urlString, name)
+	}
+
 	// MARK: - NSApplicationDelegate
 
 	func applicationDidFinishLaunching(_ note: Notification) {
@@ -275,8 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 			return
 		}
 
-		addFeedController = AddFeedController(hostWindow: mainWindowController!.window!)
-		addFeedController?.showAddFeedSheet(urlString, name)
+		showAddFeedSheetOnWindow(mainWindowController!.window!, urlString: urlString, name: name)
 	}
 
 	// MARK: - Actions
@@ -521,3 +526,26 @@ private extension AppDelegate {
 		sortByOldestArticleOnTopMenuItem.state = sortByNewestOnTop ? .off : .on
 	}
 }
+
+/*
+    the ScriptingAppDelegate protocol exposes a narrow set of accessors with
+    internal visibility which are very similar to some private vars.
+    
+    These would be unnecessary if the similar accessors were marked internal rather than private,
+    but for now, we'll keep the stratification of visibility
+*/
+extension AppDelegate : ScriptingAppDelegate {
+
+    internal var scriptingMainWindowController: ScriptingMainWindowController? {
+        return mainWindowController
+    }
+
+    internal var  scriptingCurrentArticle: Article? {
+        return self.scriptingMainWindowController?.scriptingCurrentArticle
+    }
+
+    internal var  scriptingSelectedArticles: [Article] {
+        return self.scriptingMainWindowController?.scriptingSelectedArticles ?? []
+    }
+}
+

@@ -16,6 +16,7 @@ import RSCore
     
 	@IBOutlet var outlineView: SidebarOutlineView!
 	@IBOutlet var gearMenuDelegate: SidebarGearMenuDelegate!
+	@IBOutlet var contextualMenuDelegate: SidebarContextualMenuDelegate!
 	
 	let treeControllerDelegate = SidebarTreeControllerDelegate()
 	lazy var treeController: TreeController = {
@@ -24,6 +25,8 @@ import RSCore
     var undoableCommands = [UndoableCommand]()
 	private var animatingChanges = false
 	private var sidebarCellAppearance: SidebarCellAppearance!
+
+	var renameWindowController: RenameWindowController?
 
 	var selectedObjects: [AnyObject] {
 		return selectedNodes.representedObjects()
@@ -35,7 +38,6 @@ import RSCore
 
 		sidebarCellAppearance = SidebarCellAppearance(theme: appDelegate.currentTheme, fontSize: AppDefaults.shared.sidebarFontSize)
 
-		outlineView.sidebarViewController = self
 		outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
 		outlineView.setDraggingSourceOperationMask(.copy, forLocal: false)
 
@@ -195,10 +197,23 @@ import RSCore
 
 	func contextualMenuForSelectedObjects() -> NSMenu? {
 
-		guard let mainWindowController = view.window?.windowController as? MainWindowController else {
+		return menu(for: selectedObjects)
+	}
+
+	func contextualMenuForClickedRows() -> NSMenu? {
+
+		let row = outlineView.clickedRow
+		guard row != -1, let node = nodeForRow(row) else {
 			return nil
 		}
-		return mainWindowController.menu(for: selectedObjects)
+
+		if outlineView.selectedRowIndexes.contains(row) {
+			// If the clickedRow is part of the selected rows, then do a contextual menu for all the selected rows.
+			return contextualMenuForSelectedObjects()
+		}
+		
+		let object = node.representedObject
+		return menu(for: [object])
 	}
 
 	// MARK: NSOutlineViewDelegate

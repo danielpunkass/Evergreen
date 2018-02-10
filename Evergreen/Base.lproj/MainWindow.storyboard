@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="14087.3" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" initialViewController="B8D-0N-5wS">
+<document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="14092" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" initialViewController="B8D-0N-5wS">
     <dependencies>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="14087.3"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="14092"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <scenes>
@@ -21,9 +21,9 @@
                                 <toolbarItem implicitItemIdentifier="NSToolbarFlexibleSpaceItem" id="YMs-P5-Xhn"/>
                                 <toolbarItem implicitItemIdentifier="DD0FA79F-72C1-488B-B113-0D2DE89AA468" label="Search" paletteLabel="Search" toolTip="Search Articles" id="1Ql-WJ-KYi">
                                     <size key="minSize" width="96" height="22"/>
-                                    <size key="maxSize" width="256" height="28"/>
+                                    <size key="maxSize" width="320" height="28"/>
                                     <searchField key="view" wantsLayer="YES" verticalHuggingPriority="750" id="Fcs-4u-xuP">
-                                        <rect key="frame" x="0.0" y="14" width="256" height="22"/>
+                                        <rect key="frame" x="0.0" y="14" width="320" height="22"/>
                                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                                         <searchFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" borderStyle="bezel" usesSingleLineMode="YES" bezelStyle="round" id="syc-TO-rPc">
                                             <font key="font" metaFont="system"/>
@@ -193,13 +193,13 @@
                                 <toolbarItem reference="QD0-SQ-OIM"/>
                                 <toolbarItem reference="YMs-P5-Xhn"/>
                                 <toolbarItem reference="lst-vn-0Iw"/>
-                                <toolbarItem reference="Gxg-WQ-ufC"/>
+                                <toolbarItem reference="1Ql-WJ-KYi"/>
                                 <toolbarItem reference="YMs-P5-Xhn"/>
                                 <toolbarItem reference="p7Y-Vm-ILH"/>
+                                <toolbarItem reference="Gxg-WQ-ufC"/>
+                                <toolbarItem reference="N7D-g2-EPD"/>
                                 <toolbarItem reference="tid-SB-me3"/>
                                 <toolbarItem reference="nv0-Ju-lP7"/>
-                                <toolbarItem reference="YMs-P5-Xhn"/>
-                                <toolbarItem reference="1Ql-WJ-KYi"/>
                             </defaultToolbarItems>
                             <connections>
                                 <outlet property="delegate" destination="B8D-0N-5wS" id="hrC-d9-Cge"/>
@@ -359,6 +359,7 @@
                                                 <outlet property="dataSource" destination="XML-A3-pDn" id="04v-0e-BM6"/>
                                                 <outlet property="delegate" destination="XML-A3-pDn" id="fPE-cv-p5c"/>
                                                 <outlet property="keyboardDelegate" destination="h5K-zR-cUa" id="BlT-aW-sea"/>
+                                                <outlet property="menu" destination="p3f-EZ-sSD" id="KTA-tl-UrO"/>
                                             </connections>
                                         </outlineView>
                                     </subviews>
@@ -441,11 +442,28 @@
                         </constraints>
                     </view>
                     <connections>
+                        <outlet property="contextualMenuDelegate" destination="GIi-rR-u3i" id="HnU-AM-kBV"/>
                         <outlet property="gearMenuDelegate" destination="f3Y-bi-SLk" id="2on-6C-laM"/>
                         <outlet property="outlineView" destination="cnV-kg-Dn2" id="FVf-OT-E3h"/>
                     </connections>
                 </viewController>
                 <customObject id="Jih-JO-hIE" userLabel="First Responder" customClass="NSResponder" sceneMemberID="firstResponder"/>
+                <menu id="p3f-EZ-sSD">
+                    <items>
+                        <menuItem title="Item 1" id="ZDH-CV-Y2s">
+                            <modifierMask key="keyEquivalentModifierMask"/>
+                        </menuItem>
+                        <menuItem title="Item 2" id="1F7-qu-7oN">
+                            <modifierMask key="keyEquivalentModifierMask"/>
+                        </menuItem>
+                        <menuItem title="Item 3" id="r9E-FO-GoU">
+                            <modifierMask key="keyEquivalentModifierMask"/>
+                        </menuItem>
+                    </items>
+                    <connections>
+                        <outlet property="delegate" destination="GIi-rR-u3i" id="xCL-ce-fof"/>
+                    </connections>
+                </menu>
                 <customObject id="f3Y-bi-SLk" customClass="SidebarGearMenuDelegate" customModule="Evergreen" customModuleProvider="target">
                     <connections>
                         <outlet property="sidebarViewController" destination="XML-A3-pDn" id="Tw0-4c-1Go"/>
@@ -454,6 +472,11 @@
                 <customObject id="h5K-zR-cUa" customClass="SidebarKeyboardDelegate" customModule="Evergreen" customModuleProvider="target">
                     <connections>
                         <outlet property="sidebarViewController" destination="XML-A3-pDn" id="kwd-Zc-HJm"/>
+                    </connections>
+                </customObject>
+                <customObject id="GIi-rR-u3i" customClass="SidebarContextualMenuDelegate" customModule="Evergreen" customModuleProvider="target">
+                    <connections>
+                        <outlet property="sidebarViewController" destination="XML-A3-pDn" id="cFr-ow-5mf"/>
                     </connections>
                 </customObject>
             </objects>
@@ -569,6 +592,7 @@
                                                 <outlet property="dataSource" destination="36G-bQ-b96" id="OpB-zC-ItJ"/>
                                                 <outlet property="delegate" destination="36G-bQ-b96" id="s1m-42-GQ4"/>
                                                 <outlet property="keyboardDelegate" destination="ZOV-xh-WJE" id="HiG-Bz-vD0"/>
+                                                <outlet property="menu" destination="gb5-z4-YPr" id="pey-0u-ogu"/>
                                             </connections>
                                         </tableView>
                                     </subviews>
@@ -600,13 +624,35 @@
                         </userDefinedRuntimeAttributes>
                     </view>
                     <connections>
+                        <outlet property="contextualMenuDelegate" destination="iD1-KK-gFc" id="b0j-aW-e4B"/>
                         <outlet property="tableView" destination="DRs-j8-R9a" id="2AG-SP-7n2"/>
                     </connections>
                 </viewController>
                 <customObject id="Ebq-4s-EwK" userLabel="First Responder" customClass="NSResponder" sceneMemberID="firstResponder"/>
+                <menu id="gb5-z4-YPr">
+                    <items>
+                        <menuItem title="Item 1" id="Ikx-w7-cua">
+                            <modifierMask key="keyEquivalentModifierMask"/>
+                        </menuItem>
+                        <menuItem title="Item 2" id="QX3-hL-Dqh">
+                            <modifierMask key="keyEquivalentModifierMask"/>
+                        </menuItem>
+                        <menuItem title="Item 3" id="IsQ-j7-Njb">
+                            <modifierMask key="keyEquivalentModifierMask"/>
+                        </menuItem>
+                    </items>
+                    <connections>
+                        <outlet property="delegate" destination="iD1-KK-gFc" id="q4j-wE-tnf"/>
+                    </connections>
+                </menu>
                 <customObject id="ZOV-xh-WJE" customClass="TimelineKeyboardDelegate" customModule="Evergreen" customModuleProvider="target">
                     <connections>
                         <outlet property="timelineViewController" destination="36G-bQ-b96" id="rED-2Z-kh6"/>
+                    </connections>
+                </customObject>
+                <customObject id="iD1-KK-gFc" customClass="TimelineContextualMenuDelegate" customModule="Evergreen" customModuleProvider="target">
+                    <connections>
+                        <outlet property="timelineViewController" destination="36G-bQ-b96" id="oE9-uV-TNi"/>
                     </connections>
                 </customObject>
             </objects>
