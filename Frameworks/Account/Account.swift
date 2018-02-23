@@ -56,23 +56,12 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	let database: Database
 	let delegate: AccountDelegate
 	var username: String?
-	var saveTimer: Timer?
+	static let saveQueue = CoalescingQueue(name: "Account Save Queue", interval: 1.0)
 
 	public var dirty = false {
 		didSet {
-
-			if refreshInProgress {
-				if let _ = saveTimer {
-					removeSaveTimer()
-				}
-				return
-			}
-
-			if dirty {
-				resetSaveTimer()
-			}
-			else {
-				removeSaveTimer()
+			if dirty && !refreshInProgress {
+				queueSaveToDiskIfNeeded()
 			}
 		}
 	}
@@ -93,28 +82,22 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 				}
 				else {
 					NotificationCenter.default.post(name: .AccountRefreshDidFinish, object: self)
-					if dirty {
-						resetSaveTimer()
-					}
+					queueSaveToDiskIfNeeded()
 				}
 			}
 		}
 	}
 
 	var refreshProgress: DownloadProgress {
-		get {
-			return delegate.refreshProgress
-		}
+		return delegate.refreshProgress
 	}
-
+	
 	var supportsSubFolders: Bool {
-		get {
-			return delegate.supportsSubFolders
-		}
+		return delegate.supportsSubFolders
 	}
-
+	
 	init?(dataFolder: String, settingsFile: String, type: AccountType, accountID: String) {
-
+		
 		// TODO: support various syncing systems.
 		precondition(type == .onMyMac)
 		self.delegate = LocalAccountDelegate()
@@ -341,12 +324,32 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		return articles
 	}
 
+	public func fetchUnreadArticles() -> Set<Article> {
+
+		return fetchUnreadArticles(forContainer: self)
+	}
+
 	public func fetchArticles(folder: Folder) -> Set<Article> {
 
-		let feeds = folder.flattenedFeeds()
+		return fetchUnreadArticles(forContainer: folder)
+	}
+
+	public func fetchUnreadArticles(forContainer container: Container) -> Set<Article> {
+
+		let feeds = container.flattenedFeeds()
 		let articles = database.fetchUnreadArticles(for: feeds)
 		feeds.forEach { validateUnreadCount($0, articles) }
 		return articles
+	}
+
+	public func fetchTodayArticles() -> Set<Article> {
+
+		return database.fetchTodayArticles(for: flattenedFeeds())
+	}
+
+	public func fetchStarredArticles() -> Set<Article> {
+
+		return database.fetchStarredArticles(for: flattenedFeeds())
 	}
 
 	private func validateUnreadCount(_ feed: Feed, _ articles: Set<Article>) {
@@ -454,6 +457,15 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		}
 	}
 
+	@objc func saveToDiskIfNeeded() {
+
+		guard dirty else {
+			return
+		}
+		saveToDisk()
+		dirty = false
+	}
+
 	// MARK: - Equatable
 
 	public class func ==(lhs: Account, rhs: Account) -> Bool {
@@ -481,6 +493,11 @@ private extension Account {
 		static let children = "children"
 		static let userInfo = "userInfo"
 		static let unreadCount = "unreadCount"
+	}
+
+	func queueSaveToDiskIfNeeded() {
+
+		Account.saveQueue.add(self, #selector(saveToDiskIfNeeded))
 	}
 
 	func object(with diskObject: [String: Any]) -> AnyObject? {
@@ -537,21 +554,6 @@ private extension Account {
 		return d as NSDictionary
 	}
 
-	func saveToDiskIfNeeded() {
-
-		if !dirty {
-			return
-		}
-
-		if refreshInProgress {
-			resetSaveTimer()
-			return
-		}
-
-		saveToDisk()
-		dirty = false
-	}
-
 	func saveToDisk() {
 
 		let d = diskDictionary()
@@ -561,21 +563,6 @@ private extension Account {
 		catch let error as NSError {
 			NSApplication.shared.presentError(error)
 		}
-	}
-
-	func resetSaveTimer() {
-
-		saveTimer?.rs_invalidateIfValid()
-
-		saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { (timer) in
-			self.saveToDiskIfNeeded()
-		}
-	}
-
-	func removeSaveTimer() {
-
-		saveTimer?.rs_invalidateIfValid()
-		saveTimer = nil
 	}
 }
 

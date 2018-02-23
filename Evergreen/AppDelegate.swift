@@ -9,7 +9,6 @@
 import AppKit
 import DB5
 import Data
-import RSTextDrawing
 import RSTree
 import RSWeb
 import Account
@@ -26,16 +25,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	var authorAvatarDownloader: AuthorAvatarDownloader!
 	var feedIconDownloader: FeedIconDownloader!
 	var appName: String!
-
+	
 	@IBOutlet var debugMenuItem: NSMenuItem!
 	@IBOutlet var sortByOldestArticleOnTopMenuItem: NSMenuItem!
 	@IBOutlet var sortByNewestArticleOnTopMenuItem: NSMenuItem!
-
-	lazy var genericFeedImage: NSImage? = {
-		let path = "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/BookmarkIcon.icns"
-		let image = NSImage(contentsOfFile: path)
-		return image
-	}()
 
 	lazy var sendToCommands: [SendToCommand] = {
 		return [SendToMicroBlogCommand(), SendToMarsEditCommand()]
@@ -139,9 +132,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		feedIconDownloader = FeedIconDownloader(imageDownloader: imageDownloader)
 
 		updateSortMenuItems()
-		createAndShowMainWindow()
-
-		NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(AppDelegate.getURL(_:_:)), forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+        createAndShowMainWindow()
+        installAppleEventHandlers()
 
 		NotificationCenter.default.addObserver(self, selector: #selector(feedSettingDidChange(_:)), name: .FeedSettingDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
@@ -172,8 +164,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	func applicationDidResignActive(_ notification: Notification) {
 
-		RSSingleLineRenderer.emptyCache()
-		RSMultiLineRenderer.emptyCache()
 		TimelineCellData.emptyCache()
 		timelineEmptyCaches()
 
@@ -183,25 +173,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	func applicationWillTerminate(_ notification: Notification) {
 
 		saveState()
-	}
-
-	// MARK: GetURL Apple Event
-
-	@objc func getURL(_ event: NSAppleEventDescriptor, _ withReplyEvent: NSAppleEventDescriptor) {
-
-		guard let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue else {
-			return
-		}
-
-		let normalizedURLString = urlString.rs_normalizedURL()
-		if !normalizedURLString.rs_stringMayBeURL() {
-			return
-		}
-
-		DispatchQueue.main.async {
-
-			self.addFeed(normalizedURLString)
-		}
 	}
 
 	// MARK: Notifications
@@ -293,7 +264,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		readerWindow.showWindow(self)
 	}
 
-	@IBAction func showPreferences(_ sender: AnyObject) {
+	@IBAction func showPreferences(_ sender: Any?) {
 
 		if preferencesWindowController == nil {
 			preferencesWindowController = windowControllerWithName("Preferences")
@@ -302,28 +273,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		preferencesWindowController!.showWindow(self)
 	}
 
-	@IBAction func showMainWindow(_ sender: AnyObject) {
+	@IBAction func showMainWindow(_ sender: Any?) {
 
 		createAndShowMainWindow()
 	}
 
-	@IBAction func refreshAll(_ sender: AnyObject) {
+	@IBAction func refreshAll(_ sender: Any?) {
 
 		AccountManager.shared.refreshAll()
 	}
 
-	@IBAction func showAddFeedWindow(_ sender: AnyObject) {
+	@IBAction func showAddFeedWindow(_ sender: Any?) {
 
 		addFeed(nil)
 	}
 
-	@IBAction func showAddFolderWindow(_ sender: AnyObject) {
+	@IBAction func showAddFolderWindow(_ sender: Any?) {
 
 		createAndShowMainWindow()
 		showAddFolderSheetOnWindow(mainWindowController!.window!)
 	}
 
-	@IBAction func showFeedList(_ sender: AnyObject) {
+	@IBAction func showFeedList(_ sender: Any?) {
 
 		if feedListWindowController == nil {
 			feedListWindowController = windowControllerWithName("FeedList")
@@ -373,7 +344,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		logWindowController!.showWindow(self)
 	}
 	
-	@IBAction func importOPMLFromFile(_ sender: AnyObject) {
+	@IBAction func importOPMLFromFile(_ sender: Any?) {
 
 		let panel = NSOpenPanel()
 		panel.canDownloadUbiquitousContents = true
@@ -398,11 +369,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		}
 	}
 	
-	@IBAction func importOPMLFromURL(_ sender: AnyObject) {
+	@IBAction func importOPMLFromURL(_ sender: Any?) {
 
 	}
 
-	@IBAction func exportOPML(_ sender: AnyObject) {
+	@IBAction func exportOPML(_ sender: Any?) {
 
 		let panel = NSSavePanel()
 		panel.allowedFileTypes = ["opml"]
@@ -429,7 +400,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		}
 	}
 	
-	@IBAction func addAppNews(_ sender: AnyObject) {
+	@IBAction func addAppNews(_ sender: Any?) {
 
 		if AccountManager.shared.anyAccountHasFeedWithURL(appNewsURLString) {
 			return
@@ -437,17 +408,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		addFeed(appNewsURLString, "Evergreen News")
 	}
 
-	@IBAction func openWebsite(_ sender: AnyObject) {
+	@IBAction func openWebsite(_ sender: Any?) {
 
 		Browser.open("https://ranchero.com/evergreen/", inBackground: false)
 	}
 
-	@IBAction func openRepository(_ sender: AnyObject) {
+	@IBAction func openRepository(_ sender: Any?) {
 
 		Browser.open("https://github.com/brentsimmons/Evergreen", inBackground: false)
 	}
 
-	@IBAction func openBugTracker(_ sender: AnyObject) {
+	@IBAction func openBugTracker(_ sender: Any?) {
 
 		Browser.open("https://github.com/brentsimmons/Evergreen/issues", inBackground: false)
 	}
@@ -457,9 +428,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		Browser.open("https://github.com/brentsimmons/Evergreen/tree/master/Technotes", inBackground: false)
 	}
 
-	@IBAction func showHelp(_ sender: AnyObject) {
+	@IBAction func showHelp(_ sender: Any?) {
 
 		Browser.open("https://ranchero.com/evergreen/help/1.0/", inBackground: false)
+	}
+
+	@IBAction func donateToAppCampForGirls(_ sender: Any?) {
+
+		Browser.open("https://appcamp4girls.com/contribute/", inBackground: false)
 	}
 
 	@IBAction func debugDropConditionalGetInfo(_ sender: Any?) {
@@ -514,9 +490,8 @@ private extension AppDelegate {
 
 	func saveState() {
 
-		if let inspectorWindowController = inspectorWindowController {
-			inspectorWindowController.saveState()
-		}
+		inspectorWindowController?.saveState()
+		mainWindowController?.saveState()
 	}
 
 	func updateSortMenuItems() {

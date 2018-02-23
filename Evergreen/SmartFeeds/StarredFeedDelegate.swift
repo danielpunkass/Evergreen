@@ -19,4 +19,21 @@ struct StarredFeedDelegate: SmartFeedDelegate {
 
 		account.fetchUnreadCountForStarredArticles(callback)
 	}
+
+	// MARK: ArticleFetcher
+
+	func fetchArticles() -> Set<Article> {
+
+		var articles = Set<Article>()
+		for account in AccountManager.shared.accounts {
+			articles.formUnion(account.fetchStarredArticles())
+		}
+		return articles
+	}
+
+	func fetchUnreadArticles() -> Set<Article> {
+
+		return fetchArticles().unreadArticles()
+	}
+
 }

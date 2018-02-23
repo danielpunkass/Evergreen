@@ -19,17 +19,16 @@ struct TimelineCellData {
 	let text: String
 	let attributedTitle: NSAttributedString //title + text
 	let dateString: String
-	let attributedDateString: NSAttributedString
 	let feedName: String
-	let attributedFeedName: NSAttributedString
 	let showFeedName: Bool
 	let avatar: NSImage? // feed icon, user avatar, or favicon
 	let showAvatar: Bool // Make space even when avatar is nil
 	let featuredImage: NSImage? // image from within the article
 	let read: Bool
+	let starred: Bool
 
 	init(article: Article, appearance: TimelineCellAppearance, showFeedName: Bool, feedName: String?, avatar: NSImage?, showAvatar: Bool, featuredImage: NSImage?) {
-		
+
 		self.title = timelineTruncatedTitle(article)
 		self.text = timelineTruncatedSummary(article)
 
@@ -43,26 +42,12 @@ struct TimelineCellData {
 		}
 
 		self.dateString = timelineDateString(article.logicalDatePublished)
-		if let s = attributedDateCache[self.dateString] {
-			self.attributedDateString = s
-		}
-		else {
-			self.attributedDateString = NSAttributedString(string: self.dateString, attributes: [NSAttributedStringKey.foregroundColor: appearance.dateColor, NSAttributedStringKey.font: appearance.dateFont])
-			attributedDateCache[self.dateString] = self.attributedDateString
-		}
 
 		if let feedName = feedName {
 			self.feedName = timelineTruncatedFeedName(feedName)
 		}
 		else {
 			self.feedName = ""
-		}
-		if let s = attributedFeedNameCache[self.feedName] {
-			self.attributedFeedName = s
-		}
-		else {
-			self.attributedFeedName = NSAttributedString(string: self.feedName, attributes: [NSAttributedStringKey.foregroundColor: appearance.feedNameColor, NSAttributedStringKey.font: appearance.feedNameFont])
-			attributedFeedNameCache[self.feedName] = self.attributedFeedName
 		}
 
 		self.showFeedName = showFeedName
@@ -72,6 +57,7 @@ struct TimelineCellData {
 		self.featuredImage = featuredImage
 		
 		self.read = article.status.read
+		self.starred = article.status.starred
 	}
 
 	init() { //Empty
@@ -80,14 +66,13 @@ struct TimelineCellData {
 		self.attributedTitle = NSAttributedString(string: "")
 		self.text = ""
 		self.dateString = ""
-		self.attributedDateString = NSAttributedString(string: "")
 		self.feedName = ""
-		self.attributedFeedName = NSAttributedString(string: "")
 		self.showFeedName = false
 		self.showAvatar = false
 		self.avatar = nil
 		self.featuredImage = nil
 		self.read = true
+		self.starred = false
 	}
 
 	static func emptyCache() {
@@ -105,8 +90,8 @@ private func attributedTitleString(_ title: String, _ text: String, _ appearance
 	if !title.isEmpty && !text.isEmpty {
 		
 		let titleMutable = NSMutableAttributedString(string: title, attributes: [NSAttributedStringKey.foregroundColor: appearance.titleColor, NSAttributedStringKey.font: appearance.titleFont])
-		let attributedText = NSAttributedString(string: "\n" + text, attributes: [NSAttributedStringKey.foregroundColor: appearance.textColor, NSAttributedStringKey.font: appearance.textFont])
-		titleMutable.append(attributedText)
+//		let attributedText = NSAttributedString(string: " " + text, attributes: [NSAttributedStringKey.foregroundColor: appearance.textColor, NSAttributedStringKey.font: appearance.textFont])
+//		titleMutable.append(attributedText)
 		return titleMutable
 	}
 	
@@ -114,6 +99,6 @@ private func attributedTitleString(_ title: String, _ text: String, _ appearance
 		return NSAttributedString(string: title, attributes: [NSAttributedStringKey.foregroundColor: appearance.titleColor, NSAttributedStringKey.font: appearance.titleFont])
 	}
 	
-	return NSAttributedString(string: text, attributes: [NSAttributedStringKey.foregroundColor: appearance.textColor, NSAttributedStringKey.font: appearance.textFont])
+	return NSAttributedString(string: text, attributes: [NSAttributedStringKey.foregroundColor: appearance.textOnlyColor, NSAttributedStringKey.font: appearance.textOnlyFont])
 }
 
