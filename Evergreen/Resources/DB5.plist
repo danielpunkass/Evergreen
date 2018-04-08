@@ -67,7 +67,7 @@
 				<key>gridColorAlpha</key>
 				<real>0.1</real>
 				<key>drawsGrid</key>
-				<true/>
+				<false/>
 				<key>header</key>
 				<dict>
 					<key>backgroundColor</key>
@@ -80,7 +80,7 @@
 					<key>paddingRight</key>
 					<integer>20</integer>
 					<key>paddingTop</key>
-					<integer>16</integer>
+					<integer>14</integer>
 					<key>paddingBottom</key>
 					<integer>16</integer>
 					<key>feedNameColor</key>
@@ -92,9 +92,9 @@
 					<key>dateMarginLeft</key>
 					<integer>10</integer>
 					<key>dateMarginBottom</key>
-					<integer>2</integer>
+					<integer>1</integer>
 					<key>textColor</key>
-					<string>aaaaaa</string>
+					<string>999999</string>
 					<key>textOnlyColor</key>
 					<string>222222</string>
 					<key>titleColor</key>
@@ -118,9 +118,11 @@
 					<key>avatarAdjustmentTop</key>
 					<integer>4</integer>
 					<key>avatarCornerRadius</key>
-					<integer>7</integer>
+					<integer>4</integer>
 					<key>starDimension</key>
 					<integer>13</integer>
+					<key>titleMaximumLines</key>
+					<integer>2</integer>
 				</dict>
 			</dict>
 			<key>Detail</key>
