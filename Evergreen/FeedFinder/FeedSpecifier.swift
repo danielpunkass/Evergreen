@@ -8,9 +8,9 @@
 
 import Foundation
 
-public struct FeedSpecifier: Hashable {
+struct FeedSpecifier: Hashable {
 
-	public enum Source: Int {
+	enum Source: Int {
 
 		case UserEntered = 0, HTMLHead, HTMLLink
 
@@ -23,24 +23,10 @@ public struct FeedSpecifier: Hashable {
 	public let title: String?
 	public let urlString: String
 	public let source: Source
-	public let hashValue: Int
 	public var score: Int {
 		return calculatedScore()
 	}
 	
-	init(title: String?, urlString: String, source: Source) {
-
-		self.title = title
-		self.urlString = urlString
-		self.source = source
-		self.hashValue = urlString.hashValue
-	}
-
-	public static func ==(lhs: FeedSpecifier, rhs: FeedSpecifier) -> Bool {
-
-		return lhs.urlString == rhs.urlString && lhs.title == rhs.title && lhs.source == rhs.source
-	}
-
 	func feedSpecifierByMerging(_ feedSpecifier: FeedSpecifier) -> FeedSpecifier {
 
 		// Take the best data (non-nil title, better source) to create a new feed specifier;
