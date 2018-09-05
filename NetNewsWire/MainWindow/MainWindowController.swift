@@ -14,7 +14,7 @@ import RSCore
 class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 	@IBOutlet var toolbarDelegate: MainWindowToolbarDelegate?
-	private let sharingServicePickerDelegate = MainWindowSharingServicePickerDelegate()
+	private let sharingServicePickerDelegate = SharingServicePickerDelegate()
 
 	private let windowAutosaveName = NSWindow.FrameAutosaveName(rawValue: "MainWindow")
 	static var didPositionWindowOnFirstRun = false
@@ -170,7 +170,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		}
 
 		detailViewController.canScrollDown { (canScroll) in
-
+			NSCursor.setHiddenUntilMouseMoves(true)
 			canScroll ? detailViewController.scrollPageDown(sender) : self.nextUnread(sender)
 		}
 	}
@@ -202,6 +202,8 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		guard let timelineViewController = timelineViewController, let sidebarViewController = sidebarViewController else {
 			return
 		}
+
+		NSCursor.setHiddenUntilMouseMoves(true)
 		
 		if timelineViewController.canGoToNextUnread() {
 			goToNextUnreadInTimeline()
@@ -259,7 +261,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 	@IBAction func markOlderArticlesAsRead(_ sender: Any?) {
 
-		timelineViewController?.markOlderArticlesAsRead()
+		timelineViewController?.markOlderArticlesRead()
 	}
 
 	@IBAction func navigateToTimeline(_ sender: Any?) {

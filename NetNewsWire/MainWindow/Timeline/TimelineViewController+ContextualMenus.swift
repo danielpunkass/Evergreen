@@ -44,7 +44,15 @@ extension TimelineViewController {
 		guard let articles = articles(from: sender) else {
 			return
 		}
-		markArticles(articles, read: false)
+		markOlderArticlesRead(articles)
+	}
+
+	@objc func markOlderArticlesReadFromContextualMenu(_ sender: Any?) {
+
+		guard let articles = articles(from: sender) else {
+			return
+		}
+		markOlderArticlesRead(articles)
 	}
 
 	@objc func markArticlesStarredFromContextualMenu(_ sender: Any?) {
@@ -69,6 +77,13 @@ extension TimelineViewController {
 			return
 		}
 		Browser.open(urlString, inBackground: false)
+	}
+
+	@objc func performShareServiceFromContextualMenu(_ sender: Any?) {
+		guard let menuItem = sender as? NSMenuItem, let sharingCommandInfo = menuItem.representedObject as? SharingCommandInfo else {
+			return
+		}
+		sharingCommandInfo.perform()
 	}
 }
 
@@ -121,22 +136,51 @@ private extension TimelineViewController {
 		if articles.anyArticleIsRead() {
 			menu.addItem(markUnreadMenuItem(articles))
 		}
-		if menu.items.count > 0 {
-			menu.addItem(NSMenuItem.separator())
-		}
-
 		if articles.anyArticleIsUnstarred() {
 			menu.addItem(markStarredMenuItem(articles))
 		}
 		if articles.anyArticleIsStarred() {
 			menu.addItem(markUnstarredMenuItem(articles))
 		}
-		if menu.items.count > 0 && !menu.items.last!.isSeparatorItem {
-			menu.addItem(NSMenuItem.separator())
+		if articles.count > 0 {
+			menu.addItem(markOlderReadMenuItem(articles))
 		}
+		menu.addSeparatorIfNeeded()
 
 		if articles.count == 1, let link = articles.first!.preferredLink {
 			menu.addItem(openInBrowserMenuItem(link))
+		}
+
+		if let sharingMenu = shareMenu(for: articles) {
+			menu.addSeparatorIfNeeded()
+			let menuItem = NSMenuItem(title: sharingMenu.title, action: nil, keyEquivalent: "")
+			menuItem.submenu = sharingMenu
+			menu.addItem(menuItem)
+		}
+
+		return menu
+	}
+
+	func shareMenu(for articles: [Article]) -> NSMenu? {
+		if articles.isEmpty {
+			return nil
+		}
+
+		let items = articles.map { ArticlePasteboardWriter(article: $0) }
+		let standardServices = NSSharingService.sharingServices(forItems: items)
+		let customServices = SharingServicePickerDelegate.customSharingServices(for: items)
+		let services = standardServices + customServices
+		if services.isEmpty {
+			return nil
+		}
+
+		let menu = NSMenu(title: NSLocalizedString("Share", comment: "Share menu name"))
+		services.forEach { (service) in
+			let menuItem = NSMenuItem(title: service.menuItemTitle, action: #selector(performShareServiceFromContextualMenu(_:)), keyEquivalent: "")
+			menuItem.image = service.image
+			let sharingCommandInfo = SharingCommandInfo(service: service, items: items)
+			menuItem.representedObject = sharingCommandInfo
+			menu.addItem(menuItem)
 		}
 
 		return menu
@@ -162,6 +206,10 @@ private extension TimelineViewController {
 		return menuItem(NSLocalizedString("Mark as Unstarred", comment: "Command"), #selector(markArticlesUnstarredFromContextualMenu(_:)), articles)
 	}
 
+	func markOlderReadMenuItem(_ articles: [Article]) -> NSMenuItem {
+		return menuItem(NSLocalizedString("Mark Older as Read", comment: "Command"),  #selector(markOlderArticlesReadFromContextualMenu(_:)), articles)
+	}
+
 	func openInBrowserMenuItem(_ urlString: String) -> NSMenuItem {
 
 		return menuItem(NSLocalizedString("Open in Browser", comment: "Command"), #selector(openInBrowserFromContextualMenu(_:)), urlString)
@@ -173,5 +221,20 @@ private extension TimelineViewController {
 		item.representedObject = representedObject
 		item.target = self
 		return item
+	}
+}
+
+private final class SharingCommandInfo {
+
+	let service: NSSharingService
+	let items: [Any]
+
+	init(service: NSSharingService, items: [Any]) {
+		self.service = service
+		self.items = items
+	}
+
+	func perform() {
+		service.perform(withItems: items)
 	}
 }

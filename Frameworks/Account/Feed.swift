@@ -16,7 +16,22 @@ public final class Feed: DisplayNameProvider, UnreadCountProvider, Hashable {
 	public let accountID: String
 	public let url: String
 	public let feedID: String
-	public var homePageURL: String?
+
+	private var _homePageURL: String?
+	public var homePageURL: String? {
+		get {
+			return _homePageURL
+		}
+		set {
+			if let url = newValue {
+				_homePageURL = url.rs_normalizedURL()
+			}
+			else {
+				_homePageURL = nil
+			}
+		}
+	}
+
 	public var iconURL: String?
 	public var faviconURL: String?
 	public var name: String?
