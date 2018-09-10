@@ -56,7 +56,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	private let log = Log()
 	private let themeLoader = VSThemeLoader()
-	private let appNewsURLString = "https://ranchero.com/netnewswire/feed.json"
+	private let appNewsURLString = "https://nnw.ranchero.com/feed.json"
 	private let dockBadge = DockBadge()
 
 	override init() {
@@ -155,10 +155,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-
-		if (!flag) {
-			createAndShowMainWindow()
-		}
+		createAndShowMainWindow()
 		return false
 	}
 
