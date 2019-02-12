@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="14313.13.2" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
+<document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="14460.31" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
     <dependencies>
-        <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="14313.13.2"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="14460.31"/>
     </dependencies>
     <scenes>
         <!--Application-->
@@ -137,8 +136,7 @@
                                                 <action selector="paste:" target="Ady-hI-5gd" id="UvS-8e-Qdg"/>
                                             </connections>
                                         </menuItem>
-                                        <menuItem title="Paste and Match Style" keyEquivalent="V" id="WeT-3V-zwk">
-                                            <modifierMask key="keyEquivalentModifierMask" option="YES" command="YES"/>
+                                        <menuItem title="Paste and Match Style" keyEquivalent="v" id="WeT-3V-zwk">
                                             <connections>
                                                 <action selector="pasteAsPlainText:" target="Ady-hI-5gd" id="cEh-KX-wJQ"/>
                                             </connections>
@@ -449,12 +447,24 @@
                             </menuItem>
                             <menuItem title="Debug" id="UqE-mp-gtV" userLabel="Debug">
                                 <modifierMask key="keyEquivalentModifierMask"/>
-                                <menu key="submenu" title="Debug" id="s1g-zr-8Oi">
+                                <menu key="submenu" title="Debug" id="NOT-8E-ykF">
                                     <items>
-                                        <menuItem title="Drop Conditional Get Info" id="ek9-OK-xbc">
+                                        <menuItem title="Drop Conditional Get Info" id="btO-Tb-2qS">
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
-                                                <action selector="debugDropConditionalGetInfo:" target="Voe-Tx-rLC" id="MTC-K8-rkx"/>
+                                                <action selector="debugDropConditionalGetInfo:" target="Voe-Tx-rLC" id="X24-9X-rwG"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Test Crash Reporter Window" id="gVd-kQ-efj">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="debugTestCrashReporterWindow:" target="Ady-hI-5gd" id="v4U-8D-e5t"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Test Crash Log Sender" id="XJG-gO-OKi">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="debugTestCrashReportSending:" target="Ady-hI-5gd" id="olQ-kb-kkm"/>
                                             </connections>
                                         </menuItem>
                                     </items>
@@ -484,12 +494,6 @@
                                         <menuItem title="Info" keyEquivalent="i" id="24r-2i-fXR">
                                             <connections>
                                                 <action selector="toggleInspectorWindow:" target="Ady-hI-5gd" id="Bw5-4R-iWP"/>
-                                            </connections>
-                                        </menuItem>
-                                        <menuItem title="Feed Directory" id="iDZ-cW-hZ0">
-                                            <modifierMask key="keyEquivalentModifierMask"/>
-                                            <connections>
-                                                <action selector="showFeedList:" target="Ady-hI-5gd" id="bd2-m5-wPq"/>
                                             </connections>
                                         </menuItem>
                                         <menuItem isSeparatorItem="YES" id="eu3-7i-yIM"/>
@@ -563,19 +567,31 @@
                     </menu>
                     <connections>
                         <outlet property="delegate" destination="Voe-Tx-rLC" id="PrD-fu-P6m"/>
+                        <outlet property="dockMenu" destination="lhO-wh-r8m" id="45q-6I-k3M"/>
                     </connections>
                 </application>
                 <customObject id="Voe-Tx-rLC" customClass="AppDelegate" customModule="NetNewsWire" customModuleProvider="target">
                     <connections>
+                        <outlet property="checkForUpdatesMenuItem" destination="1nF-7O-aKU" id="JmT-jc-DJ8"/>
                         <outlet property="debugMenuItem" destination="UqE-mp-gtV" id="OnR-lr-Zlt"/>
                         <outlet property="sortByNewestArticleOnTopMenuItem" destination="TNS-TV-n0U" id="gix-Nd-9k4"/>
                         <outlet property="sortByOldestArticleOnTopMenuItem" destination="iii-kP-qoF" id="fTe-Tf-EWG"/>
                     </connections>
                 </customObject>
                 <customObject id="Ady-hI-5gd" userLabel="First Responder" customClass="NSResponder" sceneMemberID="firstResponder"/>
+                <menu id="lhO-wh-r8m">
+                    <items>
+                        <menuItem title="Refresh" id="Ppm-uh-K5n">
+                            <modifierMask key="keyEquivalentModifierMask"/>
+                            <connections>
+                                <action selector="refreshAll:" target="Voe-Tx-rLC" id="Mme-zS-KQN"/>
+                            </connections>
+                        </menuItem>
+                    </items>
+                </menu>
                 <customObject id="5Wg-Cw-OOw" customClass="SUUpdater"/>
             </objects>
-            <point key="canvasLocation" x="75" y="0.0"/>
+            <point key="canvasLocation" x="-54" y="-144"/>
         </scene>
     </scenes>
 </document>

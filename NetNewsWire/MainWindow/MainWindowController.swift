@@ -16,17 +16,15 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 	@IBOutlet var toolbarDelegate: MainWindowToolbarDelegate?
 	private var sharingServicePickerDelegate: NSSharingServicePickerDelegate?
 
-	private let windowAutosaveName = NSWindow.FrameAutosaveName(rawValue: "MainWindow")
+	private let windowAutosaveName = NSWindow.FrameAutosaveName("MainWindow")
 	static var didPositionWindowOnFirstRun = false
 
-	private var unreadCount: Int = 0 {
+	private var currentFeedOrFolder: AnyObject? = nil {
 		didSet {
-			if unreadCount != oldValue {
-				updateWindowTitle()
-			}
+			updateWindowTitle()
 		}
 	}
-
+	
 	private var shareToolbarItem: NSToolbarItem? {
 		return window?.toolbar?.existingItem(withIdentifier: .Share)
 	}
@@ -41,12 +39,12 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 		sharingServicePickerDelegate = SharingServicePickerDelegate(self.window)
 		
-		if !AppDefaults.shared.showTitleOnMainWindow {
+		if !AppDefaults.showTitleOnMainWindow {
 			window?.titleVisibility = .hidden
 		}
 
 		window?.setFrameUsingName(windowAutosaveName, force: true)
-		if AppDefaults.shared.isFirstRun && !MainWindowController.didPositionWindowOnFirstRun {
+		if AppDefaults.isFirstRun && !MainWindowController.didPositionWindowOnFirstRun {
 
 			if let window = window {
 				let point = NSPoint(x: 128, y: 64)
@@ -66,7 +64,9 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		NotificationCenter.default.addObserver(self, selector: #selector(refreshProgressDidChange(_:)), name: .AccountRefreshDidFinish, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(refreshProgressDidChange(_:)), name: .AccountRefreshProgressDidChange, object: nil)
 
+		NotificationCenter.default.addObserver(self, selector: #selector(sidebarSelectionDidChange(_:)), name: .SidebarSelectionDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange(_:)), name: .DisplayNameDidChange, object: nil)
 
 		DispatchQueue.main.async {
 			self.updateWindowTitle()
@@ -99,13 +99,60 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		CoalescingQueue.standard.add(self, #selector(makeToolbarValidate))
 	}
 
-	@objc func unreadCountDidChange(_ note: Notification) {
-
-		if note.object is AccountManager {
-			unreadCount = AccountManager.shared.unreadCount
+	@objc func sidebarSelectionDidChange(_ note: Notification) {
+		
+		let selectedObjects = selectedObjectsInSidebar()
+		
+		// We can only meaninfully display one feed or folder at a time
+		guard selectedObjects?.count == 1 else {
+			currentFeedOrFolder = nil
+			return
 		}
+		
+		guard selectedObjects?[0] is DisplayNameProvider else {
+			currentFeedOrFolder = nil
+			return
+		}
+		
+		currentFeedOrFolder = selectedObjects?[0]
+		
+	}
+	
+	@objc func unreadCountDidChange(_ note: Notification) {
+		updateWindowTitleIfNecessary(note.object)
+	}
+	
+	@objc func displayNameDidChange(_ note: Notification) {
+		updateWindowTitleIfNecessary(note.object)
 	}
 
+	private func updateWindowTitleIfNecessary(_ noteObject: Any?) {
+		
+		if let folder = currentFeedOrFolder as? Folder, let noteObject = noteObject as? Folder {
+			if folder == noteObject {
+				updateWindowTitle()
+				return
+			}
+		}
+		
+		if let feed = currentFeedOrFolder as? Feed, let noteObject = noteObject as? Feed {
+			if feed == noteObject {
+				updateWindowTitle()
+				return
+			}
+		}
+		
+		// If we don't recognize the changed object, we will test it for identity instead
+		// of equality.  This works well for us if the window title is displaying a
+		// PsuedoFeed object.
+		if let currentObject = currentFeedOrFolder, let noteObject = noteObject {
+			if currentObject === noteObject as AnyObject {
+				updateWindowTitle()
+			}
+		}
+		
+	}
+	
 	// MARK: - Toolbar
 	
 	@objc func makeToolbarValidate() {
@@ -129,8 +176,8 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 			return canMarkAllAsRead()
 		}
 
-		if item.action == #selector(markRead(_:)) {
-			return canMarkRead()
+		if item.action == #selector(toggleRead(_:)) {
+			return validateToggleRead(item)
 		}
 
 		if item.action == #selector(toggleStarred(_:)) {
@@ -184,7 +231,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 	@IBAction func showAddFeedWindow(_ sender: Any?) {
 
-		appDelegate.showAddFeedSheetOnWindow(window!, urlString: nil, name: nil)
+		appDelegate.showAddFeedSheetOnWindow(window!, urlString: nil, name: nil, folder: nil)
 	}
 
 	@IBAction func openArticleInBrowser(_ sender: Any?) {
@@ -223,9 +270,9 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		timelineViewController?.markAllAsRead()
 	}
 
-	@IBAction func markRead(_ sender: Any?) {
+	@IBAction func toggleRead(_ sender: Any?) {
 
-		timelineViewController?.markSelectedArticlesAsRead(sender)
+		timelineViewController?.toggleReadStatusForSelectedArticles()
 	}
 
 	@IBAction func markUnread(_ sender: Any?) {
@@ -316,7 +363,8 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 			return
 		}
 
-		let items = selectedArticles.map { ArticlePasteboardWriter(article: $0) }
+		let sortedArticles = selectedArticles.sortedByDate(.orderedAscending)
+		let items = sortedArticles.map { ArticlePasteboardWriter(article: $0) }
 		let sharingServicePicker = NSSharingServicePicker(items: items)
 		sharingServicePicker.delegate = sharingServicePickerDelegate
 		sharingServicePicker.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
@@ -353,7 +401,7 @@ private extension MainWindowController {
 		guard let viewController = contentViewController else {
 			return nil
 		}
-		return viewController.childViewControllers.first as? NSSplitViewController
+		return viewController.children.first as? NSSplitViewController
 	}
 
 	var sidebarViewController: SidebarViewController? {
@@ -407,9 +455,35 @@ private extension MainWindowController {
 		return timelineViewController?.canMarkAllAsRead() ?? false
 	}
 
-	func canMarkRead() -> Bool {
+	func validateToggleRead(_ item: NSValidatedUserInterfaceItem) -> Bool {
 
-		return timelineViewController?.canMarkSelectedArticlesAsRead() ?? false
+		let validationStatus = timelineViewController?.markReadCommandStatus() ?? .canDoNothing
+		let markingRead: Bool
+		let result: Bool
+		
+		switch validationStatus {
+		case .canMark:
+			markingRead = true
+			result = true
+		case .canUnmark:
+			markingRead = false
+			result = true
+		case .canDoNothing:
+			markingRead = true
+			result = false
+		}
+		
+		let commandName = markingRead ? NSLocalizedString("Mark as Read", comment: "Command") : NSLocalizedString("Mark as Unread", comment: "Command")
+		
+		if let toolbarItem = item as? NSToolbarItem {
+			toolbarItem.toolTip = commandName
+		}
+		
+		if let menuItem = item as? NSMenuItem {
+			menuItem.title = commandName
+		}
+		
+		return result
 	}
 
 	func canMarkOlderArticlesAsRead() -> Bool {
@@ -447,9 +521,9 @@ private extension MainWindowController {
 
 		if let toolbarItem = item as? NSToolbarItem {
 			toolbarItem.toolTip = commandName
-			if let button = toolbarItem.view as? NSButton {
-				button.image = NSImage(named: starring ? .star : .unstar)
-			}
+//			if let button = toolbarItem.view as? NSButton {
+//				button.image = NSImage(named: starring ? .star : .unstar)
+//			}
 		}
 
 		if let menuItem = item as? NSMenuItem {
@@ -483,12 +557,30 @@ private extension MainWindowController {
 
 	func updateWindowTitle() {
 
-		if unreadCount < 1 {
+		var displayName: String? = nil
+		var unreadCount: Int? = nil
+		
+		if let displayNameProvider = currentFeedOrFolder as? DisplayNameProvider {
+			displayName = displayNameProvider.nameForDisplay
+		}
+		
+		if let unreadCountProvider = currentFeedOrFolder as? UnreadCountProvider {
+			unreadCount = unreadCountProvider.unreadCount
+		}
+		
+		if displayName != nil {
+			if unreadCount ?? 0 > 0 {
+				window?.title = "\(displayName!) (\(unreadCount!))"
+			}
+			else {
+				window?.title = "\(displayName!)"
+			}
+		}
+		else {
 			window?.title = appDelegate.appName!
+			return
 		}
-		else if unreadCount > 0 {
-			window?.title = "\(appDelegate.appName!) (\(unreadCount))"
-		}
+		
 	}
 
 	func saveSplitViewState() {
@@ -500,14 +592,16 @@ private extension MainWindowController {
 		}
 
 		let widths = splitView.arrangedSubviews.map{ Int(floor($0.frame.width)) }
-		AppDefaults.shared.mainWindowWidths = widths
+		if AppDefaults.mainWindowWidths != widths {
+			AppDefaults.mainWindowWidths = widths
+		}
 	}
 
 	func restoreSplitViewState() {
 
 		// TODO: Update this for multiple windows.
 
-		guard let splitView = splitViewController?.splitView, let widths = AppDefaults.shared.mainWindowWidths, widths.count == 3, let window = window else {
+		guard let splitView = splitViewController?.splitView, let widths = AppDefaults.mainWindowWidths, widths.count == 3, let window = window else {
 			return
 		}
 

@@ -14,9 +14,9 @@ import Account
 class TimelineViewController: NSViewController, UndoableCommandRunner {
 
 	@IBOutlet var tableView: TimelineTableView!
-	@IBOutlet var contextualMenuDelegate: TimelineContextualMenuDelegate?
-	@IBOutlet var dataSource: TimelineDataSource!
 
+	var sharingServiceDelegate: NSSharingServiceDelegate?
+	
 	var selectedArticles: [Article] {
 		return Array(articles.articlesForIndexes(tableView.selectedRowIndexes))
 	}
@@ -27,15 +27,25 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 
 	var articles = ArticleArray() {
 		didSet {
-			if articles != oldValue {
-				dataSource.articles = articles
-				updateShowAvatars()
-				tableView.reloadData()
+			if articles == oldValue {
+				return
 			}
+			if articles.representSameArticlesInSameOrder(as: oldValue) {
+				// When the array is the same — same articles, same order —
+				// but some data in some of the articles may have changed.
+				// Just reload visible cells in this case: don’t call reloadData.
+				articleRowMap = [String: Int]()
+				reloadVisibleCells()
+				return
+			}
+			updateShowAvatars()
+			articleRowMap = [String: Int]()
+			tableView.reloadData()
 		}
 	}
 
 	var undoableCommands = [UndoableCommand]()
+	private var articleRowMap = [String: Int]() // articleID: rowIndex
 	private var cellAppearance: TimelineCellAppearance!
 	private var cellAppearanceWithAvatar: TimelineCellAppearance!
 	private var showFeedNames = false {
@@ -58,14 +68,14 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 	private var didRegisterForNotifications = false
 	static let fetchAndMergeArticlesQueue = CoalescingQueue(name: "Fetch and Merge Articles", interval: 0.5)
 
-	private var sortDirection = AppDefaults.shared.timelineSortDirection {
+	private var sortDirection = AppDefaults.timelineSortDirection {
 		didSet {
 			if sortDirection != oldValue {
 				sortDirectionDidChange()
 			}
 		}
 	}
-	private var fontSize: FontSize = AppDefaults.shared.timelineFontSize {
+	private var fontSize: FontSize = AppDefaults.timelineFontSize {
 		didSet {
 			if fontSize != oldValue {
 				fontSizeDidChange()
@@ -127,6 +137,10 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 
 				didRegisterForNotifications = true
 		}
+	}
+	
+	override func viewDidAppear() {
+		sharingServiceDelegate = SharingServiceDelegate(self.view.window)
 	}
 
 	// MARK: Appearance Change
@@ -208,6 +222,29 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 		NSPasteboard.general.copyObjects(selectedArticles)
 	}
 
+	func toggleReadStatusForSelectedArticles() {
+		
+		// If any one of the selected articles is unread, then mark them as read.
+		// If all articles are read, then mark them as unread them.
+		
+		let commandStatus = markReadCommandStatus()
+		let markingRead: Bool
+		switch commandStatus {
+		case .canMark:
+			markingRead = true
+		case .canUnmark:
+			markingRead = false
+		case .canDoNothing:
+			return
+		}
+		
+		guard let undoManager = undoManager, let markStarredCommand = MarkStatusCommand(initialArticles: selectedArticles, markingRead: markingRead, undoManager: undoManager) else {
+			return
+		}
+		
+		runCommand(markStarredCommand)
+	}
+	
 	func toggleStarredStatusForSelectedArticles() {
 
 		// If any one of the selected articles is not starred, then star them.
@@ -336,7 +373,7 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 		guard let articles = note.userInfo?[Account.UserInfoKey.articles] as? Set<Article> else {
 			return
 		}
-		reloadCellsForArticleIDs(articles.articleIDs())
+		reloadVisibleCells(for: articles)
 	}
 
 	@objc func feedIconDidBecomeAvailable(_ note: Notification) {
@@ -344,10 +381,15 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 		guard let feed = note.userInfo?[UserInfoKey.feed] as? Feed else {
 			return
 		}
-		let articlesToReload = articles.filter { (article) -> Bool in
+		let indexesToReload = tableView.indexesOfAvailableRowsPassingTest { (row) -> Bool in
+			guard let article = articles.articleAtRow(row) else {
+				return false
+			}
 			return feed == article.feed
 		}
-		reloadCellsForArticles(articlesToReload)
+		if let indexesToReload = indexesToReload {
+			reloadCells(for: indexesToReload)
+		}
 	}
 
 	@objc func avatarDidBecomeAvailable(_ note: Notification) {
@@ -385,7 +427,7 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 			return
 		}
 
-		let shouldFetchAndMergeArticles = representedObjectsContainsAnyFeed(feeds)
+		let shouldFetchAndMergeArticles = representedObjectsContainsAnyFeed(feeds) || representedObjectsContainsAnyPseudoFeed()
 		if shouldFetchAndMergeArticles {
 			queueFetchAndMergeArticles()
 		}
@@ -393,8 +435,8 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 
 	@objc func userDefaultsDidChange(_ note: Notification) {
 
-		self.fontSize = AppDefaults.shared.timelineFontSize
-		self.sortDirection = AppDefaults.shared.timelineSortDirection
+		self.fontSize = AppDefaults.timelineFontSize
+		self.sortDirection = AppDefaults.timelineSortDirection
 	}
 
 	// MARK: - Reloading Data
@@ -406,23 +448,40 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 		}
 		return nil
 	}
-	
-	private func reloadCellsForArticles(_ articles: [Article]) {
-		
-		reloadCellsForArticleIDs(Set(articles.articleIDs()))
+
+	private func reloadVisibleCells() {
+		guard let indexes = tableView.indexesOfAvailableRows() else {
+			return
+		}
+		reloadVisibleCells(for: indexes)
 	}
 	
-	private func reloadCellsForArticleIDs(_ articleIDs: Set<String>) {
+	private func reloadVisibleCells(for articles: [Article]) {
+		reloadVisibleCells(for: Set(articles.articleIDs()))
+	}
 
+	private func reloadVisibleCells(for articles: Set<Article>) {
+		reloadVisibleCells(for: articles.articleIDs())
+	}
+	
+	private func reloadVisibleCells(for articleIDs: Set<String>) {
 		if articleIDs.isEmpty {
 			return
 		}
-		let indexes = articles.indexesForArticleIDs(articleIDs)
-		reloadCells(for: indexes)
+		let indexes = indexesForArticleIDs(articleIDs)
+		reloadVisibleCells(for: indexes)
+	}
+
+	private func reloadVisibleCells(for indexes: IndexSet) {
+		let indexesToReload = tableView.indexesOfAvailableRowsPassingTest { (row) -> Bool in
+			return indexes.contains(row)
+		}
+		if let indexesToReload = indexesToReload {
+			reloadCells(for: indexesToReload)
+		}
 	}
 
 	private func reloadCells(for indexes: IndexSet) {
-
 		if indexes.isEmpty {
 			return
 		}
@@ -473,7 +532,20 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 	}
 }
 
-// MARK: NSUserInterfaceValidations
+// MARK: - NSMenuDelegate
+
+extension TimelineViewController: NSMenuDelegate {
+
+	public func menuNeedsUpdate(_ menu: NSMenu) {
+		menu.removeAllItems()
+		guard let contextualMenu = contextualMenuForClickedRows() else {
+			return
+		}
+		menu.takeItems(from: contextualMenu)
+	}
+}
+
+// MARK: - NSUserInterfaceValidations
 
 extension TimelineViewController: NSUserInterfaceValidations {
 
@@ -486,6 +558,26 @@ extension TimelineViewController: NSUserInterfaceValidations {
 	}
 }
 
+// MARK: - NSTableViewDataSource
+
+extension TimelineViewController: NSTableViewDataSource {
+
+	func numberOfRows(in tableView: NSTableView) -> Int {
+		return articles.count
+	}
+
+	func tableView(_ tableView: NSTableView, objectValueFor tableColumn: NSTableColumn?, row: Int) -> Any? {
+		return articles.articleAtRow(row) ?? nil
+	}
+
+	func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+		guard let article = articles.articleAtRow(row) else {
+			return nil
+		}
+		return ArticlePasteboardWriter(article: article)
+	}
+}
+
 // MARK: - NSTableViewDelegate
 
 extension TimelineViewController: NSTableViewDelegate {
@@ -493,7 +585,6 @@ extension TimelineViewController: NSTableViewDelegate {
 	func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
 
 		let rowView: TimelineTableRowView = tableView.makeView(withIdentifier: NSUserInterfaceItemIdentifier(rawValue: "timelineRow"), owner: self) as! TimelineTableRowView
-		rowView.cellAppearance = showAvatars ? cellAppearanceWithAvatar: cellAppearance
 		return rowView
 	}
 
@@ -513,8 +604,6 @@ extension TimelineViewController: NSTableViewDelegate {
 	}
 
 	func tableViewSelectionDidChange(_ notification: Notification) {
-
-		tableView.redrawGrid()
 
 		if selectedArticles.isEmpty {
 			postTimelineSelectionDidChangeNotification(nil)
@@ -672,7 +761,48 @@ private extension TimelineViewController {
 		block()
 		restoreSelection(savedSelection)
 	}
-	
+
+	func row(for articleID: String) -> Int? {
+		updateArticleRowMapIfNeeded()
+		return articleRowMap[articleID]
+	}
+
+	func row(for article: Article) -> Int? {
+		return row(for: article.articleID)
+	}
+
+	func updateArticleRowMap() {
+		var rowMap = [String: Int]()
+		var index = 0
+		articles.forEach { (article) in
+			rowMap[article.articleID] = index
+			index += 1
+		}
+		articleRowMap = rowMap
+	}
+
+	func updateArticleRowMapIfNeeded() {
+		if articleRowMap.isEmpty {
+			updateArticleRowMap()
+		}
+	}
+
+	func indexesForArticleIDs(_ articleIDs: Set<String>) -> IndexSet {
+
+		var indexes = IndexSet()
+
+		articleIDs.forEach { (articleID) in
+			guard let oneIndex = row(for: articleID) else {
+				return
+			}
+			if oneIndex != NSNotFound {
+				indexes.insert(oneIndex)
+			}
+		}
+
+		return indexes
+	}
+
 	// MARK: Fetching Articles
 
 	func fetchArticles() {
@@ -710,7 +840,7 @@ private extension TimelineViewController {
 
 	func selectArticles(_ articleIDs: [String]) {
 
-		let indexesToSelect = articles.indexesForArticleIDs(Set(articleIDs))
+		let indexesToSelect = indexesForArticleIDs(Set(articleIDs))
 		if indexesToSelect.isEmpty {
 			tableView.deselectAll(self)
 			return
@@ -743,6 +873,18 @@ private extension TimelineViewController {
 			ix += 1
 		}
 		return true
+	}
+
+	func representedObjectsContainsAnyPseudoFeed() -> Bool {
+		guard let representedObjects = representedObjects else {
+			return false
+		}
+		for representedObject in representedObjects {
+			if representedObject is PseudoFeed {
+				return true
+			}
+		}
+		return false
 	}
 
 	func representedObjectsContainsAnyFeed(_ feeds: Set<Feed>) -> Bool {

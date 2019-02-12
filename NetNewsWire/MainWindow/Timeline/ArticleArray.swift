@@ -50,20 +50,6 @@ extension Array where Element == Article {
 		})
 	}
 
-	func indexesForArticleIDs(_ articleIDs: Set<String>) -> IndexSet {
-
-		var indexes = IndexSet()
-
-		articleIDs.forEach { (articleID) in
-			let oneIndex = rowForArticleID(articleID)
-			if oneIndex != NSNotFound {
-				indexes.insert(oneIndex)
-			}
-		}
-
-		return indexes
-	}
-
 	func sortedByDate(_ sortDirection: ComparisonResult) -> ArticleArray {
 
 		let articles = sorted { (article1, article2) -> Bool in
@@ -116,21 +102,20 @@ extension Array where Element == Article {
 		let articles = self.filter{ !$0.status.read }
 		return articles.isEmpty ? nil : articles
 	}
-}
 
-private extension Array where Element == Article {
-
-	func rowForArticleID(_ articleID: String) -> Int {
-
-		if let index = index(where: { $0.articleID == articleID }) {
-			return index
+	func representSameArticlesInSameOrder(as otherArticles: [Article]) -> Bool {
+		if self.count != otherArticles.count {
+			return false
 		}
-
-		return NSNotFound
-	}
-
-	func rowForArticle(_ article: Article) -> Int {
-
-		return rowForArticleID(article.articleID)
+		var i = 0
+		for article in self {
+			let otherArticle = otherArticles[i]
+			if article.account != otherArticle.account || article.articleID != otherArticle.articleID {
+				return false
+			}
+			i += 1
+		}
+		return true
 	}
 }
+

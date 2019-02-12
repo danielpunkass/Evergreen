@@ -15,44 +15,29 @@ import RSWeb
 final class DetailViewController: NSViewController, WKUIDelegate {
 
 	@IBOutlet var containerView: DetailContainerView!
-	@IBOutlet var noSelectionView: NoSelectionView!
-
+	@IBOutlet var statusBarView: DetailStatusBarView!
+	
 	var webview: DetailWebView!
 
 	var articles: [Article]? {
 		didSet {
-			if let articles = articles, articles.count == 1 {
-				article = articles.first!
+			if articles == oldValue {
 				return
 			}
-			article = nil
-			if let _ = articles {
-				noSelectionView.showMultipleSelection()
-			}
-			else {
-				noSelectionView.showNoSelection()
-			}
+			statusBarView.mouseoverLink = nil
+			reloadHTML()
 		}
 	}
-	
+
 	private var article: Article? {
-		didSet {
-			reloadHTML()
-			showOrHideWebView()
-		}
+		return articles?.first
 	}
 
 	private var webviewIsHidden: Bool {
 		return containerView.contentView !== webview
 	}
 
-	private struct MessageName {
-		static let mouseDidEnter = "mouseDidEnter"
-		static let mouseDidExit = "mouseDidExit"
-	}
-
 	override func viewDidLoad() {
-		
 		NotificationCenter.default.addObserver(self, selector: #selector(timelineSelectionDidChange(_:)), name: .TimelineSelectionDidChange, object: nil)
 		
 		let preferences = WKPreferences()
@@ -78,15 +63,19 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 			webview.customUserAgent = userAgent
 		}
 
+		reloadHTML()
+		containerView.contentView = webview
 		containerView.viewController = self
-
-		showOrHideWebView()
 	}
 
-	// MARK: - Scrolling
+	private struct MessageName {
+		static let mouseDidEnter = "mouseDidEnter"
+		static let mouseDidExit = "mouseDidExit"
+	}
+
+	// MARK: Scrolling
 
 	func canScrollDown(_ callback: @escaping (Bool) -> Void) {
-
 		if webviewIsHidden {
 			callback(false)
 			return
@@ -105,7 +94,7 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 		webview.scrollPageDown(sender)
 	}
 
-	// MARK: - Notifications
+	// MARK: Notifications
 
 	@objc func timelineSelectionDidChange(_ notification: Notification) {
 
@@ -131,7 +120,7 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 	}
 }
 
-// MARK: - WKNavigationDelegate
+// MARK: WKNavigationDelegate
 
 extension DetailViewController: WKNavigationDelegate {
 
@@ -151,7 +140,7 @@ extension DetailViewController: WKNavigationDelegate {
 	}
 }
 
-// MARK: - WKScriptMessageHandler
+// MARK: WKScriptMessageHandler
 
 extension DetailViewController: WKScriptMessageHandler {
 
@@ -166,65 +155,42 @@ extension DetailViewController: WKScriptMessageHandler {
 	}
 
 	private func mouseDidEnter(_ link: String) {
-
-		if link.isEmpty {
+		guard !link.isEmpty else {
 			return
 		}
-
-		var userInfo = UserInfoDictionary()
-		userInfo[UserInfoKey.view] = view
-		userInfo[UserInfoKey.url] = link
-
-		NotificationCenter.default.post(name: .MouseDidEnterLink, object: self, userInfo: userInfo)
+		statusBarView.mouseoverLink = link
 	}
 
 	private func mouseDidExit(_ link: String) {
-
-		var userInfo = UserInfoDictionary()
-		userInfo[UserInfoKey.view] = view
-		userInfo[UserInfoKey.url] = link
-
-		NotificationCenter.default.post(name: .MouseDidExitLink, object: self, userInfo: userInfo)
+		statusBarView.mouseoverLink = nil
 	}
 }
 
-// MARK: - Private
+// MARK: Private
 
 private extension DetailViewController {
 
 	func reloadHTML() {
+		let html: String
+		let style = ArticleStylesManager.shared.currentStyle
+		let appearance = self.view.effectiveAppearance
+		var baseURL: URL? = nil
 
-		if let article = article {
-			let articleRenderer = ArticleRenderer(article: article,
-												  style: ArticleStylesManager.shared.currentStyle,
-												  appearance: self.view.effectiveAppearance)
-			webview.loadHTMLString(articleRenderer.html, baseURL: articleRenderer.baseURL)
+		if let articles = articles, articles.count > 1 {
+			html = ArticleRenderer.multipleSelectionHTML(style: style, appearance: appearance)
+		}
+		else if let article = article {
+			html = ArticleRenderer.articleHTML(article: article, style: style, appearance: appearance)
+			baseURL = ArticleRenderer.baseURL(for: article)
 		}
 		else {
-			webview.loadHTMLString("", baseURL: nil)
+			html = ArticleRenderer.noSelectionHTML(style: style, appearance: appearance)
 		}
-	}
 
-	func showOrHideWebView() {
-
-		if let _ = article {
-			switchToView(webview)
-		}
-		else {
-			switchToView(noSelectionView)
-		}
-	}
-
-	func switchToView(_ view: NSView) {
-
-		if containerView.contentView == view {
-			return
-		}
-		containerView.contentView = view
+		webview.loadHTMLString(html, baseURL: baseURL)
 	}
 
 	func fetchScrollInfo(_ callback: @escaping (ScrollInfo?) -> Void) {
-
 		let javascriptString = "var x = {contentHeight: document.body.scrollHeight, offsetY: document.body.scrollTop}; x"
 		webview.evaluateJavaScript(javascriptString) { (info, error) in
 
@@ -243,7 +209,7 @@ private extension DetailViewController {
 	}
 }
 
-// MARK: -
+// MARK: - DetailContainerView
 
 final class DetailContainerView: NSView {
 
@@ -251,17 +217,12 @@ final class DetailContainerView: NSView {
 	
 	weak var viewController: DetailViewController? = nil
 
-//	private var didConfigureLayer = false
-//
-//	override var wantsUpdateLayer: Bool {
-//		return true
-//	}
-
 	var contentView: NSView? {
 		didSet {
-			if let oldContentView = oldValue {
-				oldContentView.removeFromSuperviewWithoutNeedingDisplay()
+			if contentView == oldValue {
+				return
 			}
+			oldValue?.removeFromSuperviewWithoutNeedingDisplay()
 			if let contentView = contentView {
 				contentView.translatesAutoresizingMaskIntoConstraints = false
 				addSubview(contentView, positioned: .below, relativeTo: detailStatusBarView)
@@ -271,12 +232,10 @@ final class DetailContainerView: NSView {
 	}
 
 	override func viewWillStartLiveResize() {
-		
 		viewController?.viewWillStartLiveResize()
 	}
 	
 	override func viewDidEndLiveResize() {
-		
 		viewController?.viewDidEndLiveResize()
 	}
 
@@ -284,40 +243,9 @@ final class DetailContainerView: NSView {
 		NSColor.textBackgroundColor.setFill()
 		dirtyRect.fill()
 	}
-//	override func updateLayer() {
-//
-//		guard !didConfigureLayer else {
-//			return
-//		}
-//		if let layer = layer {
-//			let color = appDelegate.currentTheme.color(forKey: "MainWindow.Detail.backgroundColor")
-//			layer.backgroundColor = color.cgColor
-//			didConfigureLayer = true
-//		}
-//	}
 }
 
-// MARK: -
-
-final class NoSelectionView: NSView {
-
-	@IBOutlet var noSelectionLabel: NSTextField!
-	@IBOutlet var multipleSelectionLabel: NSTextField!
-
-	func showMultipleSelection() {
-
-		noSelectionLabel.isHidden = true
-		multipleSelectionLabel.isHidden = false
-	}
-
-	func showNoSelection() {
-
-		noSelectionLabel.isHidden = false
-		multipleSelectionLabel.isHidden = true
-	}
-}
-
-// MARK: -
+// MARK: - ScrollInfo
 
 private struct ScrollInfo {
 
@@ -328,7 +256,6 @@ private struct ScrollInfo {
 	let canScrollUp: Bool
 
 	init(contentHeight: CGFloat, viewHeight: CGFloat, offsetY: CGFloat) {
-
 		self.contentHeight = contentHeight
 		self.viewHeight = viewHeight
 		self.offsetY = offsetY

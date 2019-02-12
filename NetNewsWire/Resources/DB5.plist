@@ -76,13 +76,13 @@
 				<key>cell</key>
 				<dict>
 					<key>paddingLeft</key>
-					<integer>20</integer>
+					<integer>18</integer>
 					<key>paddingRight</key>
-					<integer>20</integer>
+					<integer>18</integer>
 					<key>paddingTop</key>
-					<integer>14</integer>
+					<integer>8</integer>
 					<key>paddingBottom</key>
-					<integer>16</integer>
+					<integer>10</integer>
 					<key>feedNameColor</key>
 					<string>aaaaaa</string>
 					<key>faviconFeedNameSpacing</key>
@@ -108,11 +108,9 @@
 					<key>unreadCircleMarginRight</key>
 					<integer>8</integer>
 					<key>avatarHeight</key>
-					<integer>64</integer>
+					<integer>48</integer>
 					<key>avatarWidth</key>
-					<integer>64</integer>
-					<key>avatarMarginRight</key>
-					<integer>20</integer>
+					<integer>48</integer>
 					<key>avatarMarginLeft</key>
 					<integer>8</integer>
 					<key>avatarAdjustmentTop</key>
@@ -127,11 +125,6 @@
 			</dict>
 			<key>Detail</key>
 			<dict>
-				<key>noSelectionView</key>
-				<dict>
-					<key>backgroundColor</key>
-					<string>FFFFFF</string>
-				</dict>
 				<key>statusBar</key>
 				<dict>
 					<key>backgroundColor</key>

@@ -76,8 +76,10 @@ extension FeedListViewController {
 	}
 
 	@IBAction func addToFeeds(_ sender: Any?) {
-
+		let selectedFeeds = selectedObjects.map { $0 as! FeedListFeed }
+		appDelegate.showAddFeedFromListOnMainWindow(selectedFeeds)
 	}
+	
 }
 
 // MARK: - NSOutlineViewDataSource
@@ -153,7 +155,7 @@ private extension FeedListViewController {
 	func imageFor(_ node: Node) -> NSImage? {
 
 		if let _ = node.representedObject as? FeedListFolder {
-			return NSImage(named: NSImage.Name.folder)
+			return NSImage(named: NSImage.folderName)
 		}
 		else if let feed = node.representedObject as? FeedListFeed {
 			if let image = appDelegate.faviconDownloader.favicon(withHomePageURL: feed.homePageURL) {

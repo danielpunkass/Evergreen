@@ -1,5 +1,5 @@
 //
-//  FeedbinSubscription.swift
+//  FeedbinFeed.swift
 //  Account
 //
 //  Created by Brent Simmons on 12/10/17.
@@ -10,21 +10,23 @@ import Foundation
 import RSCore
 import RSParser
 
-struct FeedbinSubscription {
+struct FeedbinFeed {
 
-	let subscriptionID: String
-	let feedID: String
-	let creationDate: Date?
-	let name: String?
-	let url: String
-	let homePageURL: String?
-
+	// https://github.com/feedbin/feedbin-api/blob/master/content/feeds.md
+	//
 	//	"id": 525,
 	//	"created_at": "2013-03-12T11:30:25.209432Z",
 	//	"feed_id": 47,
 	//	"title": "Daring Fireball",
 	//	"feed_url": "http://daringfireball.net/index.xml",
 	//	"site_url": "http://daringfireball.net/"
+
+	let subscriptionID: Int
+	let feedID: Int
+	let creationDate: Date?
+	let name: String?
+	let url: String
+	let homePageURL: String?
 
 	struct Key {
 		static let subscriptionID = "id"
@@ -37,18 +39,18 @@ struct FeedbinSubscription {
 
 	init?(dictionary: JSONDictionary) {
 
-		guard let subscriptionIDInt = dictionary[Key.subscriptionID] as? Int else {
+		guard let subscriptionID = dictionary[Key.subscriptionID] as? Int else {
 			return nil
 		}
-		guard let feedIDInt = dictionary[Key.feedID] as? Int else {
+		guard let feedID = dictionary[Key.feedID] as? Int else {
 			return nil
 		}
 		guard let url = dictionary[Key.url] as? String else {
 			return nil
 		}
 
-		self.subscriptionID = "\(subscriptionIDInt)"
-		self.feedID = "\(feedIDInt)"
+		self.subscriptionID = subscriptionID
+		self.feedID = feedID
 		self.url = url
 
 		if let creationDateString = dictionary[Key.creationDate] as? String {
@@ -62,9 +64,9 @@ struct FeedbinSubscription {
 		self.homePageURL = dictionary[Key.homePageURL] as? String
 	}
 
-	static func subscriptions(with array: JSONArray) -> [FeedbinSubscription]? {
+	static func feeds(with array: JSONArray) -> [FeedbinFeed]? {
 
-		let subs = array.compactMap { FeedbinSubscription(dictionary: $0) }
+		let subs = array.compactMap { FeedbinFeed(dictionary: $0) }
 		return subs.isEmpty ? nil : subs
 	}
 }

@@ -14,8 +14,7 @@ final class DetailStatusBarView: NSView {
 
 	@IBOutlet var urlLabel: NSTextField!
 
-	private var didConfigureLayer = false
-	private var mouseoverLink: String? {
+	var mouseoverLink: String? {
 		didSet {
 			updateLinkForDisplay()
 		}
@@ -35,6 +34,8 @@ final class DetailStatusBarView: NSView {
 		}
 	}
 
+	private var didConfigureLayerRadius = false
+
 	override var isOpaque: Bool {
 		return false
 	}
@@ -48,64 +49,24 @@ final class DetailStatusBarView: NSView {
 	}
 
 	override func updateLayer() {
-
-		guard !didConfigureLayer else {
+		guard let layer = layer else {
 			return
 		}
-		if let layer = layer {
-			let color = appDelegate.currentTheme.color(forKey: "MainWindow.Detail.statusBar.backgroundColor")
-			layer.backgroundColor = color.cgColor
+		if !didConfigureLayerRadius {
 			layer.cornerRadius = 4.0
-			didConfigureLayer = true
+			didConfigureLayerRadius = true
 		}
-	}
 
-	override func awakeFromNib() {
-
-		NotificationCenter.default.addObserver(self, selector: #selector(timelineSelectionDidChange(_:)), name: .TimelineSelectionDidChange, object: nil)
-
-		NotificationCenter.default.addObserver(self, selector: #selector(mouseDidEnterLink(_:)), name: .MouseDidEnterLink, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(mouseDidExitLink(_:)), name: .MouseDidExitLink, object: nil)
-
-		alphaValue = 0.9
-	}
-
-	// MARK: - Notifications
-
-	@objc func mouseDidEnterLink(_ notification: Notification) {
-
-		guard let userInfo = notification.userInfo, let view = userInfo[UserInfoKey.view] as? NSView, window === view.window else {
-			return
-		}
-		guard let link = userInfo[UserInfoKey.url] as? String else {
-			return
-		}
-		mouseoverLink = link
-	}
-
-	@objc func mouseDidExitLink(_ notification: Notification) {
-
-		guard let view = notification.userInfo?[UserInfoKey.view] as? NSView, window === view.window else {
-			return
-		}
-		mouseoverLink = nil
-	}
-
-	@objc func timelineSelectionDidChange(_ notification: Notification) {
-
-		guard let view = notification.userInfo?[UserInfoKey.view] as? NSView, window === view.window else {
-			return
-		}
-		mouseoverLink = nil
+		let color = self.effectiveAppearance.isDarkMode ? NSColor.textBackgroundColor : appDelegate.currentTheme.color(forKey: "MainWindow.Detail.statusBar.backgroundColor")
+		layer.backgroundColor = color.cgColor
 	}
 }
 
+// MARK: - Private
+
 private extension DetailStatusBarView {
 
-	// MARK: URL Label
-
 	func updateLinkForDisplay() {
-
 		if let mouseoverLink = mouseoverLink, !mouseoverLink.isEmpty {
 			linkForDisplay = (mouseoverLink as NSString).rs_stringByStrippingHTTPOrHTTPSScheme()
 		}

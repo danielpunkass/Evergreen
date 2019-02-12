@@ -15,10 +15,7 @@ extension Notification.Name {
 	static let TimelineSelectionDidChange = Notification.Name("TimelineSelectionDidChangeNotification")
 
 	static let UserDidAddFeed = Notification.Name("UserDidAddFeedNotification")
-
-	// Sent by DetailViewController when mouse hovers over link in web view.
-	static let MouseDidEnterLink = Notification.Name("MouseDidEnterLinkNotification")
-	static let MouseDidExitLink = Notification.Name("MouseDidExitLinkNotification")
+	static let UserDidRequestSidebarSelection = Notification.Name("UserDidRequestSidebarSelectionNotification")
 }
 
 typealias UserInfoDictionary = [AnyHashable: Any]

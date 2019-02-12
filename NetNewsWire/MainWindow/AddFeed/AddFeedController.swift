@@ -40,7 +40,7 @@ class AddFeedController: AddFeedWindowControllerDelegate, FeedFinderDelegate {
 		self.hostWindow = hostWindow
 	}
 
-	func showAddFeedSheet(_ urlString: String?, _ name: String?) {
+	func showAddFeedSheet(_ urlString: String?, _ name: String?, _ folder: Folder?) {
 
 		let folderTreeControllerDelegate = FolderTreeControllerDelegate()
 
@@ -48,7 +48,7 @@ class AddFeedController: AddFeedWindowControllerDelegate, FeedFinderDelegate {
 		rootNode.canHaveChildNodes = true
 		let folderTreeController = TreeController(delegate: folderTreeControllerDelegate, rootNode: rootNode)
 
-		addFeedWindowController = AddFeedWindowController(urlString: urlString ?? urlStringFromPasteboard, name: name, folderTreeController: folderTreeController, delegate: self)
+		addFeedWindowController = AddFeedWindowController(urlString: urlString ?? urlStringFromPasteboard, name: name, folder: folder, folderTreeController: folderTreeController, delegate: self)
 		addFeedWindowController!.runSheetOnWindow(hostWindow)
 	}
 
@@ -181,9 +181,8 @@ private extension AddFeedController {
 			account.update(feed, with: parsedFeed, {})
 		}
 
-		if account.addFeed(feed, to: userEnteredFolder) {
-			NotificationCenter.default.post(name: .UserDidAddFeed, object: self, userInfo: [UserInfoKey.feed: feed])
-		}
+		account.addFeed(feed, to: userEnteredFolder)
+		NotificationCenter.default.post(name: .UserDidAddFeed, object: self, userInfo: [UserInfoKey.feed: feed])
 	}
 
 	// MARK: Find Feeds

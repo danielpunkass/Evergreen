@@ -12,6 +12,9 @@ import RSCore
 
 struct FeedbinArticle {
 
+	// https://github.com/feedbin/feedbin-api/blob/master/content/entries.md
+	// https://github.com/feedbin/feedbin-api/blob/master/content/updated-entries.md
+	//
 	//	"id": 2077,
 	//	"feed_id": 135,
 	//	"title": "Objective-C Runtime Releases",
@@ -22,38 +25,39 @@ struct FeedbinArticle {
 	//	"published": "2013-02-03T01:00:19.000000Z",
 	//	"created_at": "2013-02-04T01:00:19.127893Z"
 
+	let articleID: Int
+	let feedID: Int
+	let title: String?
+	let url: String?
+	let authorName: String?
+	let contentHTML: String?
+	let contentDiffHTML: String?
+	let summary: String?
+	let datePublished: Date?
+	let dateArrived: Date?
+
 	struct Key {
-		static let syncID = "id"
+		static let articleID = "id"
 		static let feedID = "feed_id"
 		static let title = "title"
 		static let url = "url"
 		static let authorName = "author"
 		static let contentHTML = "content"
+		static let contentDiffHTML = "content_diff"
 		static let summary = "summary"
 		static let datePublished = "published"
 		static let dateArrived = "created_at"
 	}
 
-	let syncID: String
-	let feedID: String
-	let title: String?
-	let url: String?
-	let authorName: String?
-	let contentHTML: String?
-	let summary: String?
-	let datePublished: Date?
-	let dateArrived: Date?
-
 	init?(jsonDictionary: JSONDictionary) {
-
-		guard let syncIDInt = jsonDictionary[Key.syncID] as? Int else {
+		guard let articleID = jsonDictionary[Key.articleID] as? Int else {
 			return nil
 		}
-		guard let feedIDInt = jsonDictionary[Key.feedID] as? Int else {
+		guard let feedID = jsonDictionary[Key.feedID] as? Int else {
 			return nil
 		}
-		self.syncID = "\(syncIDInt)"
-		self.feedID = "\(feedIDInt)"
+		self.articleID = articleID
+		self.feedID = feedID
 
 		self.title = jsonDictionary[Key.title] as? String
 		self.url = jsonDictionary[Key.url] as? String
@@ -66,6 +70,13 @@ struct FeedbinArticle {
 			self.contentHTML = nil
 		}
 
+		if let contentDiffHTML = jsonDictionary[Key.contentDiffHTML] as? String, !contentDiffHTML.isEmpty {
+			self.contentDiffHTML = contentDiffHTML
+		}
+		else {
+			self.contentDiffHTML = nil
+		}
+		
 		if let summary = jsonDictionary[Key.summary] as? String, !summary.isEmpty {
 			self.summary = summary
 		}
@@ -89,7 +100,6 @@ struct FeedbinArticle {
 	}
 
 	static func articles(with array: JSONArray) -> [FeedbinArticle]? {
-
 		let articlesArray = array.compactMap { FeedbinArticle(jsonDictionary: $0) }
 		return articlesArray.isEmpty ? nil : articlesArray
 	}

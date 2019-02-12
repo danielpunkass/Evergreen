@@ -12,11 +12,9 @@ import Articles
 import Account
 import RSCore
 
-@objc class SidebarViewController: NSViewController, NSOutlineViewDelegate, NSOutlineViewDataSource, UndoableCommandRunner {
+@objc class SidebarViewController: NSViewController, NSOutlineViewDelegate, NSOutlineViewDataSource, NSMenuDelegate, UndoableCommandRunner {
     
 	@IBOutlet var outlineView: SidebarOutlineView!
-	@IBOutlet var gearMenuDelegate: SidebarGearMenuDelegate!
-	@IBOutlet var contextualMenuDelegate: SidebarContextualMenuDelegate!
 	
 	let treeControllerDelegate = SidebarTreeControllerDelegate()
 	lazy var treeController: TreeController = {
@@ -40,11 +38,12 @@ import RSCore
 
 	override func viewDidLoad() {
 
-		sidebarCellAppearance = SidebarCellAppearance(theme: appDelegate.currentTheme, fontSize: AppDefaults.shared.sidebarFontSize)
+		sidebarCellAppearance = SidebarCellAppearance(theme: appDelegate.currentTheme, fontSize: AppDefaults.sidebarFontSize)
 
 		outlineView.dataSource = dataSource
 		outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
 		outlineView.setDraggingSourceOperationMask(.copy, forLocal: false)
+		outlineView.registerForDraggedTypes([FeedPasteboardWriter.feedUTIInternalType, FeedPasteboardWriter.feedUTIType, .URL, .string])
 
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(containerChildrenDidChange(_:)), name: .ChildrenDidChange, object: nil)
@@ -53,6 +52,7 @@ import RSCore
 		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(feedSettingDidChange(_:)), name: .FeedSettingDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange(_:)), name: .DisplayNameDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(userDidRequestSidebarSelection(_:)), name: .UserDidRequestSidebarSelection, object: nil)
 
 		outlineView.reloadData()
 
@@ -81,13 +81,11 @@ import RSCore
 	}
 
 	@objc func containerChildrenDidChange(_ note: Notification) {
-
-		rebuildTreeAndReloadDataIfNeeded()
+		rebuildTreeAndRestoreSelection()
 	}
 
 	@objc func batchUpdateDidPerform(_ notification: Notification) {
-		
-		rebuildTreeAndReloadDataIfNeeded()
+		rebuildTreeAndRestoreSelection()
 	}
 	
 	@objc func userDidAddFeed(_ notification: Notification) {
@@ -116,9 +114,20 @@ import RSCore
 		guard let object = note.object else {
 			return
 		}
+		let savedSelection = selectedNodes
+		rebuildTreeAndReloadDataIfNeeded()
 		configureCellsForRepresentedObject(object as AnyObject)
+		restoreSelection(to: savedSelection, sendNotificationIfChanged: true)
 	}
 
+	@objc func userDidRequestSidebarSelection(_ note: Notification) {
+		
+		guard let feed = note.userInfo?[UserInfoKey.feed] else {
+			return
+		}
+		revealAndSelectRepresentedObject(feed as AnyObject)
+	}
+	
 	// MARK: - Actions
 
 	@IBAction func delete(_ sender: AnyObject?) {
@@ -126,25 +135,7 @@ import RSCore
 		if outlineView.selectionIsEmpty {
 			return
 		}
-
-		let nodesToDelete = treeController.normalizedSelectedNodes(selectedNodes)
-        
-		guard let undoManager = undoManager, let deleteCommand = DeleteFromSidebarCommand(nodesToDelete: nodesToDelete, treeController: treeController, undoManager: undoManager) else {
-            return
-        }
-        
-		animatingChanges = true
-		outlineView.beginUpdates()
-
-		let indexSetsGroupedByParent = Node.indexSetsGroupedByParent(nodesToDelete)
-		for (parent, indexSet) in indexSetsGroupedByParent {
-			outlineView.removeItems(at: indexSet, inParent: parent.isRoot ? nil : parent, withAnimation: [.slideDown])
-		}
-
-		outlineView.endUpdates()
-		
-		runCommand(deleteCommand)
-		animatingChanges = false
+		deleteNodes(selectedNodes)
 	}
 
 	@IBAction func openInBrowser(_ sender: Any?) {
@@ -194,6 +185,8 @@ import RSCore
 		
 		NSCursor.setHiddenUntilMouseMoves(true)
 		outlineView.selectRowIndexes(IndexSet([row]), byExtendingSelection: false)
+		outlineView.scrollTo(row: row)
+		
 	}
 
 	func focus() {
@@ -226,6 +219,17 @@ import RSCore
 		let object = node.representedObject
 		return menu(for: [object])
 	}
+
+	// MARK: NSMenuDelegate
+	
+	public func menuNeedsUpdate(_ menu: NSMenu) {
+		menu.removeAllItems()
+		guard let contextualMenu = contextualMenuForClickedRows() else {
+			return
+		}
+		menu.takeItems(from: contextualMenu)
+	}
+
 
 	// MARK: - NSOutlineViewDelegate
     
@@ -275,6 +279,38 @@ import RSCore
 
 		postSidebarSelectionDidChangeNotification(selectedObjects.isEmpty ? nil : selectedObjects)
     }
+
+	//MARK: - Node Manipulation
+	
+	func deleteNodes(_ nodes: [Node]) {
+		
+		let nodesToDelete = treeController.normalizedSelectedNodes(nodes)
+		
+		guard let undoManager = undoManager, let deleteCommand = DeleteFromSidebarCommand(nodesToDelete: nodesToDelete, treeController: treeController, undoManager: undoManager) else {
+			return
+		}
+		
+		animatingChanges = true
+		outlineView.beginUpdates()
+		
+		let indexSetsGroupedByParent = Node.indexSetsGroupedByParent(nodesToDelete)
+		for (parent, indexSet) in indexSetsGroupedByParent {
+			outlineView.removeItems(at: indexSet, inParent: parent.isRoot ? nil : parent, withAnimation: [.slideDown])
+		}
+		
+		outlineView.endUpdates()
+		
+		runCommand(deleteCommand)
+		animatingChanges = false
+	}
+
+	// MARK: - API
+
+	func rebuildTreeAndRestoreSelection() {
+		let savedSelection = selectedNodes
+		rebuildTreeAndReloadDataIfNeeded()
+		restoreSelection(to: savedSelection, sendNotificationIfChanged: true)
+	}
 }
 
 // MARK: - NSUserInterfaceValidations
@@ -322,7 +358,27 @@ private extension SidebarViewController {
 			outlineView.reloadData()
 		}
 	}
-	
+
+	func restoreSelection(to nodes: [Node], sendNotificationIfChanged: Bool) {
+		if selectedNodes == nodes { // Nothing to do?
+			return
+		}
+
+		var indexes = IndexSet()
+		for node in nodes {
+			let row = outlineView.row(forItem: node as Any)
+			if row > -1 {
+				indexes.insert(row)
+			}
+		}
+
+		outlineView.selectRowIndexes(indexes, byExtendingSelection: false)
+
+		if selectedNodes != nodes && sendNotificationIfChanged {
+			postSidebarSelectionDidChangeNotification(selectedObjects)
+		}
+	}
+
 	func postSidebarSelectionDidChangeNotification(_ selectedObjects: [AnyObject]?) {
 
 		var userInfo = UserInfoDictionary()
@@ -416,9 +472,7 @@ private extension SidebarViewController {
 	}
 
 	func configure(_ cell: SidebarCell, _ node: Node) {
-
 		cell.cellAppearance = sidebarCellAppearance
-		cell.objectValue = node
 		cell.name = nameFor(node)
 		configureUnreadCount(cell, node)
 		configureFavicon(cell, node)
@@ -436,8 +490,6 @@ private extension SidebarViewController {
 	}
 
 	func configureGroupCell(_ cell: NSTableCellView, _ node: Node) {
-
-		cell.objectValue = node
 		cell.textField?.stringValue = nameFor(node)
 	}
 
@@ -468,24 +520,6 @@ private extension SidebarViewController {
 	func cellForRowView(_ rowView: NSTableRowView) -> SidebarCell? {
 
 		return rowView.view(atColumn: 0) as? SidebarCell
-	}
-
-	func availableSidebarCells() -> [SidebarCell] {
-
-		var cells = [SidebarCell]()
-
-		outlineView.enumerateAvailableRowViews { (rowView: NSTableRowView, _: Int) -> Void in
-			if let cell = cellForRowView(rowView) {
-				cells += [cell]
-			}
-		}
-
-		return cells
-	}
-
-	func configureAvailableCells() {
-
-		applyToAvailableCells(configure)
 	}
 
 	func applyToAvailableCells(_ callback: (SidebarCell, Node) -> Void) {
@@ -522,52 +556,6 @@ private extension SidebarViewController {
 	func revealAndSelectRepresentedObject(_ representedObject: AnyObject) -> Bool {
 
 		return outlineView.revealAndSelectRepresentedObject(representedObject, treeController)
-	}
-	
-	func folderParentForNode(_ node: Node) -> Container? {
-		
-		if let folder = node.parent?.representedObject as? Container {
-			return folder
-		}
-		if let feed = node.representedObject as? Feed {
-			return feed.account
-		}
-		if let folder = node.representedObject as? Folder {
-			return folder.account
-		}
-		return nil
-	}
-	
-	func deleteItemForNode(_ node: Node) {
-		
-//		if let folder = folderParentForNode(node) {
-//			folder.deleteItems([node.representedObject])
-//		}
-	}
-	
-	func deleteItemsForNodes(_ nodes: [Node]) {
-		
-		nodes.forEach { (oneNode) in
-			
-			deleteItemForNode(oneNode)
-		}
-	}
-
-	func commonParentItemForNodes(_ nodes: [Node]) -> Node? {
-
-		if nodes.isEmpty {
-			return nil
-		}
-
-		guard let parent = nodes.first!.parent else {
-			return nil
-		}
-		for node in nodes {
-			if node.parent !== parent {
-				return nil
-			}
-		}
-		return parent
 	}
 }
 

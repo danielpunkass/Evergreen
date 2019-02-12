@@ -11,6 +11,8 @@ import DB5
 
 struct TimelineCellAppearance: Equatable {
 
+	let showAvatar: Bool
+
 	let cellPadding: NSEdgeInsets
 	
 	let feedNameColor: NSColor
@@ -42,19 +44,17 @@ struct TimelineCellAppearance: Equatable {
 	let drawsGrid: Bool
 
 	let avatarSize: NSSize
-	let avatarMarginRight: CGFloat
 	let avatarMarginLeft: CGFloat
 	let avatarAdjustmentTop: CGFloat
 	let avatarCornerRadius: CGFloat
-	let showAvatar: Bool
 
 	let boxLeftMargin: CGFloat
 
 	init(theme: VSTheme, showAvatar: Bool, fontSize: FontSize) {
 
 		let actualFontSize = AppDefaults.actualFontSize(for: fontSize)
-		let smallItemFontSize = floor(actualFontSize * 0.95)
-		let largeItemFontSize = floor(actualFontSize * 1.1)
+		let smallItemFontSize = actualFontSize //floor(actualFontSize * 0.95)
+		let largeItemFontSize = actualFontSize //floor(actualFontSize * 1.1)
 
 		self.cellPadding = theme.edgeInsets(forKey: "MainWindow.Timeline.cell.padding")
 		
@@ -87,7 +87,6 @@ struct TimelineCellAppearance: Equatable {
 		self.drawsGrid = theme.bool(forKey: "MainWindow.Timeline.drawsGrid")
 		
 		self.avatarSize = theme.size(forKey: "MainWindow.Timeline.cell.avatar")
-		self.avatarMarginRight = theme.float(forKey: "MainWindow.Timeline.cell.avatarMarginRight")
 		self.avatarMarginLeft = theme.float(forKey: "MainWindow.Timeline.cell.avatarMarginLeft")
 		self.avatarAdjustmentTop = theme.float(forKey: "MainWindow.Timeline.cell.avatarAdjustmentTop")
 		self.avatarCornerRadius = theme.float(forKey: "MainWindow.Timeline.cell.avatarCornerRadius")

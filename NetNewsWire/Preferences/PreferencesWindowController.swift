@@ -15,29 +15,32 @@ private struct PreferencesToolbarItemSpec {
 	let imageName: NSImage.Name
 	
 	init(identifierRawValue: String, name: String, imageName: NSImage.Name) {
-		
-		self.identifier = NSToolbarItem.Identifier(rawValue: identifierRawValue)
+		self.identifier = NSToolbarItem.Identifier(identifierRawValue)
 		self.name = name
 		self.imageName = imageName
 	}
 }
 
-private let toolbarItemIdentifierGeneral = "General"
+private struct ToolbarItemIdentifier {
+	static let General = "General"
+	static let Advanced = "Advanced"
+}
 
 class PreferencesWindowController : NSWindowController, NSToolbarDelegate {
 	
 	private let windowFrameName = "Preferences"
-	fileprivate var viewControllers = [String: NSViewController]()
-	fileprivate let toolbarItemSpecs: [PreferencesToolbarItemSpec] = {
+	private let windowWidth = CGFloat(512.0) // Width is constant for all views; only the height changes
+	private var viewControllers = [String: NSViewController]()
+	private let toolbarItemSpecs: [PreferencesToolbarItemSpec] = {
 		var specs = [PreferencesToolbarItemSpec]()
-		specs += [PreferencesToolbarItemSpec(identifierRawValue: toolbarItemIdentifierGeneral, name: NSLocalizedString("General", comment: "Preferences"), imageName: NSImage.Name.preferencesGeneral)]
+		specs += [PreferencesToolbarItemSpec(identifierRawValue: ToolbarItemIdentifier.General, name: NSLocalizedString("General", comment: "Preferences"), imageName: NSImage.preferencesGeneralName)]
+		specs += [PreferencesToolbarItemSpec(identifierRawValue: ToolbarItemIdentifier.Advanced, name: NSLocalizedString("Advanced", comment: "Preferences"), imageName: NSImage.advancedName)]
 		return specs
 	}()
 
-
 	override func windowDidLoad() {
 
-		let toolbar = NSToolbar(identifier: NSToolbar.Identifier(rawValue: "PreferencesToolbar"))
+		let toolbar = NSToolbar(identifier: NSToolbar.Identifier("PreferencesToolbar"))
 		toolbar.delegate = self
 		toolbar.autosavesConfiguration = false
 		toolbar.allowsUserCustomization = false
@@ -47,7 +50,7 @@ class PreferencesWindowController : NSWindowController, NSToolbarDelegate {
 		window?.showsToolbarButton = false
 		window?.toolbar = toolbar
 
-		window?.setFrameAutosaveName(NSWindow.FrameAutosaveName(rawValue: windowFrameName))
+		window?.setFrameAutosaveName(NSWindow.FrameAutosaveName(windowFrameName))
 		
 		switchToViewAtIndex(0)
 	}
@@ -55,8 +58,10 @@ class PreferencesWindowController : NSWindowController, NSToolbarDelegate {
 	// MARK: Actions
 
 	@objc func toolbarItemClicked(_ sender: Any?) {
-
-
+		guard let toolbarItem = sender as? NSToolbarItem else {
+			return
+		}
+		switchToView(identifier: toolbarItem.itemIdentifier.rawValue)
 	}
 
 	// MARK: NSToolbarDelegate
@@ -149,8 +154,8 @@ private extension PreferencesWindowController {
 			return cachedViewController
 		}
 
-		let storyboard = NSStoryboard(name: NSStoryboard.Name(rawValue: "Preferences"), bundle: nil)
-		guard let viewController = storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier(rawValue: identifier)) as? NSViewController else {
+		let storyboard = NSStoryboard(name: NSStoryboard.Name("Preferences"), bundle: nil)
+		guard let viewController = storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier(identifier)) as? NSViewController else {
 			assertionFailure("Unknown preferences view controller: \(identifier)")
 			return nil
 		}
@@ -158,24 +163,24 @@ private extension PreferencesWindowController {
 		viewControllers[identifier] = viewController
 		return viewController
 	}
-	
+
 	func resizeWindow(toFitView view: NSView) {
-		
 		let viewFrame = view.frame
 		let windowFrame = window!.frame
 		let contentViewFrame = window!.contentView!.frame
 		
 		let deltaHeight = NSHeight(contentViewFrame) - NSHeight(viewFrame)
 		let heightForWindow = NSHeight(windowFrame) - deltaHeight
-		let windowOriginY = NSMinY(windowFrame)// + deltaHeight
+		let windowOriginY = NSMinY(windowFrame) + deltaHeight
 		
 		var updatedWindowFrame = windowFrame
 		updatedWindowFrame.size.height = heightForWindow
 		updatedWindowFrame.origin.y = windowOriginY
-		updatedWindowFrame.size.width = NSWidth(viewFrame)
+		updatedWindowFrame.size.width = windowWidth //NSWidth(viewFrame)
 		
 		var updatedViewFrame = viewFrame
 		updatedViewFrame.origin = NSZeroPoint
+		updatedViewFrame.size.width = windowWidth
 		if viewFrame != updatedViewFrame {
 			view.frame = updatedViewFrame
 		}
