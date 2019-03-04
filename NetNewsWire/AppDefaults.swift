@@ -143,10 +143,23 @@ struct AppDefaults {
 		let defaults: [String : Any] = [Key.sidebarFontSize: FontSize.medium.rawValue, Key.timelineFontSize: FontSize.medium.rawValue, Key.detailFontSize: FontSize.medium.rawValue, Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue, "NSScrollViewShouldScrollUnderTitlebar": false, Key.refreshInterval: RefreshInterval.everyHour.rawValue]
 
 		UserDefaults.standard.register(defaults: defaults)
+
+		// It seems that registering a default for NSQuitAlwaysKeepsWindows to true
+		// is not good enough to get the system to respect it, so we have to literally
+		// set it as the default to get it to take effect. This overrides a system-wide
+		// setting in the System Preferences, which is ostensibly meant to "close windows"
+		// in an app, but has the side-effect of also not preserving or restoring any state
+		// for the window. Since we've switched to using the standard state preservation and
+		// restoration mechanisms, and because it seems highly unlikely any user would object
+		// to NetNewsWire preserving this state, we'll force the preference on. If this becomes
+		// an issue, this could be changed to proactively look for whether the default has been
+		// set _by the user_ to false, and respect that default if it is so-set.
+//		UserDefaults.standard.set(true, forKey: "NSQuitAlwaysKeepsWindows")
+
+		// TODO: revisit the above when coming back to state restoration issues.
 	}
 
 	static func actualFontSize(for fontSize: FontSize) -> CGFloat {
-
 		switch fontSize {
 		case .small:
 			return NSFont.systemFontSize
@@ -172,7 +185,6 @@ private extension AppDefaults {
 	}
 
 	static func fontSize(for key: String) -> FontSize {
-
 		// Punted till after 1.0.
 		return .medium
 
@@ -215,7 +227,6 @@ private extension AppDefaults {
 	}
 
 	static func sortDirection(for key:String) -> ComparisonResult {
-
 		let rawInt = int(for: key)
 		if rawInt == ComparisonResult.orderedAscending.rawValue {
 			return .orderedAscending
@@ -224,7 +235,6 @@ private extension AppDefaults {
 	}
 
 	static func setSortDirection(for key: String, _ value: ComparisonResult) {
-
 		if value == .orderedAscending {
 			setInt(for: key, ComparisonResult.orderedAscending.rawValue)
 		}

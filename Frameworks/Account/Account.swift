@@ -16,12 +16,12 @@ import RSDatabase
 
 public extension Notification.Name {
 
-	public static let AccountRefreshDidBegin = Notification.Name(rawValue: "AccountRefreshDidBegin")
-	public static let AccountRefreshDidFinish = Notification.Name(rawValue: "AccountRefreshDidFinish")
-	public static let AccountRefreshProgressDidChange = Notification.Name(rawValue: "AccountRefreshProgressDidChange")
-	public static let AccountDidDownloadArticles = Notification.Name(rawValue: "AccountDidDownloadArticles")
+	static let AccountRefreshDidBegin = Notification.Name(rawValue: "AccountRefreshDidBegin")
+	static let AccountRefreshDidFinish = Notification.Name(rawValue: "AccountRefreshDidFinish")
+	static let AccountRefreshProgressDidChange = Notification.Name(rawValue: "AccountRefreshProgressDidChange")
+	static let AccountDidDownloadArticles = Notification.Name(rawValue: "AccountDidDownloadArticles")
 	
-	public static let StatusesDidChange = Notification.Name(rawValue: "StatusesDidChange")
+	static let StatusesDidChange = Notification.Name(rawValue: "StatusesDidChange")
 }
 
 public enum AccountType: Int {
@@ -71,7 +71,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	static let saveQueue = CoalescingQueue(name: "Account Save Queue", interval: 1.0)
 
 	private let settingsODB: ODB
-	private let settingsTable: ODBTable
 	private let feedsPath: ODBPath
 	private let feedsTable: ODBTable
 
@@ -141,8 +140,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		let settingsODBFilePath = (dataFolder as NSString).appendingPathComponent("Settings.odb")
 		self.settingsODB = ODB(filepath: settingsODBFilePath)
 		self.settingsODB.vacuum()
-		let settingsPath = ODBPath.path(["settings"])
-		self.settingsTable = settingsODB.ensureTable(settingsPath)!
 		self.feedsPath = ODBPath.path(["feeds"])
 		self.feedsTable = settingsODB.ensureTable(self.feedsPath)!
 
@@ -388,6 +385,10 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		return database.fetchStarredArticles(for: flattenedFeeds().feedIDs())
 	}
 
+	public func fetchArticlesMatching(_ searchString: String) -> Set<Article> {
+		return database.fetchArticlesMatching(searchString, for: flattenedFeeds().feedIDs())
+	}
+
 	private func validateUnreadCount(_ feed: Feed, _ articles: Set<Article>) {
 
 		// articles must contain all the unread articles for the feed.
@@ -493,6 +494,16 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 
 		#if DEBUG
 			flattenedFeeds().forEach{ $0.debugDropConditionalGetInfo() }
+		#endif
+	}
+
+	public func debugRunSearch() {
+		#if DEBUG
+			let t1 = Date()
+			let articles = fetchArticlesMatching("Brent NetNewsWire")
+			let t2 = Date()
+			print(t2.timeIntervalSince(t1))
+			print(articles.count)
 		#endif
 	}
 

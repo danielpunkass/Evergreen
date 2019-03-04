@@ -11,18 +11,23 @@ import Articles
 import Account
 import RSCore
 
+enum TimelineSourceMode {
+	case regular, search
+}
+
 class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
-	@IBOutlet var toolbarDelegate: MainWindowToolbarDelegate?
 	private var sharingServicePickerDelegate: NSSharingServicePickerDelegate?
 
 	private let windowAutosaveName = NSWindow.FrameAutosaveName("MainWindow")
 	static var didPositionWindowOnFirstRun = false
 
-	private var currentFeedOrFolder: AnyObject? = nil {
-		didSet {
-			updateWindowTitle()
+	private var currentFeedOrFolder: AnyObject? {
+		// Nil for none or multiple selection.
+		guard let selectedObjects = selectedObjectsInSidebar(), selectedObjects.count == 1 else {
+			return nil
 		}
+		return selectedObjects.first
 	}
 	
 	private var shareToolbarItem: NSToolbarItem? {
@@ -30,6 +35,19 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 	}
 
 	private static var detailViewMinimumThickness = 384
+	private var sidebarViewController: SidebarViewController?
+	private var timelineContainerViewController: TimelineContainerViewController?
+	private var detailViewController: DetailViewController?
+	private var currentSearchField: NSSearchField? = nil
+	private var searchString: String? = nil
+	private var lastSentSearchString: String? = nil
+	private var timelineSourceMode: TimelineSourceMode = .regular {
+		didSet {
+			timelineContainerViewController?.showTimeline(for: timelineSourceMode)
+			detailViewController?.showDetail(for: timelineSourceMode)
+		}
+	}
+	private var searchSmartFeed: SmartFeed? = nil
 
 	// MARK: - NSWindowController
 
@@ -60,11 +78,18 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 		NotificationCenter.default.addObserver(self, selector: #selector(applicationWillTerminate(_:)), name: NSApplication.willTerminateNotification, object: nil)
 
+		sidebarViewController = splitViewController?.splitViewItems[0].viewController as? SidebarViewController
+		sidebarViewController!.delegate = self
+
+		timelineContainerViewController = splitViewController?.splitViewItems[1].viewController as? TimelineContainerViewController
+		timelineContainerViewController!.delegate = self
+
+		detailViewController = splitViewController?.splitViewItems[2].viewController as? DetailViewController
+
 		NotificationCenter.default.addObserver(self, selector: #selector(refreshProgressDidChange(_:)), name: .AccountRefreshDidBegin, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(refreshProgressDidChange(_:)), name: .AccountRefreshDidFinish, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(refreshProgressDidChange(_:)), name: .AccountRefreshProgressDidChange, object: nil)
 
-		NotificationCenter.default.addObserver(self, selector: #selector(sidebarSelectionDidChange(_:)), name: .SidebarSelectionDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange(_:)), name: .DisplayNameDidChange, object: nil)
 
@@ -80,7 +105,6 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		saveSplitViewState()
 	}
 
-
 	func selectedObjectsInSidebar() -> [AnyObject]? {
 
 		return sidebarViewController?.selectedObjects
@@ -88,8 +112,21 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 	// MARK: - Notifications
 
-	@objc func applicationWillTerminate(_ note: Notification) {
+//	func window(_ window: NSWindow, willEncodeRestorableState state: NSCoder) {
+//
+//		saveSplitViewState(to: state)
+//	}
+//
+//	func window(_ window: NSWindow, didDecodeRestorableState state: NSCoder) {
+//
+//		restoreSplitViewState(from: state)
+//
+//		// Make sure the timeline view is first responder if possible, to start out viewing
+//		// whatever preserved selection might have been restored
+//		makeTimelineViewFirstResponder()
+//	}
 
+	@objc func applicationWillTerminate(_ note: Notification) {
 		saveState()
 		window?.saveFrame(usingName: windowAutosaveName)
 	}
@@ -99,25 +136,6 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		CoalescingQueue.standard.add(self, #selector(makeToolbarValidate))
 	}
 
-	@objc func sidebarSelectionDidChange(_ note: Notification) {
-		
-		let selectedObjects = selectedObjectsInSidebar()
-		
-		// We can only meaninfully display one feed or folder at a time
-		guard selectedObjects?.count == 1 else {
-			currentFeedOrFolder = nil
-			return
-		}
-		
-		guard selectedObjects?[0] is DisplayNameProvider else {
-			currentFeedOrFolder = nil
-			return
-		}
-		
-		currentFeedOrFolder = selectedObjects?[0]
-		
-	}
-	
 	@objc func unreadCountDidChange(_ note: Notification) {
 		updateWindowTitleIfNecessary(note.object)
 	}
@@ -192,8 +210,11 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 			return canShowShareMenu()
 		}
 
-		if item.action == #selector(toggleSidebar(_:)) {
+		if item.action == #selector(moveFocusToSearchField(_:)) {
+			return currentSearchField != nil
+		}
 
+		if item.action == #selector(toggleSidebar(_:)) {
 			guard let splitViewItem = sidebarSplitViewItem else {
 				return false
 			}
@@ -213,11 +234,9 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 	// MARK: - Actions
 
 	@IBAction func scrollOrGoToNextUnread(_ sender: Any?) {
-
 		guard let detailViewController = detailViewController else {
 			return
 		}
-
 		detailViewController.canScrollDown { (canScroll) in
 			NSCursor.setHiddenUntilMouseMoves(true)
 			canScroll ? detailViewController.scrollPageDown(sender) : self.nextUnread(sender)
@@ -225,35 +244,31 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 	}
 
 	@IBAction func showAddFolderWindow(_ sender: Any?) {
-
 		appDelegate.showAddFolderSheetOnWindow(window!)
 	}
 
 	@IBAction func showAddFeedWindow(_ sender: Any?) {
-
 		appDelegate.showAddFeedSheetOnWindow(window!, urlString: nil, name: nil, folder: nil)
 	}
 
 	@IBAction func openArticleInBrowser(_ sender: Any?) {
-		
 		if let link = currentLink {
 			Browser.open(link)
 		}		
 	}
 
 	@IBAction func openInBrowser(_ sender: Any?) {
-
 		openArticleInBrowser(sender)
 	}
 
 	@IBAction func nextUnread(_ sender: Any?) {
-		
-		guard let timelineViewController = timelineViewController, let sidebarViewController = sidebarViewController else {
+		guard let timelineViewController = currentTimelineViewController, let sidebarViewController = sidebarViewController else {
 			return
 		}
 
 		NSCursor.setHiddenUntilMouseMoves(true)
-		
+
+		// TODO: handle search mode
 		if timelineViewController.canGoToNextUnread() {
 			goToNextUnreadInTimeline()
 		}
@@ -266,90 +281,81 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 	}
 
 	@IBAction func markAllAsRead(_ sender: Any?) {
-		
-		timelineViewController?.markAllAsRead()
+		currentTimelineViewController?.markAllAsRead()
 	}
 
 	@IBAction func toggleRead(_ sender: Any?) {
+		currentTimelineViewController?.toggleReadStatusForSelectedArticles()
+	}
 
-		timelineViewController?.toggleReadStatusForSelectedArticles()
+	@IBAction func markRead(_ sender: Any?) {
+		currentTimelineViewController?.markSelectedArticlesAsRead(sender)
 	}
 
 	@IBAction func markUnread(_ sender: Any?) {
-
-		timelineViewController?.markSelectedArticlesAsUnread(sender)
+		currentTimelineViewController?.markSelectedArticlesAsUnread(sender)
 	}
 
 	@IBAction func toggleStarred(_ sender: Any?) {
-
-		timelineViewController?.toggleStarredStatusForSelectedArticles()
+		currentTimelineViewController?.toggleStarredStatusForSelectedArticles()
 	}
 
 	@IBAction func markAllAsReadAndGoToNextUnread(_ sender: Any?) {
-
 		markAllAsRead(sender)
 		nextUnread(sender)
 	}
 
 	@IBAction func markUnreadAndGoToNextUnread(_ sender: Any?) {
-
 		markUnread(sender)
 		nextUnread(sender)
 	}
 
 	@IBAction func markReadAndGoToNextUnread(_ sender: Any?) {
-
 		markUnread(sender)
 		nextUnread(sender)
 	}
 
 	@IBAction func toggleSidebar(_ sender: Any?) {
-		
 		splitViewController!.toggleSidebar(sender)
 	}
 
 	@IBAction func markOlderArticlesAsRead(_ sender: Any?) {
-
-		timelineViewController?.markOlderArticlesRead()
+		currentTimelineViewController?.markOlderArticlesRead()
 	}
 
 	@IBAction func navigateToTimeline(_ sender: Any?) {
-
-		timelineViewController?.focus()
+		currentTimelineViewController?.focus()
 	}
 
 	@IBAction func navigateToSidebar(_ sender: Any?) {
-
 		sidebarViewController?.focus()
 	}
 
+	@IBAction func navigateToDetail(_ sender: Any?) {
+		detailViewController?.focus()
+	}
+	
 	@IBAction func goToPreviousSubscription(_ sender: Any?) {
-
 		sidebarViewController?.outlineView.selectPreviousRow(sender)
 	}
 
 	@IBAction func goToNextSubscription(_ sender: Any?) {
-
 		sidebarViewController?.outlineView.selectNextRow(sender)
 	}
 
 	@IBAction func gotoToday(_ sender: Any?) {
-
 		sidebarViewController?.gotoToday(sender)
 	}
 
 	@IBAction func gotoAllUnread(_ sender: Any?) {
-
 		sidebarViewController?.gotoAllUnread(sender)
 	}
 
 	@IBAction func gotoStarred(_ sender: Any?) {
-
 		sidebarViewController?.gotoStarred(sender)
 	}
 
 	@IBAction func toolbarShowShareMenu(_ sender: Any?) {
-
 		guard let selectedArticles = selectedArticles, !selectedArticles.isEmpty else {
 			assertionFailure("Expected toolbarShowShareMenu to be called only when there are selected articles.")
 			return
@@ -370,6 +376,104 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		sharingServicePicker.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
 	}
 
+	@IBAction func moveFocusToSearchField(_ sender: Any?) {
+		guard let searchField = currentSearchField else {
+			return
+		}
+		window?.makeFirstResponder(searchField)
+	}
+}
+
+// MARK: - SidebarDelegate
+
+extension MainWindowController: SidebarDelegate {
+
+	func sidebarSelectionDidChange(_: SidebarViewController, selectedObjects: [AnyObject]?) {
+		// TODO: if searching, cancel search
+		timelineContainerViewController?.setRepresentedObjects(selectedObjects, mode: .regular)
+		forceSearchToEnd()
+		updateWindowTitle()
+		NotificationCenter.default.post(name: .InspectableObjectsDidChange, object: nil)
+	}
+}
+
+// MARK: - TimelineContainerViewControllerDelegate
+
+extension MainWindowController: TimelineContainerViewControllerDelegate {
+
+	func timelineSelectionDidChange(_: TimelineContainerViewController, articles: [Article]?, mode: TimelineSourceMode) {
+		let detailState: DetailState
+		if let articles = articles {
+			detailState = articles.count == 1 ? .article(articles.first!) : .multipleSelection
+		}
+		else {
+			detailState = .noSelection
+		}
+		detailViewController?.setState(detailState, mode: mode)
+	}
+}
+
+// MARK: - NSSearchFieldDelegate
+
+extension MainWindowController: NSSearchFieldDelegate {
+
+	func searchFieldDidStartSearching(_ sender: NSSearchField) {
+		startSearchingIfNeeded()
+	}
+
+	func searchFieldDidEndSearching(_ sender: NSSearchField) {
+		stopSearchingIfNeeded()
+	}
+
+	@IBAction func runSearch(_ sender: NSSearchField) {
+		if sender.stringValue == "" {
+			return
+		}
+		startSearchingIfNeeded()
+		handleSearchFieldTextChange(sender)
+	}
+
+	private func handleSearchFieldTextChange(_ searchField: NSSearchField) {
+		let s = searchField.stringValue
+		if s == searchString {
+			return
+		}
+		searchString = s
+		updateSmartFeed()
+	}
+
+	func updateSmartFeed() {
+		guard timelineSourceMode == .search, let searchString = searchString else {
+			return
+		}
+		if searchString == lastSentSearchString {
+			return
+		}
+		lastSentSearchString = searchString
+		let smartFeed = SmartFeed(delegate: SearchFeedDelegate(searchString: searchString))
+		timelineContainerViewController?.setRepresentedObjects([smartFeed], mode: .search)
+		searchSmartFeed = smartFeed
+	}
+
+	func forceSearchToEnd() {
+		timelineSourceMode = .regular
+		searchString = nil
+		lastSentSearchString = nil
+		if let searchField = currentSearchField {
+			searchField.stringValue = ""
+		}
+	}
+
+	private func startSearchingIfNeeded() {
+		timelineSourceMode = .search
+	}
+
+	private func stopSearchingIfNeeded() {
+		searchString = nil
+		lastSentSearchString = nil
+		timelineSourceMode = .regular
+		timelineContainerViewController?.setRepresentedObjects(nil, mode: .search)
+	}
 }
 
 // MARK: - Scripting Access
@@ -393,10 +497,51 @@ extension MainWindowController : ScriptingMainWindowController {
     }
 }
 
+// MARK: - NSToolbarDelegate
+
+extension NSToolbarItem.Identifier {
+	static let Share = NSToolbarItem.Identifier("share")
+	static let Search = NSToolbarItem.Identifier("search")
+}
+
+extension MainWindowController: NSToolbarDelegate {
+
+	func toolbarWillAddItem(_ notification: Notification) {
+		guard let item = notification.userInfo?["item"] as? NSToolbarItem else {
+			return
+		}
+
+		if item.itemIdentifier == .Share, let button = item.view as? NSButton {
+			// The share button should send its action on mouse down, not mouse up.
+			button.sendAction(on: .leftMouseDown)
+		}
+
+		if item.itemIdentifier == .Search, let searchField = item.view as? NSSearchField {
+			searchField.delegate = self
+			searchField.target = self
+			searchField.action = #selector(runSearch(_:))
+			currentSearchField = searchField
+		}
+	}
+
+	func toolbarDidRemoveItem(_ notification: Notification) {
+		guard let item = notification.userInfo?["item"] as? NSToolbarItem else {
+			return
+		}
+
+		if item.itemIdentifier == .Search, let searchField = item.view as? NSSearchField {
+			searchField.delegate = nil
+			searchField.target = nil
+			searchField.action = nil
+			currentSearchField = nil
+		}
+	}
+}
+
 // MARK: - Private
 
 private extension MainWindowController {
-	
+
 	var splitViewController: NSSplitViewController? {
 		guard let viewController = contentViewController else {
 			return nil
@@ -404,12 +549,8 @@ private extension MainWindowController {
 		return viewController.children.first as? NSSplitViewController
 	}
 
-	var sidebarViewController: SidebarViewController? {
-		return splitViewController?.splitViewItems[0].viewController as? SidebarViewController
-	}
-	
-	var timelineViewController: TimelineViewController? {
-		return splitViewController?.splitViewItems[1].viewController as? TimelineViewController
+	var currentTimelineViewController: TimelineViewController? {
+		return timelineContainerViewController?.currentTimelineViewController
 	}
 
 	var sidebarSplitViewItem: NSSplitViewItem? {
@@ -420,12 +561,8 @@ private extension MainWindowController {
 		return splitViewController?.splitViewItems[2]
 	}
 	
-	var detailViewController: DetailViewController? {
-		return splitViewController?.splitViewItems[2].viewController as? DetailViewController
-	}
-
 	var selectedArticles: [Article]? {
-		return timelineViewController?.selectedArticles
+		return currentTimelineViewController?.selectedArticles
 	}
 
 	var oneSelectedArticle: Article? {
@@ -443,21 +580,21 @@ private extension MainWindowController {
 
 	func canGoToNextUnread() -> Bool {
 		
-		guard let timelineViewController = timelineViewController, let sidebarViewController = sidebarViewController else {
+		guard let timelineViewController = currentTimelineViewController, let sidebarViewController = sidebarViewController else {
 			return false
 		}
-
+		// TODO: handle search mode
 		return timelineViewController.canGoToNextUnread() || sidebarViewController.canGoToNextUnread()
 	}
 	
 	func canMarkAllAsRead() -> Bool {
 		
-		return timelineViewController?.canMarkAllAsRead() ?? false
+		return currentTimelineViewController?.canMarkAllAsRead() ?? false
 	}
 
 	func validateToggleRead(_ item: NSValidatedUserInterfaceItem) -> Bool {
 
-		let validationStatus = timelineViewController?.markReadCommandStatus() ?? .canDoNothing
+		let validationStatus = currentTimelineViewController?.markReadCommandStatus() ?? .canDoNothing
 		let markingRead: Bool
 		let result: Bool
 		
@@ -488,7 +625,7 @@ private extension MainWindowController {
 
 	func canMarkOlderArticlesAsRead() -> Bool {
 
-		return timelineViewController?.canMarkOlderArticlesAsRead() ?? false
+		return currentTimelineViewController?.canMarkOlderArticlesAsRead() ?? false
 	}
 
 	func canShowShareMenu() -> Bool {
@@ -501,7 +638,7 @@ private extension MainWindowController {
 
 	func validateToggleStarred(_ item: NSValidatedUserInterfaceItem) -> Bool {
 
-		let validationStatus = timelineViewController?.markStarredCommandStatus() ?? .canDoNothing
+		let validationStatus = currentTimelineViewController?.markStarredCommandStatus() ?? .canDoNothing
 		let starring: Bool
 		let result: Bool
 
@@ -537,7 +674,7 @@ private extension MainWindowController {
 
 	func goToNextUnreadInTimeline() {
 
-		guard let timelineViewController = timelineViewController else {
+		guard let timelineViewController = currentTimelineViewController else {
 			return
 		}
 
@@ -549,7 +686,7 @@ private extension MainWindowController {
 
 	func makeTimelineViewFirstResponder() {
 
-		guard let window = window, let timelineViewController = timelineViewController else {
+		guard let window = window, let timelineViewController = currentTimelineViewController else {
 			return
 		}
 		window.makeFirstResponderUnlessDescendantIsFirstResponder(timelineViewController.tableView)
@@ -584,13 +721,11 @@ private extension MainWindowController {
 	}
 
 	func saveSplitViewState() {
-
 		// TODO: Update this for multiple windows.
-
+		// Also: use standard state restoration mechanism.
 		guard let splitView = splitViewController?.splitView else {
 			return
-		}
-
+			}
 		let widths = splitView.arrangedSubviews.map{ Int(floor($0.frame.width)) }
 		if AppDefaults.mainWindowWidths != widths {
 			AppDefaults.mainWindowWidths = widths
@@ -598,13 +733,11 @@ private extension MainWindowController {
 	}
 
 	func restoreSplitViewState() {
-
 		// TODO: Update this for multiple windows.
-
+		// Also: use standard state restoration mechanism.
 		guard let splitView = splitViewController?.splitView, let widths = AppDefaults.mainWindowWidths, widths.count == 3, let window = window else {
 			return
 		}
-
 		let windowWidth = Int(floor(window.frame.width))
 		let dividerThickness: Int = Int(splitView.dividerThickness)
 		let sidebarWidth: Int = widths[0]
@@ -618,5 +751,50 @@ private extension MainWindowController {
 		splitView.setPosition(CGFloat(sidebarWidth), ofDividerAt: 0)
 		splitView.setPosition(CGFloat(sidebarWidth + dividerThickness + timelineWidth), ofDividerAt: 1)
 	}
+
+//	func saveSplitViewState(to coder: NSCoder) {
+//
+//		// TODO: Update this for multiple windows.
+//
+//		guard let splitView = splitViewController?.splitView else {
+//			return
+//		}
+//
+//		let widths = splitView.arrangedSubviews.map{ Int(floor($0.frame.width)) }
+//		coder.encode(widths, forKey: MainWindowController.mainWindowWidthsStateKey)
+//
+//	}
+
+//	func arrayOfIntFromCoder(_ coder: NSCoder, withKey: String) -> [Int]? {
+//		let decodedFloats: [Int]?
+//		do {
+//			decodedFloats = try coder.decodeTopLevelObject(forKey: MainWindowController.mainWindowWidthsStateKey) as? [Int]? ?? nil
+//		}
+//		catch {
+//			decodedFloats = nil
+//		}
+//		return decodedFloats
+//	}
+
+//	func restoreSplitViewState(from coder: NSCoder) {
+//
+//		// TODO: Update this for multiple windows.
+//		guard let splitView = splitViewController?.splitView, let widths = arrayOfIntFromCoder(coder, withKey: MainWindowController.mainWindowWidthsStateKey), widths.count == 3, let window = window else {
+//			return
+//		}
+//
+//		let windowWidth = Int(floor(window.frame.width))
+//		let dividerThickness: Int = Int(splitView.dividerThickness)
+//		let sidebarWidth: Int = widths[0]
+//		let timelineWidth: Int = widths[1]
+//
+//		// Make sure the detail view has its mimimum thickness, at least.
+//		if windowWidth < sidebarWidth + dividerThickness + timelineWidth + dividerThickness + MainWindowController.detailViewMinimumThickness {
+//			return
+//		}
+//
+//		splitView.setPosition(CGFloat(sidebarWidth), ofDividerAt: 0)
+//		splitView.setPosition(CGFloat(sidebarWidth + dividerThickness + timelineWidth), ofDividerAt: 1)
+//	}
 }
 

@@ -11,10 +11,40 @@ import RSCore
 import Articles
 import Account
 
-class TimelineViewController: NSViewController, UndoableCommandRunner {
+protocol TimelineDelegate: class  {
+	func timelineSelectionDidChange(_: TimelineViewController, selectedArticles: [Article]?)
+}
+
+final class TimelineViewController: NSViewController, UndoableCommandRunner {
 
 	@IBOutlet var tableView: TimelineTableView!
 
+	var representedObjects: [AnyObject]? {
+		didSet {
+			if !representedObjectArraysAreEqual(oldValue, representedObjects) {
+
+				if let representedObjects = representedObjects {
+					if representedObjects.count == 1 && representedObjects.first is Feed {
+						showFeedNames = false
+					}
+					else {
+						showFeedNames = true
+					}
+				}
+				else {
+					showFeedNames = false
+				}
+
+				selectionDidChange(nil)
+				fetchArticles()
+				if articles.count > 0 {
+					tableView.scrollRowToVisible(0)
+				}
+			}
+		}
+	}
+
+	private weak var delegate: TimelineDelegate?
 	var sharingServiceDelegate: NSSharingServiceDelegate?
 	
 	var selectedArticles: [Article] {
@@ -83,34 +113,15 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 		}
 	}
 
-	private var representedObjects: [AnyObject]? {
-		didSet {
-			if !representedObjectArraysAreEqual(oldValue, representedObjects) {
-
-				if let representedObjects = representedObjects {
-					if representedObjects.count == 1 && representedObjects.first is Feed {
-						showFeedNames = false
-					}
-					else {
-						showFeedNames = true
-					}
-				}
-				else {
-					showFeedNames = false
-				}
-
-				postTimelineSelectionDidChangeNotification(nil)
-				articles = ArticleArray()
-				fetchArticles()
-				if articles.count > 0 {
-					tableView.scrollRowToVisible(0)
-				}
-			}
-		}
-	}
-
 	private var oneSelectedArticle: Article? {
 		return selectedArticles.count == 1 ? selectedArticles.first : nil
+	}
+
+	private let keyboardDelegate = TimelineKeyboardDelegate()
+
+	convenience init(delegate: TimelineDelegate) {
+		self.init(nibName: "TimelineTableView", bundle: nil)
+		self.delegate = delegate
 	}
 
 	override func viewDidLoad() {
@@ -123,10 +134,10 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 		tableView.target = self
 		tableView.doubleAction = #selector(openArticleInBrowser(_:))
 		tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
-
+		tableView.keyboardDelegate = keyboardDelegate
+		
 		if !didRegisterForNotifications {
 
-			NotificationCenter.default.addObserver(self, selector: #selector(sidebarSelectionDidChange(_:)), name: .SidebarSelectionDidChange, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(feedIconDidBecomeAvailable(_:)), name: .FeedIconDidBecomeAvailable, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(avatarDidBecomeAvailable(_:)), name: .AvatarDidBecomeAvailable, object: nil)
@@ -142,6 +153,26 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 	override func viewDidAppear() {
 		sharingServiceDelegate = SharingServiceDelegate(self.view.window)
 	}
+
+	// MARK: State Restoration
+
+//	private static let stateRestorationSelectedArticles = "selectedArticles"
+//
+//	override func encodeRestorableState(with coder: NSCoder) {
+//
+//		super.encodeRestorableState(with: coder)
+//
+//		coder.encode(self.selectedArticleIDs(), forKey: TimelineViewController.stateRestorationSelectedArticles)
+//	}
+//
+//	override func restoreState(with coder: NSCoder) {
+//
+//		super.restoreState(with: coder)
+//
+//		if let restoredArticleIDs = (try? coder.decodeTopLevelObject(forKey: TimelineViewController.stateRestorationSelectedArticles)) as? [String] {
+//			self.restoreSelection(restoredArticleIDs)
+//		}
+//	}
 
 	// MARK: Appearance Change
 
@@ -338,36 +369,16 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 	}
 
 	func focus() {
-
+		
 		guard let window = tableView.window else {
 			return
 		}
-
+		
 		window.makeFirstResponderUnlessDescendantIsFirstResponder(tableView)
-		if !hasAtLeastOneSelectedArticle && articles.count > 0 {
-			tableView.rs_selectRowAndScrollToVisible(0)
-		}
 	}
 
 	// MARK: - Notifications
 
-	@objc func sidebarSelectionDidChange(_ notification: Notification) {
-
-		guard let userInfo = notification.userInfo else {
-			return
-		}
-		guard let sidebarView = userInfo[UserInfoKey.view] as? NSView, sidebarView.window === tableView.window else {
-			return
-		}
-
-		if let objects = userInfo[UserInfoKey.objects] as? [AnyObject] {
-			representedObjects = objects
-		}
-		else {
-			representedObjects = nil
-		}
-	}
-	
 	@objc func statusesDidChange(_ note: Notification) {
 
 		guard let articles = note.userInfo?[Account.UserInfoKey.articles] as? Set<Article> else {
@@ -497,7 +508,7 @@ class TimelineViewController: NSViewController, UndoableCommandRunner {
 		let status = ArticleStatus(articleID: prototypeID, read: false, starred: false, userDeleted: false, dateArrived: Date())
 		let prototypeArticle = Article(accountID: prototypeID, articleID: prototypeID, feedID: prototypeID, uniqueID: prototypeID, title: longTitle, contentHTML: nil, contentText: nil, url: nil, externalURL: nil, summary: nil, imageURL: nil, bannerImageURL: nil, datePublished: nil, dateModified: nil, authors: nil, attachments: nil, status: status)
 		
-		let prototypeCellData = TimelineCellData(article: prototypeArticle, appearance: cellAppearance, showFeedName: showingFeedNames, feedName: "Prototype Feed Name", avatar: nil, showAvatar: false, featuredImage: nil)
+		let prototypeCellData = TimelineCellData(article: prototypeArticle, showFeedName: showingFeedNames, feedName: "Prototype Feed Name", avatar: nil, showAvatar: false, featuredImage: nil)
 		let height = TimelineCellLayout.height(for: 100, cellData: prototypeCellData, appearance: cellAppearance)
 		return height
 	}
@@ -582,31 +593,45 @@ extension TimelineViewController: NSTableViewDataSource {
 
 extension TimelineViewController: NSTableViewDelegate {
 
-	func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+	private static let rowViewIdentifier = NSUserInterfaceItemIdentifier(rawValue: "timelineRow")
 
-		let rowView: TimelineTableRowView = tableView.makeView(withIdentifier: NSUserInterfaceItemIdentifier(rawValue: "timelineRow"), owner: self) as! TimelineTableRowView
+	func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+		if let rowView: TimelineTableRowView = tableView.makeView(withIdentifier: TimelineViewController.rowViewIdentifier, owner: nil) as? TimelineTableRowView {
+			return rowView
+		}
+		let rowView = TimelineTableRowView()
+		rowView.identifier = TimelineViewController.rowViewIdentifier
 		return rowView
 	}
 
+	private static let timelineCellIdentifier = NSUserInterfaceItemIdentifier(rawValue: "timelineCell")
+
 	func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
 
-		let cell: TimelineTableCellView = tableView.makeView(withIdentifier: NSUserInterfaceItemIdentifier(rawValue: "timelineCell"), owner: self) as! TimelineTableCellView
-		cell.cellAppearance = showAvatars ? cellAppearanceWithAvatar: cellAppearance
-
-		if let article = articles.articleAtRow(row) {
-			configureTimelineCell(cell, article: article)
+		func configure(_ cell: TimelineTableCellView) {
+			cell.cellAppearance = showAvatars ? cellAppearanceWithAvatar : cellAppearance
+			if let article = articles.articleAtRow(row) {
+				configureTimelineCell(cell, article: article)
+			}
+			else {
+				makeTimelineCellEmpty(cell)
+			}
 		}
-		else {
-			makeTimelineCellEmpty(cell)
+
+		if let cell = tableView.makeView(withIdentifier: TimelineViewController.timelineCellIdentifier, owner: nil) as? TimelineTableCellView {
+			configure(cell)
+			return cell
 		}
 
+		let cell = TimelineTableCellView()
+		cell.identifier = TimelineViewController.timelineCellIdentifier
+		configure(cell)
 		return cell
 	}
 
 	func tableViewSelectionDidChange(_ notification: Notification) {
-
 		if selectedArticles.isEmpty {
-			postTimelineSelectionDidChangeNotification(nil)
+			selectionDidChange(nil)
 			return
 		}
 
@@ -617,36 +642,28 @@ extension TimelineViewController: NSTableViewDelegate {
 			}
 		}
 
-		postTimelineSelectionDidChangeNotification(selectedArticles)
+		selectionDidChange(selectedArticles)
+
+//		self.invalidateRestorableState()
 	}
 
-	private func postTimelineSelectionDidChangeNotification(_ selectedArticles: ArticleArray?) {
-
-		var userInfo = UserInfoDictionary()
-		if let selectedArticles = selectedArticles {
-			userInfo[UserInfoKey.articles] = selectedArticles
-		}
-		userInfo[UserInfoKey.view] = tableView
-
-		NotificationCenter.default.post(name: .TimelineSelectionDidChange, object: self, userInfo: userInfo)
+	private func selectionDidChange(_ selectedArticles: ArticleArray?) {
+		delegate?.timelineSelectionDidChange(self, selectedArticles: selectedArticles)
 	}
 
 	private func configureTimelineCell(_ cell: TimelineTableCellView, article: Article) {
-
 		cell.objectValue = article
 
-//		let favicon = showFeedNames ? article.feed?.smallIcon : nil
 		var avatar = avatarFor(article)
 		if avatar == nil, let feed = article.feed {
 			avatar = appDelegate.faviconDownloader.favicon(for: feed)
 		}
 		let featuredImage = featuredImageFor(article)
 
-		cell.cellData = TimelineCellData(article: article, appearance: cellAppearance, showFeedName: showFeedNames, feedName: article.feed?.nameForDisplay, avatar: avatar, showAvatar: showAvatars, featuredImage: featuredImage)
+		cell.cellData = TimelineCellData(article: article, showFeedName: showFeedNames, feedName: article.feed?.nameForDisplay, avatar: avatar, showAvatar: showAvatars, featuredImage: featuredImage)
 	}
 
 	private func avatarFor(_ article: Article) -> NSImage? {
-
 		if !showAvatars {
 			return nil
 		}
@@ -666,7 +683,6 @@ extension TimelineViewController: NSTableViewDelegate {
 	}
 
 	private func avatarForAuthor(_ author: Author) -> NSImage? {
-
 		return appDelegate.authorAvatarDownloader.image(for: author)
 	}
 

@@ -11,21 +11,28 @@ import WebKit
 import RSWeb
 import Articles
 
-enum DetailWebViewState: Equatable {
-	case noSelection
-	case multipleSelection
-	case article(Article)
+protocol DetailWebViewControllerDelegate: class {
+	func mouseDidEnter(_: DetailWebViewController, link: String)
+	func mouseDidExit(_: DetailWebViewController, link: String)
 }
 
 final class DetailWebViewController: NSViewController, WKUIDelegate {
 
+	weak var delegate: DetailWebViewControllerDelegate?
 	var webview: DetailWebView!
-	var state: DetailWebViewState = .noSelection {
+	var state: DetailState = .noSelection {
 		didSet {
 			if state != oldValue {
 				reloadHTML()
 			}
 		}
+	}
+	
+	private let keyboardDelegate = DetailKeyboardDelegate()
+	
+	private struct MessageName {
+		static let mouseDidEnter = "mouseDidEnter"
+		static let mouseDidExit = "mouseDidExit"
 	}
 
 	override func loadView() {
@@ -47,17 +54,31 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 		webview = DetailWebView(frame: NSRect.zero, configuration: configuration)
 		webview.uiDelegate = self
 		webview.navigationDelegate = self
+		webview.keyboardDelegate = keyboardDelegate
 		webview.translatesAutoresizingMaskIntoConstraints = false
 		if let userAgent = UserAgent.fromInfoPlist() {
 			webview.customUserAgent = userAgent
 		}
-		webview.nextResponder = self
+
 		view = webview
+
+		DispatchQueue.main.async {
+			// Must do this async, because reloadHTML references view.effectiveAppearance,
+			// which causes loadView to get called. Infinite loop.
+			self.reloadHTML()
+		}
 	}
 
-	private struct MessageName {
-		static let mouseDidEnter = "mouseDidEnter"
-		static let mouseDidExit = "mouseDidExit"
+	// MARK: Scrolling
+
+	func canScrollDown(_ callback: @escaping (Bool) -> Void) {
+		fetchScrollInfo { (scrollInfo) in
+			callback(scrollInfo?.canScrollDown ?? false)
+		}
+	}
+
+	override func scrollPageDown(_ sender: Any?) {
+		webview.scrollPageDown(sender)
 	}
 }
 
@@ -66,24 +87,12 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 extension DetailWebViewController: WKScriptMessageHandler {
 
 	func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-
 		if message.name == MessageName.mouseDidEnter, let link = message.body as? String {
-			mouseDidEnter(link)
+			delegate?.mouseDidEnter(self, link: link)
 		}
 		else if message.name == MessageName.mouseDidExit, let link = message.body as? String{
-			mouseDidExit(link)
+			delegate?.mouseDidExit(self, link: link)
 		}
-	}
-
-	private func mouseDidEnter(_ link: String) {
-		guard !link.isEmpty else {
-			return
-		}
-//		statusBarView.mouseoverLink = link
-	}
-
-	private func mouseDidExit(_ link: String) {
-//		statusBarView.mouseoverLink = nil
 	}
 }
 
@@ -110,7 +119,7 @@ private extension DetailWebViewController {
 
 	func reloadHTML() {
 		let style = ArticleStylesManager.shared.currentStyle
-		let appearance = self.view.effectiveAppearance
+		let appearance = view.effectiveAppearance
 		let html: String
 		var baseURL: URL? = nil
 
@@ -126,7 +135,27 @@ private extension DetailWebViewController {
 
 		webview.loadHTMLString(html, baseURL: baseURL)
 	}
+
+	func fetchScrollInfo(_ callback: @escaping (ScrollInfo?) -> Void) {
+		let javascriptString = "var x = {contentHeight: document.body.scrollHeight, offsetY: document.body.scrollTop}; x"
+
+		webview.evaluateJavaScript(javascriptString) { (info, error) in
+			guard let info = info as? [String: Any] else {
+				callback(nil)
+				return
+			}
+			guard let contentHeight = info["contentHeight"] as? CGFloat, let offsetY = info["offsetY"] as? CGFloat else {
+				callback(nil)
+				return
+			}
+
+			let scrollInfo = ScrollInfo(contentHeight: contentHeight, viewHeight: self.webview.frame.height, offsetY: offsetY)
+			callback(scrollInfo)
+		}
+	}
 }
+
+// MARK: - Article extension
 
 private extension Article {
 
@@ -153,5 +182,26 @@ private extension Article {
 			return nil
 		}
 		return url
+	}
+}
+
+
+// MARK: - ScrollInfo
+
+private struct ScrollInfo {
+
+	let contentHeight: CGFloat
+	let viewHeight: CGFloat
+	let offsetY: CGFloat
+	let canScrollDown: Bool
+	let canScrollUp: Bool
+
+	init(contentHeight: CGFloat, viewHeight: CGFloat, offsetY: CGFloat) {
+		self.contentHeight = contentHeight
+		self.viewHeight = viewHeight
+		self.offsetY = offsetY
+
+		self.canScrollDown = viewHeight + offsetY < contentHeight
+		self.canScrollUp = offsetY > 0.1
 	}
 }

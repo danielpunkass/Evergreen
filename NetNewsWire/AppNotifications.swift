@@ -10,10 +10,7 @@ import AppKit
 import Articles
 
 extension Notification.Name {
-	
-	static let SidebarSelectionDidChange = Notification.Name("SidebarSelectionDidChangeNotification")
-	static let TimelineSelectionDidChange = Notification.Name("TimelineSelectionDidChangeNotification")
-
+	static let InspectableObjectsDidChange = Notification.Name("TimelineSelectionDidChangeNotification")
 	static let UserDidAddFeed = Notification.Name("UserDidAddFeedNotification")
 	static let UserDidRequestSidebarSelection = Notification.Name("UserDidRequestSidebarSelectionNotification")
 }

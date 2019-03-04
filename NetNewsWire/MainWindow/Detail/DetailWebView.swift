@@ -9,19 +9,28 @@
 import AppKit
 import WebKit
 
-// There’s no API for affecting a WKWebView’s contextual menu.
-// (WebView had API for this.)
-//
-// This a minor hack. It hides unwanted menu items.
-// The menu item identifiers are not documented anywhere;
-// they could change, and this code would need updating.
-
 final class DetailWebView: WKWebView {
+
+	weak var keyboardDelegate: KeyboardDelegate?
+	
+	// MARK: - NSResponder
+	
+	override func keyDown(with event: NSEvent) {
+		if keyboardDelegate?.keydown(event, in: self) ?? false {
+			return
+		}
+		super.keyDown(with: event)
+	}
 
 	// MARK: NSView
 
 	override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
-
+		// There’s no API for affecting a WKWebView’s contextual menu.
+		// (WebView had API for this.)
+		//
+		// This a minor hack. It hides unwanted menu items.
+		// The menu item identifiers are not documented anywhere;
+		// they could change, and this code would need updating.
 		for menuItem in menu.items {
 			if shouldHideMenuItem(menuItem) {
 				menuItem.isHidden = true
@@ -36,7 +45,18 @@ final class DetailWebView: WKWebView {
 		evaluateJavaScript("document.getElementById('bodyId').className = '\(bodyClass)'")
 	}
 
+	override func viewWillStartLiveResize() {
+		super.viewWillStartLiveResize()
+		evaluateJavaScript("document.body.style.overflow = 'hidden';", completionHandler: nil)
+	}
+
+	override func viewDidEndLiveResize() {
+		super.viewDidEndLiveResize()
+		evaluateJavaScript("document.body.style.overflow = 'visible';", completionHandler: nil)
+	}
 }
+
+// MARK: - Private
 
 private extension NSUserInterfaceItemIdentifier {
 

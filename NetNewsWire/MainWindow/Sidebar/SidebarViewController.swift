@@ -12,10 +12,16 @@ import Articles
 import Account
 import RSCore
 
+protocol SidebarDelegate: class {
+	func sidebarSelectionDidChange(_: SidebarViewController, selectedObjects: [AnyObject]?)
+}
+
 @objc class SidebarViewController: NSViewController, NSOutlineViewDelegate, NSOutlineViewDataSource, NSMenuDelegate, UndoableCommandRunner {
     
 	@IBOutlet var outlineView: SidebarOutlineView!
-	
+
+	weak var delegate: SidebarDelegate?
+
 	let treeControllerDelegate = SidebarTreeControllerDelegate()
 	lazy var treeController: TreeController = {
 		return TreeController(delegate: treeControllerDelegate)
@@ -69,6 +75,26 @@ import RSCore
 			row += 1
 		}
 	}
+
+	// MARK: State Restoration
+
+//	private static let stateRestorationSelectedRowIndexes = "selectedRowIndexes"
+//
+//	override func encodeRestorableState(with coder: NSCoder) {
+//
+//		super.encodeRestorableState(with: coder)
+//
+//		coder.encode(outlineView.selectedRowIndexes, forKey: SidebarViewController.stateRestorationSelectedRowIndexes)
+//	}
+//
+//	override func restoreState(with coder: NSCoder) {
+//
+//		super.restoreState(with: coder)
+//
+//		if let restoredRowIndexes = coder.decodeObject(of: [NSIndexSet.self], forKey: SidebarViewController.stateRestorationSelectedRowIndexes) as? IndexSet {
+//			outlineView.selectRowIndexes(restoredRowIndexes, byExtendingSelection: false)
+//		}
+//	}
 
 	// MARK: - Notifications
 
@@ -276,8 +302,8 @@ import RSCore
 	}
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
-
-		postSidebarSelectionDidChangeNotification(selectedObjects.isEmpty ? nil : selectedObjects)
+		selectionDidChange(selectedObjects.isEmpty ? nil : selectedObjects)
+//		self.invalidateRestorableState()
     }
 
 	//MARK: - Node Manipulation
@@ -375,19 +401,12 @@ private extension SidebarViewController {
 		outlineView.selectRowIndexes(indexes, byExtendingSelection: false)
 
 		if selectedNodes != nodes && sendNotificationIfChanged {
-			postSidebarSelectionDidChangeNotification(selectedObjects)
+			selectionDidChange(selectedObjects)
 		}
 	}
 
-	func postSidebarSelectionDidChangeNotification(_ selectedObjects: [AnyObject]?) {
-
-		var userInfo = UserInfoDictionary()
-		if let objects = selectedObjects {
-			userInfo[UserInfoKey.objects] = objects
-		}
-		userInfo[UserInfoKey.view] = outlineView
-
-		NotificationCenter.default.post(name: .SidebarSelectionDidChange, object: self, userInfo: userInfo)
+	func selectionDidChange(_ selectedObjects: [AnyObject]?) {
+		delegate?.sidebarSelectionDidChange(self, selectedObjects: selectedObjects)
 	}
 
 	func updateUnreadCounts(for objects: [AnyObject]) {
