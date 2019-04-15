@@ -10,24 +10,8 @@ import Foundation
 import RSCore
 import RSWeb
 import Articles
-import RSDatabase
 
 public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Hashable {
-
-	private struct Key {
-		static let url = "url"
-		static let feedID = "feedID"
-		static let homePageURL = "homePageURL"
-		static let iconURL = "iconURL"
-		static let faviconURL = "faviconURL"
-		static let name = "name"
-		static let editedName = "editedName"
-		static let authors = "authors"
-		static let conditionalGetInfo = "conditionalGetInfo"
-		static let conditionalGetLastModified = "lastModified"
-		static let conditionalGetEtag = "etag"
-		static let contentHash = "contentHash"
-	}
 
 	public weak var account: Account?
 	public let url: String
@@ -35,43 +19,43 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 
 	public var homePageURL: String? {
 		get {
-			return settingsTable.string(for: Key.homePageURL)
+			return metadata.homePageURL
 		}
 		set {
 			if let url = newValue {
-				settingsTable.setString(url.rs_normalizedURL(), for: Key.homePageURL)
+				metadata.homePageURL = url.rs_normalizedURL()
 			}
 			else {
-				settingsTable.setString(nil, for: Key.homePageURL)
+				metadata.homePageURL = nil
 			}
 		}
 	}
 
 	public var iconURL: String? {
 		get {
-			return settingsTable.string(for: Key.iconURL)
+			return metadata.iconURL
 		}
 		set {
-			settingsTable.setString(newValue, for: Key.iconURL)
+			metadata.iconURL = newValue
 		}
 	}
 
 	public var faviconURL: String? {
 		get {
-			return settingsTable.string(for: Key.faviconURL)
+			return metadata.faviconURL
 		}
 		set {
-			settingsTable.setString(newValue, for: Key.faviconURL)
+			metadata.faviconURL = newValue
 		}
 	}
 
 	public var name: String? {
 		get {
-			return settingsTable.string(for: Key.name)
+			return metadata.name
 		}
 		set {
 			let oldNameForDisplay = nameForDisplay
-			settingsTable.setString(newValue, for: Key.name)
+			metadata.name = newValue
 			if oldNameForDisplay != nameForDisplay {
 				postDisplayNameDidChangeNotification()
 			}
@@ -80,17 +64,17 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 
 	public var authors: Set<Author>? {
 		get {
-			guard let authorsJSON = settingsTable.string(for: Key.authors) else {
-				return nil
+			if let authorsArray = metadata.authors {
+				return Set(authorsArray)
 			}
-			return Author.authorsWithJSON(authorsJSON)
+			return nil
 		}
 		set {
-			if let authorsJSON = newValue?.json() {
-				settingsTable.setString(authorsJSON, for: Key.authors)
+			if let authorsSet = newValue {
+				metadata.authors = Array(authorsSet)
 			}
 			else {
-				settingsTable.setString(nil, for: Key.authors)
+				metadata.authors = nil
 			}
 		}
 	}
@@ -98,7 +82,7 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 	public var editedName: String? {
 		// Don’t let editedName == ""
 		get {
-			guard let s = settingsTable.string(for: Key.editedName), !s.isEmpty else {
+			guard let s = metadata.editedName, !s.isEmpty else {
 				return nil
 			}
 			return s
@@ -106,10 +90,10 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 		set {
 			if newValue != editedName {
 				if let valueToSet = newValue, !valueToSet.isEmpty {
-					settingsTable.setString(valueToSet, for: Key.editedName)
+					metadata.editedName = valueToSet
 				}
 				else {
-					settingsTable.setString(nil, for: Key.editedName)
+					metadata.editedName = nil
 				}
 				postDisplayNameDidChangeNotification()
 			}
@@ -118,22 +102,19 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 
 	public var conditionalGetInfo: HTTPConditionalGetInfo? {
 		get {
-			let lastModified = settingsTable.string(for: Key.conditionalGetLastModified)
-			let etag = settingsTable.string(for: Key.conditionalGetEtag)
-			return HTTPConditionalGetInfo(lastModified: lastModified, etag: etag)
+			return metadata.conditionalGetInfo
 		}
 		set {
-			settingsTable.setString(newValue?.lastModified, for: Key.conditionalGetLastModified)
-			settingsTable.setString(newValue?.etag, for: Key.conditionalGetEtag)
+			metadata.conditionalGetInfo = newValue
 		}
 	}
 
 	public var contentHash: String? {
 		get {
-			return settingsTable.string(for: Key.contentHash)
+			return metadata.contentHash
 		}
 		set {
-			settingsTable.setString(newValue, for: Key.contentHash)
+			metadata.contentHash = newValue
 		}
 	}
 
@@ -170,43 +151,24 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 		}
 	}
 
-	private let settingsTable: ODBRawValueTable
+	// MARK: - Private
+
 	private let accountID: String // Used for hashing and equality; account may turn nil
+	private let metadata: FeedMetadata
 
 	// MARK: - Init
 
-	public init(account: Account, url: String, feedID: String) {
-
+	init(account: Account, url: String, feedID: String, metadata: FeedMetadata) {
 		self.account = account
 		self.accountID = account.accountID
 		self.url = url
 		self.feedID = feedID
-		self.settingsTable = account.settingsTableForFeed(feedID: feedID)!
-	}
-
-	// MARK: - Disk Dictionary
-
-	convenience public init?(account: Account, dictionary: [String: Any]) {
-
-		guard let url = dictionary[Key.url] as? String else {
-			return nil
-		}
-		let feedID = dictionary[Key.feedID] as? String ?? url
-		
-		self.init(account: account, url: url, feedID: feedID)
-		self.editedName = dictionary[Key.editedName] as? String
-		self.name = dictionary[Key.name] as? String
-	}
-
-	public static func isFeedDictionary(_ d: [String: Any]) -> Bool {
-
-		return d[Key.url] != nil
+		self.metadata = metadata
 	}
 
 	// MARK: - Debug
 
 	public func debugDropConditionalGetInfo() {
-
 		conditionalGetInfo = nil
 		contentHash = nil
 	}
@@ -221,7 +183,6 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 	// MARK: - Equatable
 
 	public class func ==(lhs: Feed, rhs: Feed) -> Bool {
-
 		return lhs.feedID == rhs.feedID && lhs.accountID == rhs.accountID
 	}
 }
@@ -259,7 +220,6 @@ extension Feed: OPMLRepresentable {
 extension Set where Element == Feed {
 
 	func feedIDs() -> Set<String> {
-
 		return Set<String>(map { $0.feedID })
 	}
 }

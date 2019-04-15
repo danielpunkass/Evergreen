@@ -12,10 +12,8 @@ import Articles
 import RSParser
 import ArticlesDatabase
 import RSWeb
-import RSDatabase
 
 public extension Notification.Name {
-
 	static let AccountRefreshDidBegin = Notification.Name(rawValue: "AccountRefreshDidBegin")
 	static let AccountRefreshDidFinish = Notification.Name(rawValue: "AccountRefreshDidFinish")
 	static let AccountRefreshProgressDidChange = Notification.Name(rawValue: "AccountRefreshProgressDidChange")
@@ -25,7 +23,6 @@ public extension Notification.Name {
 }
 
 public enum AccountType: Int {
-
 	// Raw values should not change since they’re stored on disk.
 	case onMyMac = 1
 	case feedly = 16
@@ -37,7 +34,6 @@ public enum AccountType: Int {
 
 public final class Account: DisplayNameProvider, UnreadCountProvider, Container, Hashable {
 
-
     public struct UserInfoKey {
 		public static let newArticles = "newArticles" // AccountDidDownloadArticles
 		public static let updatedArticles = "updatedArticles" // AccountDidDownloadArticles
@@ -48,10 +44,31 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 
 	public let accountID: String
 	public let type: AccountType
-	public var nameForDisplay = ""
+	public var nameForDisplay: String {
+		guard let name = name, !name.isEmpty else {
+			return defaultName
+		}
+		return name
+	}
+
+	public var name: String? {
+		get {
+			return settings.name
+		}
+		set {
+			let currentNameForDisplay = nameForDisplay
+			if newValue != settings.name {
+				settings.name = newValue
+				if currentNameForDisplay != nameForDisplay {
+					postDisplayNameDidChangeNotification()
+				}
+			}
+		}
+	}
+	public let defaultName: String
+
 	public var topLevelFeeds = Set<Feed>()
 	public var folders: Set<Folder>? = Set<Folder>()
-
 	private var feedDictionaryNeedsUpdate = true
 	private var _idToFeedDictionary = [String: Feed]()
 	var idToFeedDictionary: [String: Feed] {
@@ -63,16 +80,11 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 
 	private var fetchingAllUnreadCounts = false
 
-	let settingsFile: String
 	let dataFolder: String
 	let database: ArticlesDatabase
 	let delegate: AccountDelegate
 	var username: String?
 	static let saveQueue = CoalescingQueue(name: "Account Save Queue", interval: 1.0)
-
-	private let settingsODB: ODB
-	private let feedsPath: ODBPath
-	private let feedsTable: ODBTable
 
 	private var unreadCounts = [String: Int]() // [feedID: Int]
 	private let opmlFilePath: String
@@ -80,11 +92,25 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	private var _flattenedFeeds = Set<Feed>()
 	private var flattenedFeedsNeedUpdate = true
 
+	private let settingsPath: String
+	private var settings = AccountSettings()
+	private var settingsDirty = false {
+		didSet {
+			queueSaveSettingsIfNeeded()
+		}
+	}
+
+	private let feedMetadataPath: String
+	private typealias FeedMetadataDictionary = [String: FeedMetadata]
+	private var feedMetadata = FeedMetadataDictionary()
+	private var feedMetadataDirty = false {
+		didSet {
+			queueSaveMetadataIfNeeded()
+		}
+	}
+
 	private var startingUp = true
 
-	private struct SettingsKey {
-		static let unreadCount = "unreadCount"
-	}
 	public var dirty = false {
 		didSet {
 			queueSaveToDiskIfNeeded()
@@ -121,7 +147,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		return delegate.supportsSubFolders
 	}
 	
-	init?(dataFolder: String, settingsFile: String, type: AccountType, accountID: String) {
+	init?(dataFolder: String, type: AccountType, accountID: String) {
 		
 		// TODO: support various syncing systems.
 		precondition(type == .onMyMac)
@@ -129,7 +155,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 
 		self.accountID = accountID
 		self.type = type
-		self.settingsFile = settingsFile
 		self.dataFolder = dataFolder
 
 		self.opmlFilePath = (dataFolder as NSString).appendingPathComponent("Subscriptions.opml")
@@ -137,11 +162,21 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		let databaseFilePath = (dataFolder as NSString).appendingPathComponent("DB.sqlite3")
 		self.database = ArticlesDatabase(databaseFilePath: databaseFilePath, accountID: accountID)
 
-		let settingsODBFilePath = (dataFolder as NSString).appendingPathComponent("Settings.odb")
-		self.settingsODB = ODB(filepath: settingsODBFilePath)
-		self.settingsODB.vacuum()
-		self.feedsPath = ODBPath.path(["feeds"])
-		self.feedsTable = settingsODB.ensureTable(self.feedsPath)!
+		self.feedMetadataPath = (dataFolder as NSString).appendingPathComponent("FeedMetadata.plist")
+		self.settingsPath = (dataFolder as NSString).appendingPathComponent("Settings.plist")
+
+		switch type {
+		case .onMyMac:
+			defaultName = NSLocalizedString("On My Mac", comment: "Account name")
+		case .feedly:
+			defaultName = "Feedly"
+		case .feedbin:
+			defaultName = "Feedbin"
+		case .feedWrangler:
+			defaultName = "FeedWrangler"
+		case .newsBlur:
+			defaultName = "NewsBlur"
+		}
 
 		NotificationCenter.default.addObserver(self, selector: #selector(downloadProgressDidChange(_:)), name: .DownloadProgressDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
@@ -268,8 +303,9 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		
 		// For syncing, this may need to be an async method with a callback,
 		// since it will likely need to call the server.
-		
-		let feed = Feed(account: self, url: url, feedID: url)
+
+		let feedMetadata = metadata(feedID: url)
+		let feed = Feed(account: self, url: url, feedID: url, metadata: feedMetadata)
 		if let name = name, feed.name == nil {
 			feed.name = name
 		}
@@ -415,14 +451,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		database.fetchStarredAndUnreadCount(for: flattenedFeeds().feedIDs(), callback: callback)
 	}
 
-	public func markEverywhereAsRead() {
-
-		// Does not support undo.
-
-		database.markEverywhereAsRead()
-		flattenedFeeds().forEach { $0.unreadCount = 0 }		
-	}
-
 	public func opmlDocument() -> String {
 		let escapedTitle = nameForDisplay.rs_stringByEscapingSpecialXMLCharacters()
 		let openingText =
@@ -559,6 +587,18 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		}
 	}
 
+	@objc func saveMetadataIfNeeded() {
+		if feedMetadataDirty {
+			saveFeedMetadata()
+		}
+	}
+
+	@objc func saveSettingsIfNeeded() {
+		if settingsDirty {
+			saveSettings()
+		}
+	}
+
 	// MARK: - Hashable
 
 	public func hash(into hasher: inout Hasher) {
@@ -574,19 +614,16 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 }
 
 
-// MARK: - Disk (Public)
+// MARK: - FeedMetadataDelegate
 
-extension Account {
+extension Account: FeedMetadataDelegate {
 
-	func objects(with diskObjects: [[String: Any]]) -> [AnyObject] {
-
-		return diskObjects.compactMap { object(with: $0) }
-	}
-
-	func settingsTableForFeed(feedID: String) -> ODBRawValueTable? {
-		let feedPath = feedsPath + feedID
-		let table = settingsODB.ensureTable(feedPath)
-		return table?.rawValueTable
+	func valueDidChange(_ feedMetadata: FeedMetadata, key: FeedMetadata.CodingKeys) {
+		feedMetadataDirty = true
+		guard let feed = existingFeed(with: feedMetadata.feedID) else {
+			return
+		}
+		feed.postFeedSettingDidChangeNotification(key)
 	}
 }
 
@@ -594,67 +631,33 @@ extension Account {
 
 private extension Account {
 	
-	struct Key {
-		static let children = "children"
-		static let userInfo = "userInfo"
-		static let unreadCount = "unreadCount"
-	}
-
 	func queueSaveToDiskIfNeeded() {
-
 		Account.saveQueue.add(self, #selector(saveToDiskIfNeeded))
 	}
 
-	func object(with diskObject: [String: Any]) -> AnyObject? {
-
-		if Feed.isFeedDictionary(diskObject) {
-			return Feed(account: self, dictionary: diskObject)
-		}
-		return Folder(account: self, dictionary: diskObject)
+	func pullObjectsFromDisk() {
+		importSettings()
+		importFeedMetadata()
+		importOPMLFile(path: opmlFilePath)
 	}
 
-	func pullObjectsFromDisk() {
-
-		// 9/16/2018: Turning a corner — we used to store data in a plist file,
-		// but now we’re switching over to OPML. Read the plist file one last time,
-		// then rename it so we never read from it again.
-
-		if FileManager.default.fileExists(atPath: settingsFile) {
-			// Old code for reading in plist file.
-			let settingsFileURL = URL(fileURLWithPath: settingsFile)
-			guard let d = NSDictionary(contentsOf: settingsFileURL) as? [String: Any] else {
-				return
-			}
-			guard let childrenArray = d[Key.children] as? [[String: Any]] else {
-				return
-			}
-			let children = objects(with: childrenArray)
-			var feeds = Set<Feed>()
-			var folders = Set<Folder>()
-			for oneChild in children {
-				if let feed = oneChild as? Feed {
-					feeds.insert(feed)
-				}
-				else if let folder = oneChild as? Folder {
-					folders.insert(folder)
-				}
-			}
-			self.topLevelFeeds = feeds
-			self.folders = folders
-			structureDidChange()
-
-			// Rename plist file so we don’t see it next time.
-			let renamedFilePath = (dataFolder as NSString).appendingPathComponent("AccountData-old.plist")
-			do {
-				try FileManager.default.moveItem(atPath: settingsFile, toPath: renamedFilePath)
-			}
-			catch {}
-
-			dirty = true // Ensure OPML file will be written soon.
+	func importSettings() {
+		let url = URL(fileURLWithPath: settingsPath)
+		guard let data = try? Data(contentsOf: url) else {
 			return
 		}
+		let decoder = PropertyListDecoder()
+		settings = (try? decoder.decode(AccountSettings.self, from: data)) ?? AccountSettings()
+	}
 
-		importOPMLFile(path: opmlFilePath)
+	func importFeedMetadata() {
+		let url = URL(fileURLWithPath: feedMetadataPath)
+		guard let data = try? Data(contentsOf: url) else {
+			return
+		}
+		let decoder = PropertyListDecoder()
+		feedMetadata = (try? decoder.decode(FeedMetadataDictionary.self, from: data)) ?? FeedMetadataDictionary()
+		feedMetadata.values.forEach { $0.delegate = self }
 	}
 
 	func importOPMLFile(path: String) {
@@ -678,7 +681,11 @@ private extension Account {
 		do {
 			opmlDocument = try RSOPMLParser.parseOPML(with: parserData)
 		} catch {
+			#if os(macOS)
 			NSApplication.shared.presentError(error)
+			#else
+			UIApplication.shared.presentError(error)
+			#endif
 			return
 		}
 		guard let parsedOPML = opmlDocument, let children = parsedOPML.children else {
@@ -700,7 +707,57 @@ private extension Account {
 			try opmlDocumentString.write(to: url, atomically: true, encoding: .utf8)
 		}
 		catch let error as NSError {
+			#if os(macOS)
 			NSApplication.shared.presentError(error)
+			#else
+			UIApplication.shared.presentError(error)
+			#endif
+		}
+	}
+
+	func queueSaveMetadataIfNeeded() {
+		Account.saveQueue.add(self, #selector(saveMetadataIfNeeded))
+	}
+
+	private func metadataForOnlySubscribedToFeeds() -> FeedMetadataDictionary {
+		let feedIDs = idToFeedDictionary.keys
+		return feedMetadata.filter { (feedID: String, metadata: FeedMetadata) -> Bool in
+			return feedIDs.contains(feedID)
+		}
+	}
+
+	func saveFeedMetadata() {
+		feedMetadataDirty = false
+
+		let d = metadataForOnlySubscribedToFeeds()
+		let encoder = PropertyListEncoder()
+		encoder.outputFormat = .binary
+		let url = URL(fileURLWithPath: feedMetadataPath)
+		do {
+			let data = try encoder.encode(d)
+			try data.write(to: url)
+		}
+		catch {
+			assertionFailure(error.localizedDescription)
+		}
+	}
+
+	func queueSaveSettingsIfNeeded() {
+		Account.saveQueue.add(self, #selector(saveSettingsIfNeeded))
+	}
+
+	func saveSettings() {
+		settingsDirty = false
+
+		let encoder = PropertyListEncoder()
+		encoder.outputFormat = .binary
+		let url = URL(fileURLWithPath: settingsPath)
+		do {
+			let data = try encoder.encode(settings)
+			try data.write(to: url)
+		}
+		catch {
+			assertionFailure(error.localizedDescription)
 		}
 	}
 }
@@ -708,6 +765,17 @@ private extension Account {
 // MARK: - Private
 
 private extension Account {
+
+	func metadata(feedID: String) -> FeedMetadata {
+		if let d = feedMetadata[feedID] {
+			assert(d.delegate === self)
+			return d
+		}
+		let d = FeedMetadata(feedID: feedID)
+		d.delegate = self
+		feedMetadata[feedID] = d
+		return d
+	}
 
 	func updateFlattenedFeeds() {
 		var feeds = Set<Feed>()
@@ -721,7 +789,6 @@ private extension Account {
 	}
 
 	func rebuildFeedDictionaries() {
-
 		var idDictionary = [String: Feed]()
 
 		flattenedFeeds().forEach { (feed) in
@@ -733,8 +800,9 @@ private extension Account {
 	}
 
 	func createFeed(with opmlFeedSpecifier: RSOPMLFeedSpecifier) -> Feed {
-
-		let feed = Feed(account: self, url: opmlFeedSpecifier.feedURL, feedID: opmlFeedSpecifier.feedURL)
+		let feedID = opmlFeedSpecifier.feedURL
+		let feedMetadata = metadata(feedID: feedID)
+		let feed = Feed(account: self, url: opmlFeedSpecifier.feedURL, feedID: feedID, metadata: feedMetadata)
 		if let feedTitle = opmlFeedSpecifier.title {
 			if feed.name == nil {
 				feed.name = feedTitle
