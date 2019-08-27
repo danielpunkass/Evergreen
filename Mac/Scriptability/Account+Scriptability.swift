@@ -25,7 +25,27 @@ class ScriptableAccount: NSObject, UniqueIdScriptingObject, ScriptingObjectConta
         let scriptObjectSpecifier = myContainer.makeFormUniqueIDScriptObjectSpecifier(forObject:self)
         return (scriptObjectSpecifier)
     }
-    
+
+	@objc(scriptingIsActive)
+	var scriptingIsActive: Bool {
+		get {
+			return account.isActive
+		}
+		set {
+			account.isActive = newValue
+		}
+	}
+
+	@objc(scriptingName)
+	var scriptingName: NSString {
+		get {
+			return account.nameForDisplay as NSString
+		}
+		set {
+			account.name = newValue as String
+		}
+	}
+
     // MARK: --- ScriptingObject protocol ---
     
     var scriptingKey: String {
@@ -47,17 +67,25 @@ class ScriptableAccount: NSObject, UniqueIdScriptingObject, ScriptingObjectConta
         return self.classDescription as! NSScriptClassDescription
     }
     
-    func deleteElement(_ element:ScriptingObject) {
-       if let scriptableFolder = element as? ScriptableFolder {
-           BatchUpdate.shared.perform {
-               account.deleteFolder(scriptableFolder.folder)
-           }
-       } else if let scriptableFeed = element as? ScriptableFeed {
-           BatchUpdate.shared.perform {
-               account.deleteFeed(scriptableFeed.feed)
-           }
-       }
-    }
+	func deleteElement(_ element:ScriptingObject) {
+		if let scriptableFolder = element as? ScriptableFolder {
+			BatchUpdate.shared.perform {
+				account.removeFolder(scriptableFolder.folder) { result in
+				}
+			}
+		} else if let scriptableFeed = element as? ScriptableFeed {
+			BatchUpdate.shared.perform {
+				var container: Container? = nil
+				if let scriptableFolder = scriptableFeed.container as? ScriptableFolder {
+					container = scriptableFolder.folder
+				} else {
+					container = account
+				}
+				account.removeFeed(scriptableFeed.feed, from: container!) { result in
+				}
+			}
+		}
+	}
 
     @objc(isLocationRequiredToCreateForKey:)
     func isLocationRequiredToCreate(forKey key:String) -> Bool {
@@ -103,18 +131,21 @@ class ScriptableAccount: NSObject, UniqueIdScriptingObject, ScriptingObjectConta
 
     // MARK: --- Scriptable properties ---
 
-    @objc(contents)
-    var contents:NSArray  {
-        var contentsArray:[AnyObject] = []
+    @objc(allFeeds)
+    var allFeeds: NSArray  {
+		var feeds = [ScriptableFeed]()
 		for feed in account.topLevelFeeds {
-			contentsArray.append(ScriptableFeed(feed, container: self))
+			feeds.append(ScriptableFeed(feed, container: self))
 		}
 		if let folders = account.folders {
 			for folder in folders {
-				contentsArray.append(ScriptableFolder(folder, container:self))
+				let scriptableFolder = ScriptableFolder(folder, container: self)
+				for feed in folder.topLevelFeeds {
+					feeds.append(ScriptableFeed(feed, container: scriptableFolder))
+				}
 			}
 		}
-		return contentsArray as NSArray
+		return feeds as NSArray
     }
 
     @objc(opmlRepresentation)
@@ -136,6 +167,8 @@ class ScriptableAccount: NSObject, UniqueIdScriptingObject, ScriptingObjectConta
                 osType = "FWrg"
         case .newsBlur:
                 osType = "NBlr"
+		case .freshRSS:
+				osType = "Frsh"
         }
         return osType.fourCharCode()
     }

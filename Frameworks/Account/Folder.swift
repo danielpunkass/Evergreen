@@ -1,6 +1,6 @@
 //
 //  Folder.swift
-//  DataModel
+//  NetNewsWire
 //
 //  Created by Brent Simmons on 7/1/17.
 //  Copyright © 2017 Ranchero Software, LLC. All rights reserved.
@@ -44,14 +44,14 @@ public final class Folder: DisplayNameProvider, Renamable, Container, UnreadCoun
 
 	// MARK: - Renamable
 
-	public func rename(to newName: String) {
-		name = newName
+	public func rename(to name: String, completion: @escaping (Result<Void, Error>) -> Void) {
+		guard let account = account else { return }
+		account.renameFolder(self, to: name, completion: completion)
 	}
 	
 	// MARK: - Init
 
 	init(account: Account, name: String?) {
-		
 		self.account = account
 		self.name = name
 
@@ -66,7 +66,6 @@ public final class Folder: DisplayNameProvider, Renamable, Container, UnreadCoun
 	// MARK: - Notifications
 
 	@objc func unreadCountDidChange(_ note: Notification) {
-
 		if let object = note.object {
 			if objectIsChild(object as AnyObject) {
 				updateUnreadCount()
@@ -75,7 +74,6 @@ public final class Folder: DisplayNameProvider, Renamable, Container, UnreadCoun
 	}
 
 	@objc func childrenDidChange(_ note: Notification) {
-
 		updateUnreadCount()
 	}
 
@@ -94,13 +92,14 @@ public final class Folder: DisplayNameProvider, Renamable, Container, UnreadCoun
 		return topLevelFeeds.contains(feed)
 	}
 
-	public func deleteFeed(_ feed: Feed) {
-		topLevelFeeds.remove(feed)
+	public func addFeed(_ feed: Feed) {
+		topLevelFeeds.insert(feed)
 		postChildrenDidChangeNotification()
 	}
-
-	public func deleteFolder(_ folder: Folder) {
-		// Nothing to do
+	
+	public func removeFeed(_ feed: Feed) {
+		topLevelFeeds.remove(feed)
+		postChildrenDidChangeNotification()
 	}
 
 	// MARK: - Hashable
@@ -112,7 +111,6 @@ public final class Folder: DisplayNameProvider, Renamable, Container, UnreadCoun
 	// MARK: - Equatable
 
 	static public func ==(lhs: Folder, rhs: Folder) -> Bool {
-
 		return lhs === rhs
 	}
 }
@@ -139,7 +137,6 @@ private extension Folder {
 extension Folder: OPMLRepresentable {
 
 	public func OPMLString(indentLevel: Int) -> String {
-
 		let escapedTitle = nameForDisplay.rs_stringByEscapingSpecialXMLCharacters()
 		var s = "<outline text=\"\(escapedTitle)\" title=\"\(escapedTitle)\">\n"
 		s = s.rs_string(byPrependingNumberOfTabs: indentLevel)

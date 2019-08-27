@@ -19,12 +19,14 @@ class TimelineTableCellView: NSTableCellView {
 	private let feedNameView = TimelineTableCellView.singleLineTextField()
 
 	private lazy var avatarImageView: NSImageView = {
-		let imageView = TimelineTableCellView.imageView(with: AppImages.genericFeedImage, scaling: .scaleProportionallyDown)
+		let imageView = TimelineTableCellView.imageView(with: AppAssets.genericFeedImage, scaling: .scaleNone)
+		imageView.imageAlignment = .alignTop
+		imageView.imageScaling = .scaleProportionallyDown
 		imageView.wantsLayer = true
 		return imageView
 	}()
 
-	private let starView = TimelineTableCellView.imageView(with: AppImages.timelineStar, scaling: .scaleNone)
+	private let starView = TimelineTableCellView.imageView(with: AppAssets.timelineStar, scaling: .scaleNone)
 
 	private lazy var textFields = {
 		return [self.dateView, self.feedNameView, self.titleView, self.summaryView, self.textView]
@@ -43,6 +45,18 @@ class TimelineTableCellView: NSTableCellView {
 	var cellData: TimelineCellData! {
 		didSet {
 			updateSubviews()
+		}
+	}
+	
+	var isEmphasized: Bool = false {
+		didSet {
+			unreadIndicatorView.isEmphasized = isEmphasized
+		}
+	}
+
+	var isSelected: Bool = false {
+		didSet {
+			unreadIndicatorView.isSelected = isSelected
 		}
 	}
 	
@@ -209,7 +223,6 @@ private extension TimelineTableCellView {
 	}
 
 	func updateTextFieldText(_ textField: NSTextField, _ text: String?) {
-
 		let s = text ?? ""
 		if textField.stringValue != s {
 			textField.stringValue = s
@@ -218,7 +231,6 @@ private extension TimelineTableCellView {
 	}
 
 	func updateFeedNameView() {
-
 		if cellData.showFeedName {
 			showView(feedNameView)
 			updateTextFieldText(feedNameView, cellData.feedName)
@@ -229,19 +241,15 @@ private extension TimelineTableCellView {
 	}
 
 	func updateUnreadIndicator() {
-
 		showOrHideView(unreadIndicatorView, cellData.read || cellData.starred)
 	}
 
 	func updateStarView() {
-
 		showOrHideView(starView, !cellData.starred)
 	}
 
 	func updateAvatar() {
-
-		// The avatar should be bigger than a favicon. They’re too small; they look weird.
-		guard let image = cellData.avatar, cellData.showAvatar, image.size.height >= 22.0, image.size.width >= 22.0 else {
+		guard let image = cellData.avatar, cellData.showAvatar else {
 			makeAvatarEmpty()
 			return
 		}
@@ -254,7 +262,6 @@ private extension TimelineTableCellView {
 	}
 
 	func makeAvatarEmpty() {
-
 		if avatarImageView.image != nil {
 			avatarImageView.image = nil
 			needsLayout = true
@@ -263,21 +270,18 @@ private extension TimelineTableCellView {
 	}
 
 	func hideView(_ view: NSView) {
-
 		if !view.isHidden {
 			view.isHidden = true
 		}
 	}
 
 	func showView(_ view: NSView) {
-
 		if view.isHidden {
 			view.isHidden = false
 		}
 	}
 
 	func showOrHideView(_ view: NSView, _ shouldHide: Bool) {
-
 		shouldHide ? hideView(view) : showView(view)
 	}
 

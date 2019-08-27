@@ -10,62 +10,135 @@ import RSCore
 
 struct AppAssets {
 
-	static var circleClosedImage: RSImage = {
-		return RSImage(named: "circleClosedImage")!
+	static var avatarBackgroundColor: UIColor = {
+		return UIColor(named: "avatarBackgroundColor")!
+	}()
+
+	static var barBackgroundColor: UIColor = {
+		return UIColor(named: "barBackgroundColor")!
+	}()
+
+	static var barTintColor: UIColor = {
+		return UIColor(named: "barTintColor")!
+	}()
+
+	static var barTitleColor: UIColor = {
+		return UIColor(named: "barTitleColor")!
+	}()
+
+	static var circleClosedImage: UIImage = {
+		return UIImage(systemName: "circle.fill")!
 	}()
 	
-	static var circleOpenImage: RSImage = {
-		return RSImage(named: "circleOpenImage")!
+	static var circleOpenImage: UIImage = {
+		return UIImage(systemName: "circle")!
 	}()
 	
-	static var cogImage: RSImage = {
-		return RSImage(named: "cogImage")!
+	static var chevronDisclosureColor: UIColor = {
+		return UIColor(named: "chevronDisclosureColor")!
+	}()
+	
+	static var chevronDownImage: UIImage = {
+		let image = UIImage(systemName: "chevron.down")!
+		return image.withTintColor(AppAssets.chevronDisclosureColor, renderingMode: .alwaysOriginal)
+	}()
+	
+	static var chevronRightImage: UIImage = {
+		let image = UIImage(systemName: "chevron.right")!
+		return image.withTintColor(AppAssets.chevronDisclosureColor, renderingMode: .alwaysOriginal)
+	}()
+	
+	static var copyImage: UIImage = {
+		return UIImage(systemName: "doc.on.doc")!
+	}()
+	
+	static var editImage: UIImage = {
+		UIImage(systemName: "square.and.pencil")!
+	}()
+	
+	static var faviconTemplateImage: RSImage = {
+		return RSImage(named: "faviconTemplateImage")!
 	}()
 	
 	static var feedImage: RSImage = {
-		return RSImage(named: "rssImage")!
+		return RSImage(named: "feedImage")!
 	}()
 	
-	static var folderImage: RSImage = {
-		return RSImage(named: "folderImage")!
+	static var markAllInFeedAsReadImage: UIImage = {
+		return UIImage(systemName: "asterisk.circle")!
 	}()
 	
-	static var masterFolderColor: UIColor = {
-		return UIColor(named: "masterFolderColor")!
+	static var markOlderAsReadDownImage: UIImage = {
+		return UIImage(systemName: "arrowtriangle.down.circle")!
+	}()
+	
+	static var markOlderAsReadUpImage: UIImage = {
+		return UIImage(systemName: "arrowtriangle.up.circle")!
 	}()
 	
 	static var masterFolderImage: UIImage = {
-		let image = UIImage(named: "folderImage")!
-		return image.maskWithColor(color: AppAssets.masterFolderColor)!
+		return UIImage(systemName: "folder.fill")!
+	}()
+	
+	static var moreImage: UIImage = {
+		return UIImage(systemName: "ellipsis.circle")!
+	}()
+	
+	static var netNewsWireBlueColor: UIColor = {
+		return UIColor(named: "netNewsWireBlueColor")!
+	}()
+	
+	static var openInSidebarImage: UIImage = {
+		return UIImage(systemName: "arrow.turn.down.left")!
+	}()
+	
+	static var safariImage: UIImage = {
+		return UIImage(systemName: "safari")!
+	}()
+	
+	static var selectedTextColor: UIColor = {
+		return UIColor(named: "selectedTextColor")!
+	}()
+
+	static var settingsImage: UIImage = {
+		return UIImage(named: "settingsImage")!
+	}()
+	
+	static var shareImage: UIImage = {
+		return UIImage(systemName: "square.and.arrow.up")!
+	}()
+	
+	static var smartFeedColor: UIColor = {
+		return UIColor(named: "smartFeedColor")!
+	}()
+	
+	static var smartFeedImage: UIImage = {
+		return UIImage(systemName: "gear")!
 	}()
 	
 	static var starColor: UIColor = {
 		return UIColor(named: "starColor")!
 	}()
 	
-	static var starClosedImage: RSImage = {
-		return RSImage(named: "starClosedImage")!
+	static var starClosedImage: UIImage = {
+		return UIImage(systemName: "star.fill")!
 	}()
 	
-	static var starOpenImage: RSImage = {
-		return RSImage(named: "starOpenImage")!
+	static var starOpenImage: UIImage = {
+		return UIImage(systemName: "star")!
 	}()
 	
-	static var timelineStarImage: RSImage = {
-		let image = RSImage(named: "starClosedImage")!
-		return image.maskWithColor(color: AppAssets.starColor)!
+	static var timelineStarImage: UIImage = {
+		let image = UIImage(systemName: "star.fill")!
+		return image.withTintColor(AppAssets.starColor, renderingMode: .alwaysOriginal)
 	}()
-
-	static var timelineTextPrimaryColor: UIColor = {
-		return UIColor(named: "timelineTextPrimaryColor")!
-	}()
-
-	static var timelineTextSecondaryColor: UIColor = {
-		return UIColor(named: "timelineTextSecondaryColor")!
-	}()
-
+	
 	static var timelineUnreadCircleColor: UIColor = {
 		return UIColor(named: "timelineUnreadCircleColor")!
+	}()
+	
+	static var trashImage: UIImage = {
+		return UIImage(systemName: "trash")!
 	}()
 	
 }

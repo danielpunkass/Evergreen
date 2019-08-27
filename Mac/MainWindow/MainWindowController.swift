@@ -227,7 +227,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 			return true
 		}
-
+		
 		return true
 	}
 
@@ -241,14 +241,6 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 			NSCursor.setHiddenUntilMouseMoves(true)
 			canScroll ? detailViewController.scrollPageDown(sender) : self.nextUnread(sender)
 		}
-	}
-
-	@IBAction func showAddFolderWindow(_ sender: Any?) {
-		appDelegate.showAddFolderSheetOnWindow(window!)
-	}
-
-	@IBAction func showAddFeedWindow(_ sender: Any?) {
-		appDelegate.showAddFeedSheetOnWindow(window!, urlString: nil, name: nil, folder: nil)
 	}
 
 	@IBAction func openArticleInBrowser(_ sender: Any?) {
@@ -389,11 +381,24 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 extension MainWindowController: SidebarDelegate {
 
 	func sidebarSelectionDidChange(_: SidebarViewController, selectedObjects: [AnyObject]?) {
-		// TODO: if searching, cancel search
-		timelineContainerViewController?.setRepresentedObjects(selectedObjects, mode: .regular)
-		forceSearchToEnd()
+		// Don’t update the timeline if it already has those objects.
+		let representedObjectsAreTheSame = timelineContainerViewController?.regularTimelineViewControllerHasRepresentedObjects(selectedObjects) ?? false
+		if !representedObjectsAreTheSame {
+			timelineContainerViewController?.setRepresentedObjects(selectedObjects, mode: .regular)
+			forceSearchToEnd()
+		}
 		updateWindowTitle()
 		NotificationCenter.default.post(name: .InspectableObjectsDidChange, object: nil)
+	}
+
+	func unreadCount(for representedObject: AnyObject) -> Int {
+		guard let timelineViewController = regularTimelineViewController else {
+			return 0
+		}
+		guard timelineViewController.representsThisObjectOnly(representedObject) else {
+			return 0
+		}
+		return timelineViewController.unreadCount
 	}
 }
 
@@ -553,6 +558,10 @@ private extension MainWindowController {
 		return timelineContainerViewController?.currentTimelineViewController
 	}
 
+	var regularTimelineViewController: TimelineViewController? {
+		return timelineContainerViewController?.regularTimelineViewController
+	}
+
 	var sidebarSplitViewItem: NSSplitViewItem? {
 		return splitViewController?.splitViewItems[0]
 	}
@@ -591,7 +600,7 @@ private extension MainWindowController {
 		
 		return currentTimelineViewController?.canMarkAllAsRead() ?? false
 	}
-
+	
 	func validateToggleRead(_ item: NSValidatedUserInterfaceItem) -> Bool {
 
 		let validationStatus = currentTimelineViewController?.markReadCommandStatus() ?? .canDoNothing

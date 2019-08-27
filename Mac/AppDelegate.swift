@@ -23,13 +23,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	var authorAvatarDownloader: AuthorAvatarDownloader!
 	var feedIconDownloader: FeedIconDownloader!
 	var appName: String!
-	var refreshTimer: Timer?
-	var lastTimedRefresh: Date?
-	let launchTime = Date()
+	
+	var refreshTimer: AccountRefreshTimer?
+	var syncTimer: ArticleStatusSyncTimer?
+	
 	var shuttingDown = false {
 		didSet {
 			if shuttingDown {
-				invalidateRefreshTimer()
+				refreshTimer?.shuttingDown = shuttingDown
+				refreshTimer?.invalidate()
+				syncTimer?.shuttingDown = shuttingDown
+				syncTimer?.invalidate()
 			}
 		}
 	}
@@ -52,6 +56,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	private var mainWindowController: MainWindowController?
 	private var addFeedController: AddFeedController?
 	private var addFolderWindowController: AddFolderWindowController?
+	private var importOPMLController: ImportOPMLWindowController?
+	private var exportOPMLController: ExportOPMLWindowController?
 	private var keyboardShortcutsWindowController: WebViewWindowController?
 	private var inspectorWindowController: InspectorWindowController?
 	private var crashReportWindowController: CrashReportWindowController? // For testing only
@@ -93,10 +99,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		addFolderWindowController!.runSheetOnWindow(window)
 	}
 
-	func showAddFeedSheetOnWindow(_ window: NSWindow, urlString: String?, name: String?, folder: Folder?) {
+	func showAddFeedSheetOnWindow(_ window: NSWindow, urlString: String?, name: String?, account: Account?, folder: Folder?) {
 
 		addFeedController = AddFeedController(hostWindow: window)
-		addFeedController?.showAddFeedSheet(urlString, name, folder)
+		addFeedController?.showAddFeedSheet(urlString, name, account, folder)
 	}
 	
 	// MARK: - NSApplicationDelegate
@@ -118,7 +124,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		if isFirstRun {
 			logDebugMessage("Is first run.")
 		}
-		let localAccount = AccountManager.shared.localAccount
+		let localAccount = AccountManager.shared.defaultAccount
 		DefaultFeedsImporter.importIfNeeded(isFirstRun, account: localAccount)
 
 		let tempDirectory = NSTemporaryDirectory()
@@ -136,10 +142,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		imageDownloader = ImageDownloader(folder: imagesFolder)
 
 		authorAvatarDownloader = AuthorAvatarDownloader(imageDownloader: imageDownloader)
-		feedIconDownloader = FeedIconDownloader(imageDownloader: imageDownloader)
+		feedIconDownloader = FeedIconDownloader(imageDownloader: imageDownloader, folder: tempDirectory)
 
 		updateSortMenuItems()
         createAndShowMainWindow()
+		if isFirstRun {
+			mainWindowController?.window?.center()
+		}
 
 		NotificationCenter.default.addObserver(self, selector: #selector(feedSettingDidChange(_:)), name: .FeedSettingDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
@@ -152,15 +161,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 			self.toggleInspectorWindow(self)
 		}
 
+		refreshTimer = AccountRefreshTimer()
+		syncTimer = ArticleStatusSyncTimer()
+		
 		#if RELEASE
 			debugMenuItem.menu?.removeItem(debugMenuItem)
 			DispatchQueue.main.async {
-				self.timedRefresh(nil)
+				self.refreshTimer!.timedRefresh(nil)
+				self.syncTimer!.timedRefresh(nil)
 			}
 		#endif
 
 		#if DEBUG
-			updateRefreshTimer()
+			refreshTimer!.update()
+			syncTimer!.update()
 		#endif
 
 		#if !MAC_APP_STORE
@@ -187,13 +201,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	func applicationDidBecomeActive(_ notification: Notification) {
 		// It’s possible there’s a refresh timer set to go off in the past.
 		// In that case, refresh now and update the timer.
-		if let timer = refreshTimer {
-			if timer.fireDate < Date() {
-				if AppDefaults.refreshInterval != .manually {
-					timedRefresh(nil)
-				}
-			}
-		}
+		refreshTimer?.fireOldTimer()
+		syncTimer?.fireOldTimer()
 	}
 	
 	func applicationDidResignActive(_ notification: Notification) {
@@ -206,6 +215,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	func applicationWillTerminate(_ notification: Notification) {
 		shuttingDown = true
 		saveState()
+		
+		let group = DispatchGroup()
+		
+		group.enter()
+		AccountManager.shared.syncArticleStatusAll() {
+			group.leave()
+		}
+		
+		let timeout = DispatchTime.now() + .seconds(1)
+		_ = group.wait(timeout: timeout)
 	}
 
 	// MARK: Notifications
@@ -237,7 +256,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@objc func userDefaultsDidChange(_ note: Notification) {
 		updateSortMenuItems()
-		updateRefreshTimer()
+		refreshTimer?.update()
 	}
 
 	// MARK: Main Window
@@ -267,78 +286,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		let isDisplayingSheet = mainWindowController?.isDisplayingSheet ?? false
 
 		if item.action == #selector(refreshAll(_:)) {
-			return !AccountManager.shared.refreshInProgress
+			return !AccountManager.shared.refreshInProgress && !AccountManager.shared.activeAccounts.isEmpty
 		}
 		if item.action == #selector(addAppNews(_:)) {
-			return !isDisplayingSheet && !AccountManager.shared.anyAccountHasFeedWithURL(appNewsURLString)
+			return !isDisplayingSheet && !AccountManager.shared.anyAccountHasFeedWithURL(appNewsURLString) && !AccountManager.shared.activeAccounts.isEmpty
 		}
 		if item.action == #selector(sortByNewestArticleOnTop(_:)) || item.action == #selector(sortByOldestArticleOnTop(_:)) {
 			return mainWindowController?.isOpen ?? false
 		}
 		if item.action == #selector(showAddFeedWindow(_:)) || item.action == #selector(showAddFolderWindow(_:)) {
-			return !isDisplayingSheet
+			return !isDisplayingSheet && !AccountManager.shared.activeAccounts.isEmpty
 		}
 		return true
 	}
 
-	// MARK: Timed Refresh
-
-	@objc func timedRefresh(_ sender: Timer?) {
-		guard !shuttingDown else {
-			return
-		}
-		lastTimedRefresh = Date()
-		updateRefreshTimer()
-		refreshAll(self)
-	}
-
-	private func invalidateRefreshTimer() {
-		guard let timer = refreshTimer else {
-			return
-		}
-		if timer.isValid {
-			timer.invalidate()
-		}
-		refreshTimer = nil
-	}
-
-	private func updateRefreshTimer() {
-		guard !shuttingDown else {
-			return
-		}
-
-		let refreshInterval = AppDefaults.refreshInterval
-		if refreshInterval == .manually {
-			invalidateRefreshTimer()
-			return
-		}
-		let lastRefreshDate = lastTimedRefresh ?? launchTime
-		let secondsToAdd = refreshInterval.inSeconds()
-		var nextRefreshTime = lastRefreshDate.addingTimeInterval(secondsToAdd)
-		if nextRefreshTime < Date() {
-			nextRefreshTime = Date().addingTimeInterval(secondsToAdd)
-		}
-		if let currentNextFireDate = refreshTimer?.fireDate, currentNextFireDate == nextRefreshTime {
-			return
-		}
-
-		invalidateRefreshTimer()
-		let timer = Timer(fireAt: nextRefreshTime, interval: 0, target: self, selector: #selector(timedRefresh(_:)), userInfo: nil, repeats: false)
-		RunLoop.main.add(timer, forMode: .common)
-		refreshTimer = timer
-		print("Next refresh date: \(nextRefreshTime)")
-	}
-
 	// MARK: Add Feed
 
-	func addFeed(_ urlString: String?, name: String? = nil, folder: Folder? = nil) {
+	func addFeed(_ urlString: String?, name: String? = nil, account: Account? = nil, folder: Folder? = nil) {
 
 		createAndShowMainWindow()
 		if mainWindowController!.isDisplayingSheet {
 			return
 		}
 
-		showAddFeedSheetOnWindow(mainWindowController!.window!, urlString: urlString, name: name, folder: folder)
+		showAddFeedSheetOnWindow(mainWindowController!.window!, urlString: urlString, name: name, account: account, folder: folder)
 	}
 
 	// MARK: - Dock Badge
@@ -366,7 +337,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@IBAction func refreshAll(_ sender: Any?) {
 
-		AccountManager.shared.refreshAll()
+		AccountManager.shared.refreshAll(errorHandler: ErrorHandler.present)
 	}
 
 	@IBAction func showAddFeedWindow(_ sender: Any?) {
@@ -415,54 +386,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@IBAction func importOPMLFromFile(_ sender: Any?) {
 
-		let panel = NSOpenPanel()
-		panel.canDownloadUbiquitousContents = true
-		panel.canResolveUbiquitousConflicts = true
-		panel.canChooseFiles = true
-		panel.allowsMultipleSelection = false
-		panel.canChooseDirectories = false
-		panel.resolvesAliases = true
-		panel.allowedFileTypes = ["opml", "xml"]
-		panel.allowsOtherFileTypes = false
-
-		let result = panel.runModal()
-		if result == NSApplication.ModalResponse.OK, let url = panel.url {
-			DispatchQueue.main.async {
-				do {
-					try OPMLImporter.parseAndImport(fileURL: url, account: AccountManager.shared.localAccount)
-				}
-				catch let error as NSError {
-					NSApplication.shared.presentError(error)
-				}
-			}
+		createAndShowMainWindow()
+		if mainWindowController!.isDisplayingSheet {
+			return
 		}
+		
+		importOPMLController = ImportOPMLWindowController()
+		importOPMLController?.runSheetOnWindow(mainWindowController!.window!)
+		
 	}
 	
 	@IBAction func exportOPML(_ sender: Any?) {
 
-		let panel = NSSavePanel()
-		panel.allowedFileTypes = ["opml"]
-		panel.allowsOtherFileTypes = false
-		panel.prompt = NSLocalizedString("Export OPML", comment: "Export OPML")
-		panel.title = NSLocalizedString("Export OPML", comment: "Export OPML")
-		panel.nameFieldLabel = NSLocalizedString("Export to:", comment: "Export OPML")
-		panel.message = NSLocalizedString("Choose a location for the exported OPML file.", comment: "Export OPML")
-		panel.isExtensionHidden = false
-		panel.nameFieldStringValue = "MySubscriptions.opml"
-
-		let result = panel.runModal()
-		if result == NSApplication.ModalResponse.OK, let url = panel.url {
-			DispatchQueue.main.async {
-				let filename = url.lastPathComponent
-				let opmlString = OPMLExporter.OPMLString(with: AccountManager.shared.localAccount, title: filename)
-				do {
-					try opmlString.write(to: url, atomically: true, encoding: String.Encoding.utf8)
-				}
-				catch let error as NSError {
-					NSApplication.shared.presentError(error)
-				}
-			}
+		createAndShowMainWindow()
+		if mainWindowController!.isDisplayingSheet {
+			return
 		}
+		
+		exportOPMLController = ExportOPMLWindowController()
+		exportOPMLController?.runSheetOnWindow(mainWindowController!.window!)
+		
 	}
 	
 	@IBAction func addAppNews(_ sender: Any?) {
@@ -478,6 +421,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		Browser.open("https://ranchero.com/netnewswire/", inBackground: false)
 	}
 
+	@IBAction func openHowToSupport(_ sender: Any?) {
+		
+		Browser.open("https://github.com/brentsimmons/NetNewsWire/blob/master/Technotes/HowToSupportNetNewsWire.markdown", inBackground: false)
+	}
+	
 	@IBAction func openRepository(_ sender: Any?) {
 
 		Browser.open("https://github.com/brentsimmons/NetNewsWire", inBackground: false)
@@ -488,6 +436,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		Browser.open("https://github.com/brentsimmons/NetNewsWire/issues", inBackground: false)
 	}
 
+	@IBAction func openSlackGroup(_ sender: Any?) {
+		Browser.open("https://join.slack.com/t/netnewswire/shared_invite/enQtNjM4MDA1MjQzMDkzLTNlNjBhOWVhYzdhYjA4ZWFhMzQ1MTUxYjU0NTE5ZGY0YzYwZWJhNjYwNTNmNTg2NjIwYWY4YzhlYzk5NmU3ZTc", inBackground: false)
+	}
+
 	@IBAction func openTechnotes(_ sender: Any?) {
 
 		Browser.open("https://github.com/brentsimmons/NetNewsWire/tree/master/Technotes", inBackground: false)
@@ -495,7 +447,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@IBAction func showHelp(_ sender: Any?) {
 
-		Browser.open("https://ranchero.com/netnewswire/help/5.0/", inBackground: false)
+		Browser.open("https://ranchero.com/netnewswire/help/mac/5.0/en/", inBackground: false)
 	}
 
 	@IBAction func donateToAppCampForGirls(_ sender: Any?) {
@@ -508,7 +460,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@IBAction func debugDropConditionalGetInfo(_ sender: Any?) {
 		#if DEBUG
-			AccountManager.shared.accounts.forEach{ $0.debugDropConditionalGetInfo() }
+			AccountManager.shared.activeAccounts.forEach{ $0.debugDropConditionalGetInfo() }
 		#endif
 	}
 
@@ -559,7 +511,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 extension AppDelegate {
 
 	@IBAction func debugSearch(_ sender: Any?) {
-		AccountManager.shared.localAccount.debugRunSearch()
+		AccountManager.shared.defaultAccount.debugRunSearch()
 	}
 }
 
@@ -613,4 +565,3 @@ extension AppDelegate : ScriptingAppDelegate {
         return self.scriptingMainWindowController?.scriptingSelectedArticles ?? []
     }
 }
-

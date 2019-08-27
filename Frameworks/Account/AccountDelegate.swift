@@ -1,34 +1,53 @@
 //
 //  AccountDelegate.swift
-//  Account
+//  NetNewsWire
 //
 //  Created by Brent Simmons on 9/16/17.
 //  Copyright © 2017 Ranchero Software, LLC. All rights reserved.
 //
 
 import Foundation
+import Articles
 import RSWeb
 
-public protocol AccountDelegate {
+protocol AccountDelegate {
 
 	// Local account does not; some synced accounts might.
-	var supportsSubFolders: Bool { get }
+	var isSubfoldersSupported: Bool { get }
+	var isTagBasedSystem: Bool { get }
+	var isOPMLImportSupported: Bool { get }
+	var isOPMLImportInProgress: Bool { get }
+	
+	var server: String? { get }
+	var credentials: Credentials? { get set }
+	var accountMetadata: AccountMetadata? { get set }
 	
 	var refreshProgress: DownloadProgress { get }
 
-	func refreshAll(for: Account)
+	func refreshAll(for account: Account, completion: @escaping (Result<Void, Error>) -> Void)
+	func sendArticleStatus(for account: Account, completion: @escaping (() -> Void))
+	func refreshArticleStatus(for account: Account, completion: @escaping (() -> Void))
+	
+	func importOPML(for account:Account, opmlFile: URL, completion: @escaping (Result<Void, Error>) -> Void)
+	
+	func addFolder(for account: Account, name: String, completion: @escaping (Result<Folder, Error>) -> Void)
+	func renameFolder(for account: Account, with folder: Folder, to name: String, completion: @escaping (Result<Void, Error>) -> Void)
+	func removeFolder(for account: Account, with folder: Folder, completion: @escaping (Result<Void, Error>) -> Void)
+
+	func createFeed(for account: Account, url: String, name: String?, container: Container, completion: @escaping (Result<Feed, Error>) -> Void)
+	func renameFeed(for account: Account, with feed: Feed, to name: String, completion: @escaping (Result<Void, Error>) -> Void)
+	func addFeed(for account: Account, with: Feed, to container: Container, completion: @escaping (Result<Void, Error>) -> Void)
+	func removeFeed(for account: Account, with feed: Feed, from container: Container, completion: @escaping (Result<Void, Error>) -> Void)
+	func moveFeed(for account: Account, with feed: Feed, from: Container, to: Container, completion: @escaping (Result<Void, Error>) -> Void)
+
+	func restoreFeed(for account: Account, feed: Feed, container: Container, completion: @escaping (Result<Void, Error>) -> Void)
+	func restoreFolder(for account: Account, folder: Folder, completion: @escaping (Result<Void, Error>) -> Void)
+
+	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) -> Set<Article>?
 
 	// Called at the end of account’s init method.
-
 	func accountDidInitialize(_ account: Account)
 
-	// Called at the end of initializing an Account using data from disk.
-	// Delegate has complete control over what goes in userInfo and what it means.
-	// Called even if userInfo is nil, since the delegate might have other
-	// things to do at init time anyway.
-	func update(account: Account, withUserInfo: NSDictionary?)
-
-	// Saved to disk with other Account data. Could be called at any time.
-	// And called many times.
-	func userInfo(for: Account) -> NSDictionary?
+	static func validateCredentials(transport: Transport, credentials: Credentials, endpoint: URL?, completion: @escaping (Result<Credentials?, Error>) -> Void)
+	
 }

@@ -1,6 +1,6 @@
 //
 //  Feed.swift
-//  DataModel
+//  NetNewsWire
 //
 //  Created by Brent Simmons on 7/1/17.
 //  Copyright © 2017 Ranchero Software, LLC. All rights reserved.
@@ -15,7 +15,15 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 
 	public weak var account: Account?
 	public let url: String
-	public let feedID: String
+
+	public var feedID: String {
+		get {
+			return metadata.feedID
+		}
+		set {
+			metadata.feedID = newValue
+		}
+	}
 
 	public var homePageURL: String? {
 		get {
@@ -56,7 +64,7 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 		set {
 			let oldNameForDisplay = nameForDisplay
 			metadata.name = newValue
-			if oldNameForDisplay != nameForDisplay {
+			if oldNameForDisplay != newValue {
 				postDisplayNameDidChangeNotification()
 			}
 		}
@@ -118,6 +126,25 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 		}
 	}
 
+	public var subscriptionID: String? {
+		get {
+			return metadata.subscriptionID
+		}
+		set {
+			metadata.subscriptionID = newValue
+		}
+	}
+
+	// Folder Name: Sync Service Relationship ID
+	public var folderRelationship: [String: String]? {
+		get {
+			return metadata.folderRelationship
+		}
+		set {
+			metadata.folderRelationship = newValue
+		}
+	}
+	
 	// MARK: - DisplayNameProvider
 
 	public var nameForDisplay: String {
@@ -132,8 +159,9 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 
 	// MARK: - Renamable
 
-	public func rename(to newName: String) {
-		editedName = newName
+	public func rename(to newName: String, completion: @escaping (Result<Void, Error>) -> Void) {
+		guard let account = account else { return }
+		account.renameFeed(self, to: newName, completion: completion)
 	}
 
 	// MARK: - UnreadCountProvider
@@ -158,11 +186,10 @@ public final class Feed: DisplayNameProvider, Renamable, UnreadCountProvider, Ha
 
 	// MARK: - Init
 
-	init(account: Account, url: String, feedID: String, metadata: FeedMetadata) {
+	init(account: Account, url: String, metadata: FeedMetadata) {
 		self.account = account
 		self.accountID = account.accountID
 		self.url = url
-		self.feedID = feedID
 		self.metadata = metadata
 	}
 

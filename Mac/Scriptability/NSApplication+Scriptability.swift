@@ -62,7 +62,7 @@ extension NSApplication : ScriptingObjectContainer {
     
     @objc(valueInAccountsWithUniqueID:)
     func valueInAccounts(withUniqueID id:String) -> ScriptableAccount? {
-        let accounts = AccountManager.shared.accounts
+        let accounts = AccountManager.shared.activeAccounts
         guard let account = accounts.first(where:{$0.accountID == id}) else { return nil }
         return ScriptableAccount(account)
     }
@@ -74,7 +74,7 @@ extension NSApplication : ScriptingObjectContainer {
     */  
       
     func allFeeds() -> [Feed] {
-        let accounts = AccountManager.shared.accounts
+        let accounts = AccountManager.shared.activeAccounts
         let emptyFeeds:[Feed] = []
         return accounts.reduce(emptyFeeds) { (result, nthAccount) -> [Feed] in
               let accountFeeds = Array(nthAccount.topLevelFeeds)

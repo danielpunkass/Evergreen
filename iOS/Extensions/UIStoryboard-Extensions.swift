@@ -1,5 +1,5 @@
 //
-//  UIStoryboard+.swift
+//  UIStoryboard-Extensions.swift
 //  NetNewsWire
 //
 //  Created by Maurice Parker on 4/8/19.
@@ -12,6 +12,14 @@ extension UIStoryboard {
 	
 	static var main: UIStoryboard {
 		return UIStoryboard(name: "Main", bundle: nil)
+	}
+	
+	static var add: UIStoryboard {
+		return UIStoryboard(name: "Add", bundle: nil)
+	}
+	
+	static var settings: UIStoryboard {
+		return UIStoryboard(name: "Settings", bundle: nil)
 	}
 	
 	func instantiateController<T>(ofType type: T.Type = T.self) -> T where T: UIViewController {

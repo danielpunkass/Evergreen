@@ -65,7 +65,6 @@ struct TimelineStringFormatter {
 		s = s.replacingOccurrences(of: "\r", with: "")
 		s = s.replacingOccurrences(of: "\t", with: "")
 		s = s.rsparser_stringByDecodingHTMLEntities()
-		s = s.replacingOccurrences(of: "↦", with: "")
 		s = s.rs_stringByTrimmingWhitespace()
 		s = s.rs_stringWithCollapsedWhitespace()
 
@@ -85,17 +84,18 @@ struct TimelineStringFormatter {
 			return ""
 		}
 
-		if let cachedBody = summaryCache[body] {
+		let key = article.articleID + article.accountID
+		if let cachedBody = summaryCache[key] {
 			return cachedBody
 		}
 		var s = body.rsparser_stringByDecodingHTMLEntities()
-		s = s.rs_string(byStrippingHTML: 300)
+		s = s.rs_string(byStrippingHTML: 150)
 		s = s.rs_stringByTrimmingWhitespace()
 		s = s.rs_stringWithCollapsedWhitespace()
 		if s == "Comments" { // Hacker News.
 			s = ""
 		}
-		summaryCache[body] = s
+		summaryCache[key] = s
 		return s
 	}
 

@@ -10,6 +10,22 @@ import AppKit
 
 class TimelineTableRowView : NSTableRowView {
 
+	override var isOpaque: Bool {
+		return true
+	}
+
+	override var isEmphasized: Bool {
+		didSet {
+			cellView?.isEmphasized = isEmphasized
+		}
+	}
+	
+	override var isSelected: Bool {
+		didSet {
+			cellView?.isSelected = isSelected
+		}
+	}
+	
 	init() {
 		super.init(frame: NSRect.zero)
 	}

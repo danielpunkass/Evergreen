@@ -18,6 +18,7 @@ extension Notification.Name {
 
 public protocol Container: class {
 
+	var account: Account? { get }
 	var topLevelFeeds: Set<Feed> { get set }
 	var folders: Set<Folder>? { get set }
 
@@ -27,14 +28,12 @@ public protocol Container: class {
 	func hasChildFolder(with: String) -> Bool
 	func childFolder(with: String) -> Folder?
 
-    func deleteFeed(_ feed: Feed)
-    func deleteFolder(_ folder: Folder)
-
+    func removeFeed(_ feed: Feed)
 	func addFeed(_ feed: Feed)
-	func addFeeds(_ feeds: Set<Feed>)
 
 	//Recursive — checks subfolders
 	func flattenedFeeds() -> Set<Feed>
+	func has(_ feed: Feed) -> Bool
 	func hasFeed(with feedID: String) -> Bool
 	func hasFeed(withURL url: String) -> Bool
 	func existingFeed(with feedID: String) -> Feed?
@@ -46,18 +45,6 @@ public protocol Container: class {
 }
 
 public extension Container {
-
-	func addFeed(_ feed: Feed) {
-		addFeeds(Set([feed]))
-	}
-
-	func addFeeds(_ feeds: Set<Feed>) {
-		let feedCount = topLevelFeeds.count
-		topLevelFeeds.formUnion(feeds)
-		if feedCount != topLevelFeeds.count {
-			postChildrenDidChangeNotification()
-		}
-	}
 
 	func hasAtLeastOneFeed() -> Bool {
 		return topLevelFeeds.count > 0
@@ -90,7 +77,6 @@ public extension Container {
 	}
 
 	func flattenedFeeds() -> Set<Feed> {
-
 		var feeds = Set<Feed>()
 		feeds.formUnion(topLevelFeeds)
 		if let folders = folders {
@@ -109,6 +95,10 @@ public extension Container {
 		return existingFeed(withURL: url) != nil
 	}
 
+	func has(_ feed: Feed) -> Bool {
+		return flattenedFeeds().contains(feed)
+	}
+	
 	func existingFeed(with feedID: String) -> Feed? {
 		for feed in flattenedFeeds() {
 			if feed.feedID == feedID {

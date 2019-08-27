@@ -14,6 +14,7 @@ import RSCore
 
 protocol SidebarDelegate: class {
 	func sidebarSelectionDidChange(_: SidebarViewController, selectedObjects: [AnyObject]?)
+	func unreadCount(for: AnyObject) -> Int
 }
 
 @objc class SidebarViewController: NSViewController, NSOutlineViewDelegate, NSOutlineViewDataSource, NSMenuDelegate, UndoableCommandRunner {
@@ -22,7 +23,7 @@ protocol SidebarDelegate: class {
 
 	weak var delegate: SidebarDelegate?
 
-	let treeControllerDelegate = SidebarTreeControllerDelegate()
+	let treeControllerDelegate = FeedTreeControllerDelegate()
 	lazy var treeController: TreeController = {
 		return TreeController(delegate: treeControllerDelegate)
 	}()
@@ -43,16 +44,16 @@ protocol SidebarDelegate: class {
 	// MARK: - NSViewController
 
 	override func viewDidLoad() {
-
 		sidebarCellAppearance = SidebarCellAppearance(fontSize: AppDefaults.sidebarFontSize)
 
 		outlineView.dataSource = dataSource
-		outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
-		outlineView.setDraggingSourceOperationMask(.copy, forLocal: false)
+		outlineView.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
 		outlineView.registerForDraggedTypes([FeedPasteboardWriter.feedUTIInternalType, FeedPasteboardWriter.feedUTIType, .URL, .string])
 
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(containerChildrenDidChange(_:)), name: .ChildrenDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(accountsDidChangeNotification(_:)), name: .AccountsDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(accountStateDidChangeNotification(_:)), name: .AccountStateDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(userDidAddFeed(_:)), name: .UserDidAddFeed, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(batchUpdateDidPerform(_:)), name: .BatchUpdateDidPerform, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
@@ -76,37 +77,29 @@ protocol SidebarDelegate: class {
 		}
 	}
 
-	// MARK: State Restoration
-
-//	private static let stateRestorationSelectedRowIndexes = "selectedRowIndexes"
-//
-//	override func encodeRestorableState(with coder: NSCoder) {
-//
-//		super.encodeRestorableState(with: coder)
-//
-//		coder.encode(outlineView.selectedRowIndexes, forKey: SidebarViewController.stateRestorationSelectedRowIndexes)
-//	}
-//
-//	override func restoreState(with coder: NSCoder) {
-//
-//		super.restoreState(with: coder)
-//
-//		if let restoredRowIndexes = coder.decodeObject(of: [NSIndexSet.self], forKey: SidebarViewController.stateRestorationSelectedRowIndexes) as? IndexSet {
-//			outlineView.selectRowIndexes(restoredRowIndexes, byExtendingSelection: false)
-//		}
-//	}
-
 	// MARK: - Notifications
 
 	@objc func unreadCountDidChange(_ note: Notification) {
-		
 		guard let representedObject = note.object else {
 			return
 		}
-		configureUnreadCountForCellsForRepresentedObject(representedObject as AnyObject)
+		if let timelineViewController = representedObject as? TimelineViewController {
+			configureUnreadCountForCellsForRepresentedObjects(timelineViewController.representedObjects)
+		}
+		else {
+			configureUnreadCountForCellsForRepresentedObjects([representedObject as AnyObject])
+		}
 	}
 
 	@objc func containerChildrenDidChange(_ note: Notification) {
+		rebuildTreeAndRestoreSelection()
+	}
+
+	@objc func accountsDidChangeNotification(_ notification: Notification) {
+		rebuildTreeAndRestoreSelection()
+	}
+	
+	@objc func accountStateDidChangeNotification(_ notification: Notification) {
 		rebuildTreeAndRestoreSelection()
 	}
 
@@ -115,7 +108,6 @@ protocol SidebarDelegate: class {
 	}
 	
 	@objc func userDidAddFeed(_ notification: Notification) {
-
 		guard let feed = notification.userInfo?[UserInfoKey.feed] else {
 			return
 		}
@@ -123,12 +115,10 @@ protocol SidebarDelegate: class {
 	}
 
 	@objc func faviconDidBecomeAvailable(_ note: Notification) {
-
 		applyToAvailableCells(configureFavicon)
 	}
 
 	@objc func feedSettingDidChange(_ note: Notification) {
-
 		guard let feed = note.object as? Feed, let key = note.userInfo?[Feed.FeedSettingUserInfoKey] as? String else {
 			return
 		}
@@ -138,7 +128,6 @@ protocol SidebarDelegate: class {
 	}
 
 	@objc func displayNameDidChange(_ note: Notification) {
-
 		guard let object = note.object else {
 			return
 		}
@@ -149,7 +138,6 @@ protocol SidebarDelegate: class {
 	}
 
 	@objc func userDidRequestSidebarSelection(_ note: Notification) {
-		
 		guard let feed = note.userInfo?[UserInfoKey.feed] else {
 			return
 		}
@@ -159,7 +147,6 @@ protocol SidebarDelegate: class {
 	// MARK: - Actions
 
 	@IBAction func delete(_ sender: AnyObject?) {
-
 		if outlineView.selectionIsEmpty {
 			return
 		}
@@ -167,7 +154,6 @@ protocol SidebarDelegate: class {
 	}
 
 	@IBAction func openInBrowser(_ sender: Any?) {
-
 		guard let feed = singleSelectedFeed, let homePageURL = feed.homePageURL else {
 			return
 		}
@@ -175,29 +161,24 @@ protocol SidebarDelegate: class {
 	}
 
 	@IBAction func gotoToday(_ sender: Any?) {
-
 		outlineView.revealAndSelectRepresentedObject(SmartFeedsController.shared.todayFeed, treeController)
 	}
 
 	@IBAction func gotoAllUnread(_ sender: Any?) {
-
 		outlineView.revealAndSelectRepresentedObject(SmartFeedsController.shared.unreadFeed, treeController)
 	}
 
 	@IBAction func gotoStarred(_ sender: Any?) {
-
 		outlineView.revealAndSelectRepresentedObject(SmartFeedsController.shared.starredFeed, treeController)
 	}
 
 	@IBAction func copy(_ sender: Any?) {
-
 		NSPasteboard.general.copyObjects(selectedObjects)
 	}
 
 	// MARK: - Navigation
 	
 	func canGoToNextUnread() -> Bool {
-		
 		if let _ = nextSelectableRowWithUnreadArticle() {
 			return true
 		}
@@ -205,7 +186,6 @@ protocol SidebarDelegate: class {
 	}
 	
 	func goToNextUnread() {
-		
 		guard let row = nextSelectableRowWithUnreadArticle() else {
 			assertionFailure("goToNextUnread called before checking if there is a next unread.")
 			return
@@ -214,26 +194,19 @@ protocol SidebarDelegate: class {
 		NSCursor.setHiddenUntilMouseMoves(true)
 		outlineView.selectRowIndexes(IndexSet([row]), byExtendingSelection: false)
 		outlineView.scrollTo(row: row)
-		
 	}
 
 	func focus() {
-
-		guard let window = outlineView.window else {
-			return
-		}
-		window.makeFirstResponderUnlessDescendantIsFirstResponder(outlineView)
+		outlineView.window?.makeFirstResponderUnlessDescendantIsFirstResponder(outlineView)
 	}
 
 	// MARK: - Contextual Menu
 
 	func contextualMenuForSelectedObjects() -> NSMenu? {
-
 		return menu(for: selectedObjects)
 	}
 
 	func contextualMenuForClickedRows() -> NSMenu? {
-
 		let row = outlineView.clickedRow
 		guard row != -1, let node = nodeForRow(row) else {
 			return nil
@@ -248,7 +221,7 @@ protocol SidebarDelegate: class {
 		return menu(for: [object])
 	}
 
-	// MARK: NSMenuDelegate
+	// MARK: - NSMenuDelegate
 	
 	public func menuNeedsUpdate(_ menu: NSMenu) {
 		menu.removeAllItems()
@@ -262,7 +235,6 @@ protocol SidebarDelegate: class {
 	// MARK: - NSOutlineViewDelegate
     
 	func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
-
 		let node = item as! Node
 
 		if node.isGroupItem {
@@ -278,13 +250,11 @@ protocol SidebarDelegate: class {
 	}
 
 	func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
-
 		let node = item as! Node
 		return node.isGroupItem
 	}
 
 	func outlineView(_ outlineView: NSOutlineView, selectionIndexesForProposedSelection proposedSelectionIndexes: IndexSet) -> IndexSet {
-
 		// Don’t allow selecting group items.
 		// If any index in IndexSet contains a group item,
 		// return the current selection (not a modified version of the proposed selection).
@@ -299,22 +269,19 @@ protocol SidebarDelegate: class {
 	}
 
 	func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-
 		return !self.outlineView(outlineView, isGroupItem: item)
 	}
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
 		selectionDidChange(selectedObjects.isEmpty ? nil : selectedObjects)
-//		self.invalidateRestorableState()
     }
 
 	//MARK: - Node Manipulation
 	
 	func deleteNodes(_ nodes: [Node]) {
-		
 		let nodesToDelete = treeController.normalizedSelectedNodes(nodes)
 		
-		guard let undoManager = undoManager, let deleteCommand = DeleteFromSidebarCommand(nodesToDelete: nodesToDelete, treeController: treeController, undoManager: undoManager) else {
+		guard let undoManager = undoManager, let deleteCommand = DeleteCommand(nodesToDelete: nodesToDelete, treeController: treeController, undoManager: undoManager, errorHandler: ErrorHandler.present) else {
 			return
 		}
 		
@@ -335,10 +302,22 @@ protocol SidebarDelegate: class {
 	// MARK: - API
 
 	func rebuildTreeAndRestoreSelection() {
+		let savedAccounts = accountNodes
 		let savedSelection = selectedNodes
+		
 		rebuildTreeAndReloadDataIfNeeded()
 		restoreSelection(to: savedSelection, sendNotificationIfChanged: true)
+		
+		// Automatically expand any new or newly active accounts
+		AccountManager.shared.activeAccounts.forEach { account in
+			if !savedAccounts.contains(account) {
+				let accountNode = treeController.nodeInTreeRepresentingObject(account)
+				outlineView.expandItem(accountNode)
+			}
+		}
+		
 	}
+	
 }
 
 // MARK: - NSUserInterfaceValidations
@@ -346,7 +325,6 @@ protocol SidebarDelegate: class {
 extension SidebarViewController: NSUserInterfaceValidations {
 
 	func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
-
 		if item.action == #selector(copy(_:)) {
 			return NSPasteboard.general.canCopyAtLeastOneObject(selectedObjects)
 		}
@@ -357,6 +335,10 @@ extension SidebarViewController: NSUserInterfaceValidations {
 //MARK: - Private
 
 private extension SidebarViewController {
+	
+	var accountNodes: [Account] {
+		return treeController.rootNode.childNodes.compactMap { $0.representedObject as? Account }
+	}
 	
 	var selectedNodes: [Node] {
 		if let nodes = outlineView.selectedItems as? [Node] {
@@ -380,7 +362,6 @@ private extension SidebarViewController {
 	}
 
 	func rebuildTreeAndReloadDataIfNeeded() {
-		
 		if !animatingChanges && !BatchUpdate.shared.isPerforming {
 			treeController.rebuild()
 			outlineView.reloadData()
@@ -412,7 +393,6 @@ private extension SidebarViewController {
 	}
 
 	func updateUnreadCounts(for objects: [AnyObject]) {
-
 		// On selection, update unread counts for folders and feeds.
 		// For feeds, actually fetch from database.
 
@@ -427,7 +407,6 @@ private extension SidebarViewController {
 	}
 
 	func nodeForItem(_ item: AnyObject?) -> Node {
-
 		if item == nil {
 			return treeController.rootNode
 		}
@@ -435,7 +414,6 @@ private extension SidebarViewController {
 	}
 
 	func nodeForRow(_ row: Int) -> Node? {
-		
 		if row < 0 || row >= outlineView.numberOfRows {
 			return nil
 		}
@@ -447,7 +425,6 @@ private extension SidebarViewController {
 	}
 	
 	func rowHasAtLeastOneUnreadArticle(_ row: Int) -> Bool {
-		
 		if let oneNode = nodeForRow(row) {
 			if let unreadCountProvider = oneNode.representedObject as? UnreadCountProvider {
 				if unreadCountProvider.unreadCount > 0 {
@@ -459,7 +436,6 @@ private extension SidebarViewController {
 	}
 
 	func rowIsGroupItem(_ row: Int) -> Bool {
-
 		if let node = nodeForRow(row), outlineView.isGroupItem(node) {
 			return true
 		}
@@ -467,7 +443,6 @@ private extension SidebarViewController {
 	}
 
 	func nextSelectableRowWithUnreadArticle() -> Int? {
-
 		// Skip group items, because they should never be selected.
 
 		let selectedRow = outlineView.selectedRow
@@ -501,12 +476,10 @@ private extension SidebarViewController {
 	}
 
 	func configureUnreadCount(_ cell: SidebarCell, _ node: Node) {
-
 		cell.unreadCount = unreadCountFor(node)
 	}
 
 	func configureFavicon(_ cell: SidebarCell, _ node: Node) {
-
 		cell.image = imageFor(node)
 	}
 
@@ -515,7 +488,6 @@ private extension SidebarViewController {
 	}
 
 	func imageFor(_ node: Node) -> NSImage? {
-
 		if let smallIconProvider = node.representedObject as? SmallIconProvider {
 			return smallIconProvider.smallIcon
 		}
@@ -523,7 +495,6 @@ private extension SidebarViewController {
 	}
 
 	func nameFor(_ node: Node) -> String {
-
 		if let displayNameProvider = node.representedObject as? DisplayNameProvider {
 			return displayNameProvider.nameForDisplay
 		}
@@ -531,6 +502,13 @@ private extension SidebarViewController {
 	}
 
 	func unreadCountFor(_ node: Node) -> Int {
+		// If this node is the one and only selection,
+		// then the unread count comes from the timeline.
+		// This ensures that any transients in the timeline
+		// are accounted for in the unread count.
+		if nodeShouldGetUnreadCountFromTimeline(node) {
+			return delegate?.unreadCount(for: node.representedObject) ?? 0
+		}
 
 		if let unreadCountProvider = node.representedObject as? UnreadCountProvider {
 			return unreadCountProvider.unreadCount
@@ -538,15 +516,24 @@ private extension SidebarViewController {
 		return 0
 	}
 
-	func cellForRowView(_ rowView: NSTableRowView) -> SidebarCell? {
+	func nodeShouldGetUnreadCountFromTimeline(_ node: Node) -> Bool {
+		// Only if it’s selected and it’s the only node selected.
+		return selectedNodes.count == 1 && selectedNodes.first! === node
+	}
 
+	func nodeRepresentsTodayFeed(_ node: Node) -> Bool {
+		guard let smartFeed = node.representedObject as? SmartFeed else {
+			return false
+		}
+		return smartFeed === SmartFeedsController.shared.todayFeed
+	}
+
+	func cellForRowView(_ rowView: NSTableRowView) -> SidebarCell? {
 		return rowView.view(atColumn: 0) as? SidebarCell
 	}
 
 	func applyToAvailableCells(_ callback: (SidebarCell, Node) -> Void) {
-
 		outlineView.enumerateAvailableRowViews { (rowView: NSTableRowView, row: Int) -> Void in
-
 			guard let cell = cellForRowView(rowView), let node = nodeForRow(row) else {
 				return
 			}
@@ -555,29 +542,41 @@ private extension SidebarViewController {
 	}
 
 	func applyToCellsForRepresentedObject(_ representedObject: AnyObject, _ callback: (SidebarCell, Node) -> Void) {
-
 		applyToAvailableCells { (cell, node) in
-			if node.representedObject === representedObject {
+			if node.representsSidebarObject(representedObject) {
 				callback(cell, node)
 			}
 		}
 	}
 
 	func configureCellsForRepresentedObject(_ representedObject: AnyObject) {
-
 		applyToCellsForRepresentedObject(representedObject, configure)
 	}
 
-	func configureUnreadCountForCellsForRepresentedObject(_ representedObject: AnyObject) {
-
-		applyToCellsForRepresentedObject(representedObject, configureUnreadCount)
+	func configureUnreadCountForCellsForRepresentedObjects(_ representedObjects: [AnyObject]?) {
+		guard let representedObjects = representedObjects else {
+			return
+		}
+		for object in representedObjects {
+			applyToCellsForRepresentedObject(object, configureUnreadCount)
+		}
 	}
 
 	@discardableResult
 	func revealAndSelectRepresentedObject(_ representedObject: AnyObject) -> Bool {
-
 		return outlineView.revealAndSelectRepresentedObject(representedObject, treeController)
 	}
 }
 
+private extension Node {
 
+	func representsSidebarObject(_ object: AnyObject) -> Bool {
+		if representedObject === object {
+			return true
+		}
+		if let feed1 = object as? Feed, let feed2 = representedObject as? Feed {
+			return feed1 == feed2
+		}
+		return false
+	}
+}

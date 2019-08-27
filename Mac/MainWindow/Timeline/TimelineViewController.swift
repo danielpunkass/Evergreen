@@ -11,18 +11,22 @@ import RSCore
 import Articles
 import Account
 
+extension Notification.Name {
+	static let AppleInterfaceThemeChangedNotification = Notification.Name("AppleInterfaceThemeChangedNotification")
+}
+
 protocol TimelineDelegate: class  {
 	func timelineSelectionDidChange(_: TimelineViewController, selectedArticles: [Article]?)
 }
 
-final class TimelineViewController: NSViewController, UndoableCommandRunner {
+final class TimelineViewController: NSViewController, UndoableCommandRunner, UnreadCountProvider {
 
 	@IBOutlet var tableView: TimelineTableView!
 
 	var representedObjects: [AnyObject]? {
 		didSet {
 			if !representedObjectArraysAreEqual(oldValue, representedObjects) {
-
+				unreadCount = 0
 				if let representedObjects = representedObjects {
 					if representedObjects.count == 1 && representedObjects.first is Feed {
 						showFeedNames = false
@@ -36,9 +40,14 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 				}
 
 				selectionDidChange(nil)
-				fetchArticles()
-				if articles.count > 0 {
-					tableView.scrollRowToVisible(0)
+				if showsSearchResults {
+					fetchAndReplaceArticlesAsync()
+				}
+				else {
+					fetchAndReplaceArticlesSync()
+					if articles.count > 0 {
+						tableView.scrollRowToVisible(0)
+					}
 				}
 			}
 		}
@@ -46,7 +55,8 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 
 	private weak var delegate: TimelineDelegate?
 	var sharingServiceDelegate: NSSharingServiceDelegate?
-	
+
+	var showsSearchResults = false
 	var selectedArticles: [Article] {
 		return Array(articles.articlesForIndexes(tableView.selectedRowIndexes))
 	}
@@ -57,6 +67,9 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 
 	var articles = ArticleArray() {
 		didSet {
+			defer {
+				updateUnreadCount()
+			}
 			if articles == oldValue {
 				return
 			}
@@ -74,7 +87,17 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 		}
 	}
 
+	var unreadCount: Int = 0 {
+		didSet {
+			if unreadCount != oldValue {
+				postUnreadCountDidChangeNotification()
+			}
+		}
+	}
+
 	var undoableCommands = [UndoableCommand]()
+	private var fetchSerialNumber = 0
+	private let fetchRequestQueue = FetchRequestQueue()
 	private var articleRowMap = [String: Int]() // articleID: rowIndex
 	private var cellAppearance: TimelineCellAppearance!
 	private var cellAppearanceWithAvatar: TimelineCellAppearance!
@@ -96,7 +119,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 	}
 
 	private var didRegisterForNotifications = false
-	static let fetchAndMergeArticlesQueue = CoalescingQueue(name: "Fetch and Merge Articles", interval: 0.5)
+	static let fetchAndMergeArticlesQueue = CoalescingQueue(name: "Fetch and Merge Articles", interval: 0.5, maxInterval: 2.0)
 
 	private var sortDirection = AppDefaults.timelineSortDirection {
 		didSet {
@@ -141,10 +164,13 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 			NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(feedIconDidBecomeAvailable(_:)), name: .FeedIconDidBecomeAvailable, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(avatarDidBecomeAvailable(_:)), name: .AvatarDidBecomeAvailable, object: nil)
-			NotificationCenter.default.addObserver(self, selector: #selector(imageDidBecomeAvailable(_:)), name: .ImageDidBecomeAvailable, object: nil)
-			NotificationCenter.default.addObserver(self, selector: #selector(imageDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
+			NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(accountDidDownloadArticles(_:)), name: .AccountDidDownloadArticles, object: nil)
+			NotificationCenter.default.addObserver(self, selector: #selector(accountStateDidChange(_:)), name: .AccountStateDidChange, object: nil)
+			NotificationCenter.default.addObserver(self, selector: #selector(accountsDidChange(_:)), name: .AccountsDidChange, object: nil)
+			NotificationCenter.default.addObserver(self, selector: #selector(containerChildrenDidChange(_:)), name: .ChildrenDidChange, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
+			DistributedNotificationCenter.default.addObserver(self,	selector: #selector(appleInterfaceThemeChanged), name: .AppleInterfaceThemeChangedNotification, object: nil)
 
 				didRegisterForNotifications = true
 		}
@@ -204,6 +230,16 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 	func canMarkSelectedArticlesAsRead() -> Bool {
 
 		return selectedArticles.canMarkAllAsRead()
+	}
+
+	func representsThisObjectOnly(_ object: AnyObject) -> Bool {
+		guard let representedObjects = representedObjects else {
+			return false
+		}
+		if representedObjects.count != 1 {
+			return false
+		}
+		return representedObjects.first! === object
 	}
 
 	// MARK: - Actions
@@ -433,11 +469,12 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 			return
 		}
 		reloadVisibleCells(for: articles)
+		updateUnreadCount()
 	}
 
 	@objc func feedIconDidBecomeAvailable(_ note: Notification) {
 
-		guard let feed = note.userInfo?[UserInfoKey.feed] as? Feed else {
+		guard showAvatars, let feed = note.userInfo?[UserInfoKey.feed] as? Feed else {
 			return
 		}
 		let indexesToReload = tableView.indexesOfAvailableRowsPassingTest { (row) -> Bool in
@@ -473,10 +510,19 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 		}
 	}
 
-	@objc func imageDidBecomeAvailable(_ note: Notification) {
+	@objc func faviconDidBecomeAvailable(_ note: Notification) {
+		guard showAvatars, let faviconURL = note.userInfo?[FaviconDownloader.UserInfoKey.faviconURL] as? String else {
+			return
+		}
 
-		if showAvatars {
-			queueReloadAvailableCells()
+		let indexesToReload = tableView.indexesOfAvailableRowsPassingTest { (row) -> Bool in
+			guard let article = articles.articleAtRow(row) else {
+				return false
+			}
+			return article.feed?.faviconURL == faviconURL
+		}
+		if let indexesToReload = indexesToReload {
+			reloadCells(for: indexesToReload)
 		}
 	}
 
@@ -492,10 +538,37 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 		}
 	}
 
+	@objc func accountStateDidChange(_ note: Notification) {
+		if representedObjectsContainsAnyPseudoFeed() {
+			fetchAndReplaceArticlesAsync()
+		}
+	}
+	
+	@objc func accountsDidChange(_ note: Notification) {
+		if representedObjectsContainsAnyPseudoFeed() {
+			fetchAndReplaceArticlesAsync()
+		}
+	}
+
+	@objc func containerChildrenDidChange(_ note: Notification) {
+		if representedObjectsContainsAnyPseudoFeed() || representedObjectsContainAnyFolder() {
+			fetchAndReplaceArticlesAsync()
+		}
+	}
+
 	@objc func userDefaultsDidChange(_ note: Notification) {
 
 		self.fontSize = AppDefaults.timelineFontSize
 		self.sortDirection = AppDefaults.timelineSortDirection
+	}
+	
+	@objc func appleInterfaceThemeChanged(_ note: Notification) {
+		appDelegate.authorAvatarDownloader.resetCache()
+		appDelegate.feedIconDownloader.resetCache()
+		appDelegate.faviconDownloader.resetCache()
+		performBlockAndRestoreSelection {
+			tableView.reloadData()
+		}
 	}
 
 	// MARK: - Reloading Data
@@ -569,24 +642,25 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner {
 	}
 
 	@objc func fetchAndMergeArticles() {
-
 		guard let representedObjects = representedObjects else {
 			return
 		}
 
-		performBlockAndRestoreSelection {
-
-			var unsortedArticles = fetchUnsortedArticles(for: representedObjects)
-
+		fetchUnsortedArticlesAsync(for: representedObjects) { [weak self] (unsortedArticles) in
 			// Merge articles by articleID. For any unique articleID in current articles, add to unsortedArticles.
+			guard let strongSelf = self else {
+				return
+			}
 			let unsortedArticleIDs = unsortedArticles.articleIDs()
-			for article in articles {
+			var updatedArticles = unsortedArticles
+			for article in strongSelf.articles {
 				if !unsortedArticleIDs.contains(article.articleID) {
-					unsortedArticles.insert(article)
+					updatedArticles.insert(article)
 				}
 			}
-
-			updateArticles(with: unsortedArticles)
+			strongSelf.performBlockAndRestoreSelection {
+				strongSelf.replaceArticles(with: updatedArticles)
+			}
 		}
 	}
 }
@@ -702,46 +776,24 @@ extension TimelineViewController: NSTableViewDelegate {
 	private func configureTimelineCell(_ cell: TimelineTableCellView, article: Article) {
 		cell.objectValue = article
 
-		var avatar = avatarFor(article)
-		if avatar == nil, let feed = article.feed {
-			avatar = appDelegate.faviconDownloader.favicon(for: feed)
-		}
+		let avatar = article.avatarImage()
 		let featuredImage = featuredImageFor(article)
 
 		cell.cellData = TimelineCellData(article: article, showFeedName: showFeedNames, feedName: article.feed?.nameForDisplay, avatar: avatar, showAvatar: showAvatars, featuredImage: featuredImage)
 	}
 
-	private func avatarFor(_ article: Article) -> NSImage? {
-		if !showAvatars {
-			return nil
-		}
-		if let authors = article.authors {
-			for author in authors {
-				if let image = avatarForAuthor(author) {
-					return image
-				}
-			}
-		}
-
-		guard let feed = article.feed else {
-			return nil
-		}
-
-		return appDelegate.feedIconDownloader.icon(for: feed)
-	}
-
-	private func avatarForAuthor(_ author: Author) -> NSImage? {
-		return appDelegate.authorAvatarDownloader.image(for: author)
-	}
-
 	private func featuredImageFor(_ article: Article) -> NSImage? {
-
-		if let url = article.imageURL {
-			if let imageData = appDelegate.imageDownloader.image(for: url) {
-				return NSImage(data: imageData)
-			}
-		}
+		// At this writing (17 June 2019) we’re not displaying featured images anywhere,
+		// so let’s skip downloading them even if we find them.
+		//
+		// We’ll revisit this later.
 		
+//		if let url = article.imageURL {
+//			if let imageData = appDelegate.imageDownloader.image(for: url) {
+//				return NSImage(data: imageData)
+//			}
+//		}
+
 		return nil
 		
 	}
@@ -761,6 +813,16 @@ private extension TimelineViewController {
 		if let indexesToReload = tableView.indexesOfAvailableRows() {
 			reloadCells(for: indexesToReload)
 		}
+	}
+
+	func updateUnreadCount() {
+		var count = 0
+		for article in articles {
+			if !article.status.read {
+				count += 1
+			}
+		}
+		unreadCount = count
 	}
 
 	func queueReloadAvailableCells() {
@@ -795,7 +857,6 @@ private extension TimelineViewController {
 	}
 
 	func emptyTheTimeline() {
-
 		if !articles.isEmpty {
 			articles = [Article]()
 		}
@@ -805,7 +866,7 @@ private extension TimelineViewController {
 
 		performBlockAndRestoreSelection {
 			let unsortedArticles = Set(articles)
-			updateArticles(with: unsortedArticles)
+			replaceArticles(with: unsortedArticles)
 		}
 	}
 
@@ -872,37 +933,72 @@ private extension TimelineViewController {
 
 	// MARK: Fetching Articles
 
-	func fetchArticles() {
-
+	func fetchAndReplaceArticlesSync() {
+		// To be called when the user has made a change of selection in the sidebar.
+		// It blocks the main thread, so that there’s no async delay,
+		// so that the entire display refreshes at once.
+		// It’s a better user experience this way.
+		cancelPendingAsyncFetches()
 		guard let representedObjects = representedObjects else {
 			emptyTheTimeline()
 			return
 		}
-
-		let fetchedArticles = fetchUnsortedArticles(for: representedObjects)
-		updateArticles(with: fetchedArticles)
+		let fetchedArticles = fetchUnsortedArticlesSync(for: representedObjects)
+		replaceArticles(with: fetchedArticles)
 	}
 
-	func updateArticles(with unsortedArticles: Set<Article>) {
+	func fetchAndReplaceArticlesAsync() {
+		// To be called when we need to do an entire fetch, but an async delay is okay.
+		// Example: we have the Today feed selected, and the calendar day just changed.
+		cancelPendingAsyncFetches()
+		guard let representedObjects = representedObjects else {
+			emptyTheTimeline()
+			return
+		}
+		fetchUnsortedArticlesAsync(for: representedObjects) { [weak self] (articles) in
+			self?.replaceArticles(with: articles)
+		}
+	}
 
+	func cancelPendingAsyncFetches() {
+		fetchSerialNumber += 1
+		fetchRequestQueue.cancelAllRequests()
+	}
+
+	func replaceArticles(with unsortedArticles: Set<Article>) {
 		let sortedArticles = Array(unsortedArticles).sortedByDate(sortDirection)
 		if articles != sortedArticles {
 			articles = sortedArticles
 		}
 	}
 
-	func fetchUnsortedArticles(for representedObjects: [Any]) -> Set<Article> {
-
-		var fetchedArticles = Set<Article>()
-
-		for object in representedObjects {
-
-			if let articleFetcher = object as? ArticleFetcher {
-				fetchedArticles.formUnion(articleFetcher.fetchArticles())
-			}
+	func fetchUnsortedArticlesSync(for representedObjects: [Any]) -> Set<Article> {
+		cancelPendingAsyncFetches()
+		let articleFetchers = representedObjects.compactMap{ $0 as? ArticleFetcher }
+		if articleFetchers.isEmpty {
+			return Set<Article>()
 		}
 
+		var fetchedArticles = Set<Article>()
+		for articleFetcher in articleFetchers {
+			fetchedArticles.formUnion(articleFetcher.fetchArticles())
+		}
 		return fetchedArticles
+	}
+
+	func fetchUnsortedArticlesAsync(for representedObjects: [Any], callback: @escaping ArticleSetBlock) {
+		// The callback will *not* be called if the fetch is no longer relevant — that is,
+		// if it’s been superseded by a newer fetch, or the timeline was emptied, etc., it won’t get called.
+		precondition(Thread.isMainThread)
+		cancelPendingAsyncFetches()
+		let fetchOperation = FetchRequestOperation(id: fetchSerialNumber, representedObjects: representedObjects) { [weak self] (articles, operation) in
+			precondition(Thread.isMainThread)
+			guard !operation.isCanceled, let strongSelf = self, operation.id == strongSelf.fetchSerialNumber else {
+				return
+			}
+			callback(articles)
+		}
+		fetchRequestQueue.add(fetchOperation)
 	}
 
 	func selectArticles(_ articleIDs: [String]) {
@@ -943,15 +1039,15 @@ private extension TimelineViewController {
 	}
 
 	func representedObjectsContainsAnyPseudoFeed() -> Bool {
-		guard let representedObjects = representedObjects else {
-			return false
-		}
-		for representedObject in representedObjects {
-			if representedObject is PseudoFeed {
-				return true
-			}
-		}
-		return false
+		return representedObjects?.contains(where: { $0 is PseudoFeed}) ?? false
+	}
+
+	func representedObjectsContainsTodayFeed() -> Bool {
+		return representedObjects?.contains(where: { $0 === SmartFeedsController.shared.todayFeed }) ?? false
+	}
+
+	func representedObjectsContainAnyFolder() -> Bool {
+		return representedObjects?.contains(where: { $0 is Folder }) ?? false
 	}
 
 	func representedObjectsContainsAnyFeed(_ feeds: Set<Feed>) -> Bool {

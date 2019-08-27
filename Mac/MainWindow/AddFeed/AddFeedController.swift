@@ -21,34 +21,24 @@ import RSParser
 //   Else,
 //      display error sheet.
 
-class AddFeedController: AddFeedWindowControllerDelegate, FeedFinderDelegate {
+class AddFeedController: AddFeedWindowControllerDelegate {
 
 	private let hostWindow: NSWindow
 	private var addFeedWindowController: AddFeedWindowController?
-	private var userEnteredURL: URL?
-	private var userEnteredFolder: Folder?
-	private var userEnteredTitle: String?
-	private var userEnteredAccount: Account?
 	private var foundFeedURLString: String?
 	private var titleFromFeed: String?
-	private var feedFinder: FeedFinder?
-	private var isFindingFeed = false
-	private var bestFeedSpecifier: FeedSpecifier?
 	
 	init(hostWindow: NSWindow) {
 		
 		self.hostWindow = hostWindow
 	}
 
-	func showAddFeedSheet(_ urlString: String?, _ name: String?, _ folder: Folder?) {
+	func showAddFeedSheet(_ urlString: String?, _ name: String?, _ account: Account?, _ folder: Folder?) {
 
 		let folderTreeControllerDelegate = FolderTreeControllerDelegate()
+		let folderTreeController = TreeController(delegate: folderTreeControllerDelegate)
 
-		let rootNode = Node(representedObject: AccountManager.shared.localAccount, parent: nil)
-		rootNode.canHaveChildNodes = true
-		let folderTreeController = TreeController(delegate: folderTreeControllerDelegate, rootNode: rootNode)
-
-		addFeedWindowController = AddFeedWindowController(urlString: urlString ?? urlStringFromPasteboard, name: name, folder: folder, folderTreeController: folderTreeController, delegate: self)
+		addFeedWindowController = AddFeedWindowController(urlString: urlString ?? urlStringFromPasteboard, name: name, account: account, folder: folder, folderTreeController: folderTreeController, delegate: self)
 		addFeedWindowController!.runSheetOnWindow(hostWindow)
 	}
 
@@ -62,19 +52,40 @@ class AddFeedController: AddFeedWindowControllerDelegate, FeedFinderDelegate {
 			return
 		}
 		let account = accountAndFolderSpecifier.account
-		let folder = accountAndFolderSpecifier.folder
 
 		if account.hasFeed(withURL: url.absoluteString) {
 			showAlreadySubscribedError(url.absoluteString)
 			return
 		}
 
-		userEnteredAccount = account
-		userEnteredURL = url
-		userEnteredFolder = folder
-		userEnteredTitle = title
+		BatchUpdate.shared.start()
+		
+		account.createFeed(url: url.absoluteString, name: title, container: container) { result in
+			
+			DispatchQueue.main.async {
+				self.endShowingProgress()
+			}
+			
+			BatchUpdate.shared.end()
 
-		findFeed()
+			switch result {
+			case .success(let feed):
+				NotificationCenter.default.post(name: .UserDidAddFeed, object: self, userInfo: [UserInfoKey.feed: feed])
+			case .failure(let error):
+				switch error {
+				case AccountError.createErrorAlreadySubscribed:
+					self.showAlreadySubscribedError(url.absoluteString)
+				case AccountError.createErrorNotFound:
+					self.showNoFeedsErrorMessage()
+				default:
+					NSApplication.shared.presentError(error)
+				}
+			}
+			
+		}
+		
+		beginShowingProgress()
+		
 	}
 
 	func addFeedWindowControllerUserDidCancel(_: AddFeedWindowController) {
@@ -82,45 +93,7 @@ class AddFeedController: AddFeedWindowControllerDelegate, FeedFinderDelegate {
 		closeAddFeedSheet(NSApplication.ModalResponse.cancel)
 	}
 
-	// MARK: FeedFinderDelegate
-
-	public func feedFinder(_ feedFinder: FeedFinder, didFindFeeds feedSpecifiers: Set<FeedSpecifier>) {
-
-		isFindingFeed = false
-		endShowingProgress()
-		
-		if let error = feedFinder.initialDownloadError {
-			if feedFinder.initialDownloadStatusCode == 404 {
-				showNoFeedsErrorMessage()
-			}
-			else {
-				showInitialDownloadError(error)
-			}
-			return
-		}
-
-		guard let bestFeedSpecifier = FeedSpecifier.bestFeed(in: feedSpecifiers) else {
-			showNoFeedsErrorMessage()
-			return
-		}
-
-		self.bestFeedSpecifier = bestFeedSpecifier
-		self.foundFeedURLString = bestFeedSpecifier.urlString
-
-		if let url = URL(string: bestFeedSpecifier.urlString) {
-
-			InitialFeedDownloader.download(url) { (parsedFeed) in
-				self.titleFromFeed = parsedFeed?.title
-				self.addFeedIfPossible(parsedFeed)
-			}
-		}
-		else {
-			// Shouldn't happen.
-			showNoFeedsErrorMessage()
-		}
-	}
 }
-
 
 private extension AddFeedController {
 
@@ -152,52 +125,6 @@ private extension AddFeedController {
 		if let sheetWindow = addFeedWindowController?.window {
 			hostWindow.endSheet(sheetWindow, returnCode: returnCode)
 		}
-	}
-
-
-	func addFeedIfPossible(_ parsedFeed: ParsedFeed?) {
-
-		// Add feed if not already subscribed-to.
-
-		guard let account = userEnteredAccount else {
-			assertionFailure("Expected account.")
-			return
-		}
-		guard let feedURLString = foundFeedURLString else {
-			assertionFailure("Expected feedURLString.")
-			return
-		}
-
-		if account.hasFeed(withURL: feedURLString) {
-			showAlreadySubscribedError(feedURLString)
-			return
-		}
-
-		guard let feed = account.createFeed(with: titleFromFeed, editedName: userEnteredTitle, url: feedURLString) else {
-			return
-		}
-
-		if let parsedFeed = parsedFeed {
-			account.update(feed, with: parsedFeed, {})
-		}
-
-		account.addFeed(feed, to: userEnteredFolder)
-		NotificationCenter.default.post(name: .UserDidAddFeed, object: self, userInfo: [UserInfoKey.feed: feed])
-	}
-
-	// MARK: Find Feeds
-
-	func findFeed() {
-
-		guard let url = userEnteredURL else {
-			assertionFailure("Expected userEnteredURL.")
-			return
-		}
-		
-		isFindingFeed = true
-		feedFinder = FeedFinder(url: url, delegate: self)
-		
-		beginShowingProgress()
 	}
 
 	// MARK: Errors

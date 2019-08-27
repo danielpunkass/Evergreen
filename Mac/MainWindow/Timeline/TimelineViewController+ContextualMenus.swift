@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import RSCore
 import Articles
 import Account
 
@@ -82,6 +83,18 @@ extension TimelineViewController {
 		
 		NotificationCenter.default.post(name: .UserDidRequestSidebarSelection, object: self, userInfo: userInfo)
 		
+	}
+	
+	@objc func markAllInFeedAsRead(_ sender: Any?) {
+		guard let menuItem = sender as? NSMenuItem, let feedArticles = menuItem.representedObject as? ArticleArray else {
+			return
+		}
+		
+		guard let undoManager = undoManager, let markReadCommand = MarkStatusCommand(initialArticles: feedArticles, markingRead: true, undoManager: undoManager) else {
+			return
+		}
+		
+		runCommand(markReadCommand)
 	}
 	
 	@objc func openInBrowserFromContextualMenu(_ sender: Any?) {
@@ -162,7 +175,10 @@ private extension TimelineViewController {
 		menu.addSeparatorIfNeeded()
 		
 		if articles.count == 1, let feed = articles.first!.feed {
-			menu.addItem(selectFeedInSidebar(feed))
+			menu.addItem(selectFeedInSidebarMenuItem(feed))
+			if let markAllMenuItem = markAllAsReadMenuItem(feed) {
+				menu.addItem(markAllMenuItem)
+			}
 		}
 		
 		if articles.count == 1, let link = articles.first!.preferredLink {
@@ -231,11 +247,25 @@ private extension TimelineViewController {
 		return menuItem(NSLocalizedString("Mark Older as Read", comment: "Command"),  #selector(markOlderArticlesReadFromContextualMenu(_:)), articles)
 	}
 
-	func selectFeedInSidebar(_ feed: Feed) -> NSMenuItem {
-		let menuText = "Select “\(feed.nameForDisplay)” in Sidebar"
-		return menuItem(NSLocalizedString(menuText, comment: "Command"), #selector(selectFeedInSidebarFromContextualMenu(_:)), feed)
+	func selectFeedInSidebarMenuItem(_ feed: Feed) -> NSMenuItem {
+		let localizedMenuText = NSLocalizedString("Select “%@” in Sidebar", comment: "Command")
+		let formattedMenuText = NSString.localizedStringWithFormat(localizedMenuText as NSString, feed.nameForDisplay)
+		return menuItem(formattedMenuText as String, #selector(selectFeedInSidebarFromContextualMenu(_:)), feed)
 	}
 
+	func markAllAsReadMenuItem(_ feed: Feed) -> NSMenuItem? {
+		
+		let articles = Array(feed.fetchArticles())
+		guard articles.canMarkAllAsRead() else {
+			return nil
+		}
+		
+		let localizedMenuText = NSLocalizedString("Mark All as Read in “%@”", comment: "Command")
+		let menuText = NSString.localizedStringWithFormat(localizedMenuText as NSString, feed.nameForDisplay) as String
+		
+		return menuItem(menuText, #selector(markAllInFeedAsRead(_:)), articles)
+	}
+	
 	func openInBrowserMenuItem(_ urlString: String) -> NSMenuItem {
 
 		return menuItem(NSLocalizedString("Open in Browser", comment: "Command"), #selector(openInBrowserFromContextualMenu(_:)), urlString)

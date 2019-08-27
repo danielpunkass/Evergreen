@@ -1,6 +1,6 @@
 //
 //  FeedMetadata.swift
-//  Account
+//  NetNewsWire
 //
 //  Created by Brent Simmons on 3/12/19.
 //  Copyright © 2019 Ranchero Software, LLC. All rights reserved.
@@ -16,8 +16,6 @@ protocol FeedMetadataDelegate: class {
 
 final class FeedMetadata: Codable {
 
-	let feedID: String
-
 	enum CodingKeys: String, CodingKey {
 		case feedID
 		case homePageURL
@@ -28,8 +26,18 @@ final class FeedMetadata: Codable {
 		case authors
 		case contentHash
 		case conditionalGetInfo
+		case subscriptionID
+		case folderRelationship
 	}
 
+	var feedID: String {
+		didSet {
+			if feedID != oldValue {
+				valueDidChange(.feedID)
+			}
+		}
+	}
+	
 	var homePageURL: String? {
 		didSet {
 			if homePageURL != oldValue {
@@ -90,6 +98,23 @@ final class FeedMetadata: Codable {
 		didSet {
 			if conditionalGetInfo != oldValue {
 				valueDidChange(.conditionalGetInfo)
+			}
+		}
+	}
+	
+	var subscriptionID: String? {
+		didSet {
+			if subscriptionID != oldValue {
+				valueDidChange(.subscriptionID)
+			}
+		}
+	}
+	
+	// Folder Name: Sync Service Relationship ID
+	var folderRelationship: [String: String]? {
+		didSet {
+			if folderRelationship != oldValue {
+				valueDidChange(.folderRelationship)
 			}
 		}
 	}

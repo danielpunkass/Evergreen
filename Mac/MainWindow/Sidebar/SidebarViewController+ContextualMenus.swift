@@ -100,10 +100,23 @@ extension SidebarViewController: RenameWindowControllerDelegate {
 	func renameWindowController(_ windowController: RenameWindowController, didRenameObject object: Any, withNewName name: String) {
 
 		if let feed = object as? Feed {
-			feed.editedName = name
-		}
-		else if let folder = object as? Folder {
-			folder.name = name
+			feed.rename(to: name) { result in
+				switch result {
+				case .success:
+					break
+				case .failure(let error):
+					NSApplication.shared.presentError(error)
+				}
+			}
+		} else if let folder = object as? Folder {
+			folder.rename(to: name) { result in
+				switch result {
+				case .success:
+					break
+				case .failure(let error):
+					NSApplication.shared.presentError(error)
+				}
+			}
 		}
 	}
 }
@@ -116,8 +129,8 @@ private extension SidebarViewController {
 
 		let menu = NSMenu(title: "")
 
-		menu.addItem(withTitle: NSLocalizedString("New Feed", comment: "Command"), action: #selector(MainWindowController.showAddFeedWindow(_:)), keyEquivalent: "")
-		menu.addItem(withTitle: NSLocalizedString("New Folder", comment: "Command"), action: #selector(MainWindowController.showAddFolderWindow(_:)), keyEquivalent: "")
+		menu.addItem(withTitle: NSLocalizedString("New Feed", comment: "Command"), action: #selector(AppDelegate.showAddFeedWindow(_:)), keyEquivalent: "")
+		menu.addItem(withTitle: NSLocalizedString("New Folder", comment: "Command"), action: #selector(AppDelegate.showAddFolderWindow(_:)), keyEquivalent: "")
 
 		return menu
 	}

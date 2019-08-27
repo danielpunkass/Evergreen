@@ -210,11 +210,7 @@ private extension ArticleRenderer {
 	}
 
 	func base64String(forImage image: RSImage) -> String? {
-		#if os(macOS)
-		return image.tiffRepresentation?.base64EncodedString()
-		#else
-		return image.pngData()?.base64EncodedString()
-		#endif
+		return image.dataRepresentation()?.base64EncodedString()
 	}
 
 	func singleArticleSpecifiedAuthor() -> Author? {
@@ -365,6 +361,9 @@ private extension ArticleRenderer {
 	func renderHTML(withBody body: String) -> String {
 		
 		var s = "<!DOCTYPE html><html><head>\n"
+		if let baseURL = baseURL {
+			s += ("<base href=\"" + baseURL + "\"\n>")
+		}
 		s += "<meta name=\"viewport\" content=\"width=device-width\">\n"
 		s += title.htmlBySurroundingWithTag("title")
 		s += styleString().htmlBySurroundingWithTag("style")

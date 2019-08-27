@@ -11,10 +11,6 @@ import RSCore
 import Articles
 import Account
 
-protocol SmartFeedDelegate: DisplayNameProvider, ArticleFetcher {
-	func fetchUnreadCount(for: Account, callback: @escaping (Int) -> Void)
-}
-
 final class SmartFeed: PseudoFeed {
 
 	var nameForDisplay: String {
@@ -36,7 +32,7 @@ final class SmartFeed: PseudoFeed {
 	#endif
 
 	private let delegate: SmartFeedDelegate
-	private var unreadCounts = [Account: Int]()
+	private var unreadCounts = [String: Int]()
 
 	init(delegate: SmartFeedDelegate) {
 		self.delegate = delegate
@@ -45,13 +41,13 @@ final class SmartFeed: PseudoFeed {
 	}
 
 	@objc func unreadCountDidChange(_ note: Notification) {
-		if note.object is Account {
+		if note.object is AppDelegate {
 			queueFetchUnreadCounts()
 		}
 	}
 
 	@objc func fetchUnreadCounts() {
-		AccountManager.shared.accounts.forEach { self.fetchUnreadCount(for: $0) }
+		AccountManager.shared.activeAccounts.forEach { self.fetchUnreadCount(for: $0) }
 	}
 }
 
@@ -61,8 +57,16 @@ extension SmartFeed: ArticleFetcher {
 		return delegate.fetchArticles()
 	}
 
+	func fetchArticlesAsync(_ callback: @escaping ArticleSetBlock) {
+		delegate.fetchArticlesAsync(callback)
+	}
+
 	func fetchUnreadArticles() -> Set<Article> {
 		return delegate.fetchUnreadArticles()
+	}
+
+	func fetchUnreadArticlesAsync(_ callback: @escaping ArticleSetBlock) {
+		delegate.fetchUnreadArticlesAsync(callback)
 	}
 }
 
@@ -74,14 +78,14 @@ private extension SmartFeed {
 
 	func fetchUnreadCount(for account: Account) {
 		delegate.fetchUnreadCount(for: account) { (accountUnreadCount) in
-			self.unreadCounts[account] = accountUnreadCount
+			self.unreadCounts[account.accountID] = accountUnreadCount
 			self.updateUnreadCount()
 		}
 	}
 
 	func updateUnreadCount() {
-		unreadCount = AccountManager.shared.accounts.reduce(0) { (result, account) -> Int in
-			if let oneUnreadCount = unreadCounts[account] {
+		unreadCount = AccountManager.shared.activeAccounts.reduce(0) { (result, account) -> Int in
+			if let oneUnreadCount = unreadCounts[account.accountID] {
 				return result + oneUnreadCount
 			}
 			return result

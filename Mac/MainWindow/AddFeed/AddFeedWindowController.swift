@@ -29,6 +29,7 @@ class AddFeedWindowController : NSWindowController {
 
 	private var urlString: String?
 	private var initialName: String?
+	private weak var initialAccount: Account?
 	private var initialFolder: Folder?
 	private weak var delegate: AddFeedWindowControllerDelegate?
 	private var folderTreeController: TreeController!
@@ -44,10 +45,11 @@ class AddFeedWindowController : NSWindowController {
 	
     var hostWindow: NSWindow!
 
-	convenience init(urlString: String?, name: String?, folder: Folder?, folderTreeController: TreeController, delegate: AddFeedWindowControllerDelegate?) {
+	convenience init(urlString: String?, name: String?, account: Account?, folder: Folder?, folderTreeController: TreeController, delegate: AddFeedWindowControllerDelegate?) {
 		self.init(windowNibName: NSNib.Name("AddFeedSheet"))
 		self.urlString = urlString
 		self.initialName = name
+		self.initialAccount = account
 		self.initialFolder = folder
 		self.delegate = delegate
 		self.folderTreeController = folderTreeController
@@ -67,8 +69,12 @@ class AddFeedWindowController : NSWindowController {
 		}
 
 		folderPopupButton.menu = FolderTreeMenu.createFolderPopupMenu(with: folderTreeController.rootNode)
-		if let folder = initialFolder {
-			FolderTreeMenu.select(folder, in: folderPopupButton)
+		if let account = initialAccount {
+			FolderTreeMenu.select(account: account, folder: initialFolder, in: folderPopupButton)
+		} else if let accountID = AppDefaults.addFeedAccountID {
+			if let account = AccountManager.shared.existingAccount(with: accountID) {
+				FolderTreeMenu.select(account: account, folder: nil, in: folderPopupButton)
+			}
 		}
 		
 		updateUI()
@@ -92,8 +98,16 @@ class AddFeedWindowController : NSWindowController {
 			cancelSheet()
 			return
 		}
+		
+		let container = selectedContainer()!
+		if let selectedAccount = container as? Account {
+			AppDefaults.addFeedAccountID = selectedAccount.accountID
+		} else if let selectedFolder = container as? Folder, let selectedAccount = selectedFolder.account {
+			AppDefaults.addFeedAccountID = selectedAccount.accountID
+		}
 
-		delegate?.addFeedWindowController(self, userEnteredURL: url, userEnteredTitle: userEnteredTitle, container: selectedContainer()!)
+		delegate?.addFeedWindowController(self, userEnteredURL: url, userEnteredTitle: userEnteredTitle, container: container)
+		
     }
 
 	@IBAction func localShowFeedList(_ sender: Any?) {
