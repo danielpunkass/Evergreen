@@ -34,10 +34,17 @@ class AddFeedViewController: UITableViewController, AddContainerViewControllerCh
 		
         super.viewDidLoad()
 		
+		if initialFeed == nil, let urlString = UIPasteboard.general.string as NSString? {
+			if urlString.rs_stringMayBeURL() {
+				initialFeed = urlString.rs_normalizedURL()
+			}
+		}
+		
 		urlTextField.autocorrectionType = .no
 		urlTextField.autocapitalizationType = .none
 		urlTextField.text = initialFeed
 		urlTextField.delegate = self
+		urlTextField.becomeFirstResponder()
 		
 		if initialFeed != nil {
 			delegate?.readyToAdd(state: true)

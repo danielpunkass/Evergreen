@@ -18,17 +18,25 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	@IBOutlet weak var markAllAsReadButton: UIBarButtonItem!
 	@IBOutlet weak var firstUnreadButton: UIBarButtonItem!
 	
-	weak var coordinator: AppCoordinator!
+	private lazy var dataSource = makeDataSource()
+	private let searchController = UISearchController(searchResultsController: nil)
+	
+	weak var coordinator: SceneCoordinator!
 	var undoableCommands = [UndoableCommand]()
+
+	private let keyboardManager = KeyboardManager(type: .timeline)
+	override var keyCommands: [UIKeyCommand]? {
+		return keyboardManager.keyCommands
+	}
 	
 	override var canBecomeFirstResponder: Bool {
 		return true
 	}
-	
+
 	override func viewDidLoad() {
 		
 		super.viewDidLoad()
-		
+
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(feedIconDidBecomeAvailable(_:)), name: .FeedIconDidBecomeAvailable, object: nil)
@@ -38,12 +46,29 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		NotificationCenter.default.addObserver(self, selector: #selector(progressDidChange(_:)), name: .AccountRefreshProgressDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(contentSizeCategoryDidChange), name: UIContentSizeCategory.didChangeNotification, object: nil)
 
+		// Setup the Search Controller
+		searchController.delegate = self
+		searchController.searchResultsUpdater = self
+		searchController.obscuresBackgroundDuringPresentation = false
+		searchController.searchBar.delegate = self
+		searchController.searchBar.placeholder = NSLocalizedString("Search Articles", comment: "Search Articles")
+		searchController.searchBar.scopeButtonTitles = [
+			NSLocalizedString("Here", comment: "Here"),
+			NSLocalizedString("All Articles", comment: "All Articles")
+		]
+		navigationItem.searchController = searchController
+		definesPresentationContext = true
+
+		// Setup the Refresh Control
 		refreshControl = UIRefreshControl()
 		refreshControl!.addTarget(self, action: #selector(refreshAccounts(_:)), for: .valueChanged)
 		
+		// Configure the table
+		tableView.dataSource = dataSource
 		numberOfTextLines = AppDefaults.timelineNumberOfLines
 		resetEstimatedRowHeight()
 		
+		applyChanges(animate: false)
 		resetUI()
 		
 	}
@@ -55,15 +80,9 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	
 	override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
-		becomeFirstResponder()
 		updateProgressIndicatorIfNeeded()
 	}
 	
-	override func viewWillDisappear(_ animated: Bool) {
-		super.viewWillDisappear(animated)
-		resignFirstResponder()
-	}
-
 	override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
 		super.traitCollectionDidChange(previousTraitCollection)
 		
@@ -71,13 +90,15 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 			appDelegate.authorAvatarDownloader.resetCache()
 			appDelegate.feedIconDownloader.resetCache()
 			appDelegate.faviconDownloader.resetCache()
-			performBlockAndRestoreSelection {
-				tableView.reloadData()
+			
+			// traitCollectionDidChange will get called on a background thread
+			DispatchQueue.main.async {
+				self.reloadAllVisibleCells()
 			}
 		}
 	}
 	
-	// MARK Actions
+	// MARK: Actions
 
 	@IBAction func markAllAsRead(_ sender: Any) {
 		
@@ -104,40 +125,57 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		coordinator.selectNextUnread()
 	}
 	
+	// MARK: Keyboard shortcuts
+	
+	@objc func selectNextUp(_ sender: Any?) {
+		coordinator.selectPrevArticle()
+	}
+
+	@objc func selectNextDown(_ sender: Any?) {
+		coordinator.selectNextArticle()
+	}
+
+	@objc func navigateToSidebar(_ sender: Any?) {
+		coordinator.navigateToFeeds()
+	}
+	
+	@objc func navigateToDetail(_ sender: Any?) {
+		coordinator.navigateToDetail()
+	}
+	
 	// MARK: API
 	
 	func reinitializeArticles() {
 		resetUI()
 	}
 	
-	func updateArticles() {
-		reloadAllVisibleCells()
-	}
-	
-	func reloadArticles() {
-		performBlockAndRestoreSelection {
-			tableView.reloadData()
+	func reloadArticles(animate: Bool) {
+		applyChanges(animate: animate) { [weak self] in
+			self?.updateArticleSelection(animate: animate)
 		}
 	}
 	
-	func updateArticleSelection() {
+	func updateArticleSelection(animate: Bool) {
 		if let indexPath = coordinator.currentArticleIndexPath {
 			if tableView.indexPathForSelectedRow != indexPath {
-				tableView.selectRow(at: indexPath, animated: true, scrollPosition: .middle)
+				tableView.selectRow(at: indexPath, animated: animate, scrollPosition: .middle)
 			}
+		} else {
+			tableView.selectRow(at: nil, animated: animate, scrollPosition: .none)
 		}
 		updateUI()
 	}
 
+	func showSearchAll() {
+		navigationItem.searchController?.isActive = true
+		navigationItem.searchController?.searchBar.selectedScopeButtonIndex = 1
+	}
+	
+	func focus() {
+		becomeFirstResponder()
+	}
+
 	// MARK: - Table view
-
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        return 1
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return coordinator.articles.count
-    }
 
 	override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
 		
@@ -251,15 +289,9 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		
 	}
 
-	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-		let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath) as! MasterTimelineTableViewCell
-		let article = coordinator.articles[indexPath.row]
-		configureTimelineCell(cell, article: article)
-		return cell
-	}
-	
 	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-		coordinator.selectArticle(indexPath)
+		becomeFirstResponder()
+		coordinator.selectArticle(indexPath, automated: false)
 	}
 	
 	// MARK: Notifications
@@ -279,15 +311,12 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		guard let feed = note.userInfo?[UserInfoKey.feed] as? Feed else {
 			return
 		}
-		
-		performBlockAndRestoreSelection {
-			tableView.indexPathsForVisibleRows?.forEach { indexPath in
-				guard let article = coordinator.articles.articleAtRow(indexPath.row) else {
-					return
-				}
-				if article.feed == feed, let cell = tableView.cellForRow(at: indexPath) as? MasterTimelineTableViewCell, let image = avatarFor(article) {
-					cell.setAvatarImage(image)
-				}
+		tableView.indexPathsForVisibleRows?.forEach { indexPath in
+			guard let article = coordinator.articles.articleAtRow(indexPath.row) else {
+				return
+			}
+			if article.feed == feed, let cell = tableView.cellForRow(at: indexPath) as? MasterTimelineTableViewCell, let image = avatarFor(article) {
+				cell.setAvatarImage(image)
 			}
 		}
 	}
@@ -296,16 +325,13 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		guard coordinator.showAvatars, let avatarURL = note.userInfo?[UserInfoKey.url] as? String else {
 			return
 		}
-		
-		performBlockAndRestoreSelection {
-			tableView.indexPathsForVisibleRows?.forEach { indexPath in
-				guard let article = coordinator.articles.articleAtRow(indexPath.row), let authors = article.authors, !authors.isEmpty else {
-					return
-				}
-				for author in authors {
-					if author.avatarURL == avatarURL, let cell = tableView.cellForRow(at: indexPath) as? MasterTimelineTableViewCell, let image = avatarFor(article) {
-						cell.setAvatarImage(image)
-					}
+		tableView.indexPathsForVisibleRows?.forEach { indexPath in
+			guard let article = coordinator.articles.articleAtRow(indexPath.row), let authors = article.authors, !authors.isEmpty else {
+				return
+			}
+			for author in authors {
+				if author.avatarURL == avatarURL, let cell = tableView.cellForRow(at: indexPath) as? MasterTimelineTableViewCell, let image = avatarFor(article) {
+					cell.setAvatarImage(image)
 				}
 			}
 		}
@@ -315,18 +341,13 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		guard coordinator.showAvatars, let faviconURL = note.userInfo?["faviconURL"] as? String else {
 			return
 		}
-		
-		performBlockAndRestoreSelection {
-			tableView.indexPathsForVisibleRows?.forEach { indexPath in
-				
-				guard let article = coordinator.articles.articleAtRow(indexPath.row), let articleFaviconURL = article.feed?.faviconURL else {
-					return
-				}
-				if faviconURL == articleFaviconURL, let cell = tableView.cellForRow(at: indexPath) as? MasterTimelineTableViewCell, let image = avatarFor(article) {
-					cell.setAvatarImage(image)
-					return
-				}
-
+		tableView.indexPathsForVisibleRows?.forEach { indexPath in
+			guard let article = coordinator.articles.articleAtRow(indexPath.row), let articleFaviconURL = article.feed?.faviconURL else {
+				return
+			}
+			if faviconURL == articleFaviconURL, let cell = tableView.cellForRow(at: indexPath) as? MasterTimelineTableViewCell, let image = avatarFor(article) {
+				cell.setAvatarImage(image)
+				return
 			}
 		}
 	}
@@ -335,12 +356,12 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		if numberOfTextLines != AppDefaults.timelineNumberOfLines {
 			numberOfTextLines = AppDefaults.timelineNumberOfLines
 			resetEstimatedRowHeight()
-			tableView.reloadData()
+			reloadAllVisibleCells()
 		}
 	}
 	
 	@objc func contentSizeCategoryDidChange(_ note: Notification) {
-		tableView.reloadData()
+		reloadAllVisibleCells()
 	}
 	
 	@objc func progressDidChange(_ note: Notification) {
@@ -349,12 +370,9 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	
 	// MARK: Reloading
 	
-	@objc func reloadAllVisibleCells() {
-		tableView.beginUpdates()
-		performBlockAndRestoreSelection {
-			tableView.reloadRows(at: tableView.indexPathsForVisibleRows!, with: .none)
-		}
-		tableView.endUpdates()
+	private func reloadAllVisibleCells() {
+		let visibleArticles = tableView.indexPathsForVisibleRows!.map { return coordinator.articles[$0.row] }
+		reloadCells(visibleArticles)
 	}
 	
 	private func reloadVisibleCells(for articles: [Article]) {
@@ -374,12 +392,21 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	}
 	
 	private func reloadVisibleCells(for indexes: IndexSet) {
-		performBlockAndRestoreSelection {
-			tableView.indexPathsForVisibleRows?.forEach { indexPath in
-				if indexes.contains(indexPath.row) {
-					tableView.reloadRows(at: [indexPath], with: .none)
-				}
+		let reloadArticles: [Article] = tableView.indexPathsForVisibleRows!.compactMap { indexPath in
+			if indexes.contains(indexPath.row) {
+				return coordinator.articles[indexPath.row]
+			} else {
+				return nil
 			}
+		}
+		reloadCells(reloadArticles)
+	}
+	
+	private func reloadCells(_ articles: [Article]) {
+		var snapshot = dataSource.snapshot()
+		snapshot.reloadItems(articles)
+		dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+			self?.restoreSelectionIfNecessary()
 		}
 	}
 	
@@ -405,6 +432,38 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		
 	}
 	
+}
+
+// MARK: Searching
+
+extension MasterTimelineViewController: UISearchControllerDelegate {
+
+	func willPresentSearchController(_ searchController: UISearchController) {
+		coordinator.beginSearching()
+		searchController.searchBar.showsScopeBar = true
+	}
+
+	func willDismissSearchController(_ searchController: UISearchController) {
+		coordinator.endSearching()
+		searchController.searchBar.showsScopeBar = false
+	}
+
+}
+
+extension MasterTimelineViewController: UISearchResultsUpdating {
+
+	func updateSearchResults(for searchController: UISearchController) {
+		let searchScope = SearchScope(rawValue: searchController.searchBar.selectedScopeButtonIndex)!
+		coordinator.searchArticles(searchController.searchBar.text!, searchScope)
+	}
+
+}
+
+extension MasterTimelineViewController: UISearchBarDelegate {
+	func searchBar(_ searchBar: UISearchBar, selectedScopeButtonIndexDidChange selectedScope: Int) {
+		let searchScope = SearchScope(rawValue: selectedScope)!
+		coordinator.searchArticles(searchBar.text!, searchScope)
+	}
 }
 
 // MARK: Private
@@ -444,8 +503,27 @@ private extension MasterTimelineViewController {
 			navigationController?.updateAccountRefreshProgressIndicator()
 		}
 	}
+
+	func applyChanges(animate: Bool, completion: (() -> Void)? = nil) {
+        var snapshot = NSDiffableDataSourceSnapshot<Int, Article>()
+		snapshot.appendSections([0])
+		snapshot.appendItems(coordinator.articles, toSection: 0)
+        
+		dataSource.apply(snapshot, animatingDifferences: animate) { [weak self] in
+			self?.restoreSelectionIfNecessary()
+			completion?()
+		}
+	}
 	
-	func configureTimelineCell(_ cell: MasterTimelineTableViewCell, article: Article) {
+	func makeDataSource() -> UITableViewDiffableDataSource<Int, Article> {
+		return MasterTimelineDataSource(coordinator: coordinator, tableView: tableView, cellProvider: { [weak self] tableView, indexPath, article in
+			let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath) as! MasterTimelineTableViewCell
+			self?.configure(cell, article: article)
+			return cell
+		})
+    }
+	
+	func configure(_ cell: MasterTimelineTableViewCell, article: Article) {
 		
 		let avatar = avatarFor(article)
 		let featuredImage = featuredImageFor(article)
@@ -470,15 +548,13 @@ private extension MasterTimelineViewController {
 		return nil
 	}
 
-	func queueReloadVisableCells() {
-		CoalescingQueue.standard.add(self, #selector(reloadAllVisibleCells))
-	}
-
-	func performBlockAndRestoreSelection(_ block: (() -> Void)) {
-		let indexPaths = tableView.indexPathsForSelectedRows
-		block()
-		indexPaths?.forEach { [weak self] indexPath in
-			self?.tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+	func restoreSelectionIfNecessary() {
+		guard traitCollection.userInterfaceIdiom == .pad else {
+			return
+		}
+		if let articleID = coordinator.currentArticle?.articleID, let index = coordinator.indexForArticleID(articleID) {
+			let indexPath = IndexPath(row: index, section: 0)
+			tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
 		}
 	}
 	
@@ -598,7 +674,7 @@ private extension MasterTimelineViewController {
 		}
 		let title = NSLocalizedString("Open in Browser", comment: "Open in Browser")
 		let action = UIAction(title: title, image: AppAssets.safariImage) { [weak self] action in
-			self?.coordinator.showBrowser(for: indexPath)
+			self?.coordinator.showBrowserForArticle(indexPath)
 		}
 		return action
 	}
@@ -609,7 +685,7 @@ private extension MasterTimelineViewController {
 		}
 		let title = NSLocalizedString("Open in Browser", comment: "Open in Browser")
 		let action = UIAlertAction(title: title, style: .default) { [weak self] action in
-			self?.coordinator.showBrowser(for: indexPath)
+			self?.coordinator.showBrowserForArticle(indexPath)
 			completionHandler(true)
 		}
 		return action

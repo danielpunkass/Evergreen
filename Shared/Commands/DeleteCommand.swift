@@ -14,7 +14,6 @@ import Articles
 
 final class DeleteCommand: UndoableCommand {
 
-	let treeController: TreeController
 	let undoManager: UndoManager
 	let undoActionName: String
 	var redoActionName: String {
@@ -24,7 +23,7 @@ final class DeleteCommand: UndoableCommand {
 
 	private let itemSpecifiers: [SidebarItemSpecifier]
 
-	init?(nodesToDelete: [Node], treeController: TreeController, undoManager: UndoManager, errorHandler: @escaping (Error) -> ()) {
+	init?(nodesToDelete: [Node], undoManager: UndoManager, errorHandler: @escaping (Error) -> ()) {
 
 		guard DeleteCommand.canDelete(nodesToDelete) else {
 			return nil
@@ -33,7 +32,6 @@ final class DeleteCommand: UndoableCommand {
 			return nil
 		}
 
-		self.treeController = treeController
 		self.undoActionName = actionName
 		self.undoManager = undoManager
 		self.errorHandler = errorHandler
@@ -46,38 +44,12 @@ final class DeleteCommand: UndoableCommand {
 	}
 
 	func perform() {
-
-		BatchUpdate.shared.perform {
-			itemSpecifiers.forEach { $0.delete() {} }
-			treeController.rebuild()
-		}
+		itemSpecifiers.forEach { $0.delete() {} }
 		registerUndo()
 	}
 
-	func perform(completion: @escaping () -> Void) {
-		
-		let group = DispatchGroup()
-		group.enter()
-		itemSpecifiers.forEach {
-			$0.delete() {
-				group.leave()
-			}
-		}
-		treeController.rebuild()
-	
-		group.notify(queue: DispatchQueue.main) {
-			self.registerUndo()
-			completion()
-		}
-		
-	}
-	
 	func undo() {
-
-		BatchUpdate.shared.perform {
-			itemSpecifiers.forEach { $0.restore() }
-			treeController.rebuild()
-		}
+		itemSpecifiers.forEach { $0.restore() }
 		registerRedo()
 	}
 

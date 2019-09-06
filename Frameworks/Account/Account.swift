@@ -48,6 +48,7 @@ public enum FetchType {
 	case feed(Feed)
 	case articleIDs(Set<String>)
 	case search(String)
+	case searchWithArticleIDs(String, Set<String>)
 }
 
 public final class Account: DisplayNameProvider, UnreadCountProvider, Container, Hashable {
@@ -534,6 +535,8 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			return fetchArticles(articleIDs: articleIDs)
 		case .search(let searchString):
 			return fetchArticlesMatching(searchString)
+		case .searchWithArticleIDs(let searchString, let articleIDs):
+			return fetchArticlesMatchingWithArticleIDs(searchString, articleIDs)
 		}
 	}
 
@@ -553,6 +556,8 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			fetchArticlesAsync(articleIDs: articleIDs, callback)
 		case .search(let searchString):
 			fetchArticlesMatchingAsync(searchString, callback)
+		case .searchWithArticleIDs(let searchString, let articleIDs):
+			return fetchArticlesMatchingWithArticleIDsAsync(searchString, articleIDs, callback)
 		}
 	}
 
@@ -564,16 +569,16 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		database.fetchStarredAndUnreadCount(for: flattenedFeeds().feedIDs(), callback: callback)
 	}
 
-	public func fetchUnreadArticleIDs(_ callback: @escaping (Set<String>) -> Void) {
-		database.fetchUnreadArticleIDs(callback)
+	public func fetchUnreadArticleIDs() -> Set<String> {
+		return database.fetchUnreadArticleIDs()
 	}
 
-	public func fetchStarredArticleIDs(_ callback: @escaping (Set<String>) -> Void) {
-		database.fetchStarredArticleIDs(callback)
+	public func fetchStarredArticleIDs() -> Set<String> {
+		return database.fetchStarredArticleIDs()
 	}
 	
-	public func fetchArticleIDsForStatusesWithoutArticles(_ callback: @escaping (Set<String>) -> Void) {
-		database.fetchArticleIDsForStatusesWithoutArticles(callback)
+	public func fetchArticleIDsForStatusesWithoutArticles() -> Set<String> {
+		return database.fetchArticleIDsForStatusesWithoutArticles()
 	}
 
 	public func opmlDocument() -> String {
@@ -657,9 +662,9 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		return updatedArticles
 	}
 
-	func ensureStatuses(_ articleIDs: Set<String>, _ statusKey: ArticleStatus.Key, _ flag: Bool) {
+	func ensureStatuses(_ articleIDs: Set<String>, _ defaultRead: Bool, _ statusKey: ArticleStatus.Key, _ flag: Bool) {
 		if !articleIDs.isEmpty {
-			database.ensureStatuses(articleIDs, statusKey, flag)
+			database.ensureStatuses(articleIDs, defaultRead, statusKey, flag)
 		}
 	}
 
@@ -862,8 +867,16 @@ private extension Account {
 		return database.fetchArticlesMatching(searchString, flattenedFeeds().feedIDs())
 	}
 
+	func fetchArticlesMatchingWithArticleIDs(_ searchString: String, _ articleIDs: Set<String>) -> Set<Article> {
+		return database.fetchArticlesMatchingWithArticleIDs(searchString, articleIDs)
+	}
+	
 	func fetchArticlesMatchingAsync(_ searchString: String, _ callback: @escaping ArticleSetBlock) {
 		database.fetchArticlesMatchingAsync(searchString, flattenedFeeds().feedIDs(), callback)
+	}
+
+	func fetchArticlesMatchingWithArticleIDsAsync(_ searchString: String, _ articleIDs: Set<String>, _ callback: @escaping ArticleSetBlock) {
+		database.fetchArticlesMatchingWithArticleIDsAsync(searchString, articleIDs, callback)
 	}
 
 	func fetchArticles(articleIDs: Set<String>) -> Set<Article> {

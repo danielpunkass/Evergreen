@@ -18,13 +18,19 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 	@IBOutlet private weak var markAllAsReadButton: UIBarButtonItem!
 	@IBOutlet private weak var addNewItemButton: UIBarButtonItem!
 	
+	private lazy var dataSource = makeDataSource()
 	var undoableCommands = [UndoableCommand]()
+	weak var coordinator: SceneCoordinator!
 	
-	weak var coordinator: AppCoordinator!
+	private let keyboardManager = KeyboardManager(type: .sidebar)
+	override var keyCommands: [UIKeyCommand]? {
+		return keyboardManager.keyCommands
+	}
+	
 	override var canBecomeFirstResponder: Bool {
 		return true
 	}
-
+	
 	override func viewDidLoad() {
 
 		super.viewDidLoad()
@@ -36,6 +42,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		navigationItem.rightBarButtonItem = editButtonItem
 		
 		tableView.register(MasterFeedTableViewSectionHeader.self, forHeaderFooterViewReuseIdentifier: "SectionHeader")
+		tableView.dataSource = dataSource
 		
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
@@ -48,6 +55,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		refreshControl!.addTarget(self, action: #selector(refreshAccounts(_:)), for: .valueChanged)
 		
 		updateUI()
+		applyChanges(animate: false)
 		
 	}
 
@@ -59,19 +67,12 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 	
 	override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
-		becomeFirstResponder()
 		navigationController?.updateAccountRefreshProgressIndicator()
-	}
-	
-	override func viewWillDisappear(_ animated: Bool) {
-		super.viewWillDisappear(animated)
-		resignFirstResponder()
 	}
 
 	// MARK: Notifications
 	
 	@objc func unreadCountDidChange(_ note: Notification) {
-		
 		updateUI()
 
 		guard let representedObject = note.object else {
@@ -89,20 +90,15 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		}
 		
 		var node: Node? = nil
-		if let coordinator = representedObject as? AppCoordinator, let fetcher = coordinator.timelineFetcher {
+		if let coordinator = representedObject as? SceneCoordinator, let fetcher = coordinator.timelineFetcher {
 			node = coordinator.rootNode.descendantNodeRepresentingObject(fetcher as AnyObject)
 		} else {
 			node = coordinator.rootNode.descendantNodeRepresentingObject(representedObject as AnyObject)
 		}
-		
-		guard let unwrappedNode = node, let indexPath = coordinator.indexPathFor(unwrappedNode) else {
-			return
-		}
 
-		performBlockAndRestoreSelection {
-			tableView.reloadRows(at: [indexPath], with: .none)
+		if let node = node, coordinator.indexPathFor(node) != nil {
+			reloadNode(node)
 		}
-
 	}
 
 	@objc func faviconDidBecomeAvailable(_ note: Notification) {
@@ -110,15 +106,12 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 	}
 
 	@objc func feedSettingDidChange(_ note: Notification) {
-		
 		guard let feed = note.object as? Feed, let key = note.userInfo?[Feed.FeedSettingUserInfoKey] as? String else {
 			return
 		}
-		
 		if key == Feed.FeedSettingKey.homePageURL || key == Feed.FeedSettingKey.faviconURL {
 			configureCellsForRepresentedObject(feed)
 		}
-		
 	}
 	
 	@objc func userDidAddFeed(_ notification: Notification) {
@@ -133,18 +126,10 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 	}
 	
 	@objc func contentSizeCategoryDidChange(_ note: Notification) {
-		tableView.reloadData()
+		applyChanges(animate: false)
 	}
 	
 	// MARK: Table View
-	
-	override func numberOfSections(in tableView: UITableView) -> Int {
-		return coordinator.numberOfSections
-	}
-	
-	override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-		return coordinator.rowsInSection(section)
-	}
 	
 	override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
 
@@ -197,26 +182,6 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		return UIView(frame: CGRect.zero)
 	}
 
-	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-		
-		let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath) as! MasterFeedTableViewCell
-		
-		guard let node = coordinator.nodeFor(indexPath) else {
-			return cell
-		}
-		
-		configure(cell, node)
-		return cell
-
-	}
-	
-	override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-		guard let node = coordinator.nodeFor(indexPath), !(node.representedObject is PseudoFeed) else {
-			return false
-		}
-		return true
-	}
-	
 	override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
 		var actions = [UIContextualAction]()
 		
@@ -293,16 +258,10 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 	}
 
 	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-		coordinator.selectFeed(indexPath)
+		becomeFirstResponder()
+		coordinator.selectFeed(indexPath, automated: false)
 	}
 
-	override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-		guard let node = coordinator.nodeFor(indexPath) else {
-			return false
-		}
-		return node.representedObject is Feed
-	}
-	
 	override func tableView(_ tableView: UITableView, targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath, toProposedIndexPath proposedDestinationIndexPath: IndexPath) -> IndexPath {
 
 		// Adjust the index path so that it will never be in the smart feeds area
@@ -310,7 +269,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 			if proposedDestinationIndexPath.section == 0 {
 				return IndexPath(row: 0, section: 1)
 			}
-			return proposedDestinationIndexPath
+			return coordinator.cappedIndexPath(proposedDestinationIndexPath)
 		}()
 		
 		guard let draggedNode = coordinator.nodeFor(sourceIndexPath), let destNode = coordinator.nodeFor(destIndexPath), let parentNode = destNode.parent else {
@@ -360,53 +319,6 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		
 	}
 	
-	override func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
-
-		guard let sourceNode = coordinator.nodeFor(sourceIndexPath), let feed = sourceNode.representedObject as? Feed else {
-			return
-		}
-
-		// Based on the drop we have to determine a node to start looking for a parent container.
-		let destNode: Node = {
-			if destinationIndexPath.row == 0 {
-				return coordinator.rootNode.childAtIndex(destinationIndexPath.section)!
-			} else {
-				let movementAdjustment = sourceIndexPath > destinationIndexPath ? 1 : 0
-				let adjustedDestIndexPath = IndexPath(row: destinationIndexPath.row - movementAdjustment, section: destinationIndexPath.section)
-				return coordinator.nodeFor(adjustedDestIndexPath)!
-			}
-		}()
-
-		// Now we start looking for the parent container
-		let destParentNode: Node? = {
-			if destNode.representedObject is Container {
-				return destNode
-			} else {
-				if destNode.parent?.representedObject is Container {
-					return destNode.parent!
-				} else {
-					return nil
-				}
-			}
-		}()
-		
-		// Move the Feed
-		guard let source = sourceNode.parent?.representedObject as? Container, let destination = destParentNode?.representedObject as? Container else {
-			return
-		}
-		
-		BatchUpdate.shared.start()
-		source.account?.moveFeed(feed, from: source, to: destination) { result in
-			switch result {
-			case .success:
-				BatchUpdate.shared.end()
-			case .failure(let error):
-				self.presentError(error)
-			}
-		}
-
-	}
-	
 	// MARK: Actions
 	
 	@IBAction func settings(_ sender: UIBarButtonItem) {
@@ -435,7 +347,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 	}
 	
 	@IBAction func add(_ sender: UIBarButtonItem) {
-		coordinator.showAdd()
+		coordinator.showAdd(.feed)
 	}
 	
 	@objc func toggleSectionHeader(_ sender: UITapGestureRecognizer) {
@@ -449,18 +361,12 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		
 		if coordinator.isExpanded(sectionNode) {
 			headerView.disclosureExpanded = false
-			coordinator.collapse(section: sectionIndex) { [weak self] indexPaths in
-				self?.tableView.beginUpdates()
-				self?.tableView.deleteRows(at: indexPaths, with: .automatic)
-				self?.tableView.endUpdates()
-			}
+			coordinator.collapseSection(sectionIndex)
+			self.applyChanges(animate: true)
 		} else {
 			headerView.disclosureExpanded = true
-			coordinator.expand(section: sectionIndex) { [weak self] indexPaths in
-				self?.tableView.beginUpdates()
-				self?.tableView.insertRows(at: indexPaths, with: .automatic)
-				self?.tableView.endUpdates()
-			}
+			coordinator.expandSection(sectionIndex)
+			self.applyChanges(animate: true)
 		}
 		
 	}
@@ -474,52 +380,129 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		}
 	}
 	
+	// MARK: Keyboard shortcuts
+	
+	@objc func selectNextUp(_ sender: Any?) {
+		coordinator.selectPrevFeed()
+	}
+
+	@objc func selectNextDown(_ sender: Any?) {
+		coordinator.selectNextFeed()
+	}
+
+	@objc func navigateToTimeline(_ sender: Any?) {
+		coordinator.navigateToTimeline()
+	}
+
+	@objc func openInBrowser(_ sender: Any?) {
+		coordinator.showBrowserForCurrentFeed()
+	}
+	
+	@objc override func delete(_ sender: Any?) {
+		if let indexPath = coordinator.currentFeedIndexPath {
+			delete(indexPath: indexPath)
+		}
+	}
+	
+	@objc func expandSelectedRows(_ sender: Any?) {
+		if let indexPath = coordinator.currentFeedIndexPath {
+			coordinator.expandFolder(indexPath)
+			self.applyChanges(animate: true)
+		}
+	}
+	
+	@objc func collapseSelectedRows(_ sender: Any?) {
+		if let indexPath = coordinator.currentFeedIndexPath {
+			coordinator.collapseFolder(indexPath)
+			self.applyChanges(animate: true)
+		}
+	}
+	
+	@objc func expandAll(_ sender: Any?) {
+		coordinator.expandAllSectionsAndFolders()
+		self.applyChanges(animate: true)
+	}
+	
+	@objc func collapseAllExceptForGroupItems(_ sender: Any?) {
+		coordinator.collapseAllFolders()
+		self.applyChanges(animate: true)
+	}
+	
 	// MARK: API
 	
 	func updateFeedSelection() {
-		if let indexPath = coordinator.currentMasterIndexPath {
+		if let indexPath = coordinator.currentFeedIndexPath {
 			if tableView.indexPathForSelectedRow != indexPath {
 				tableView.selectRow(at: indexPath, animated: true, scrollPosition: .middle)
 			}
+		} else {
+			tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
 		}
 	}
 
 	func reloadFeeds() {
 		updateUI()
-		tableView.reloadData()
+
+		// We have to reload all the visible cells because if we got here by doing a table cell move,
+		// then the table itself is in a weird state.  This is because we do unusual things like allowing
+		// drops on a "folder" that should cause the dropped cell to disappear.
+		applyChanges(animate: true) { [weak self] in
+			self?.reloadAllVisibleCells()
+		}
 	}
 	
-	func discloseFeed(_ feed: Feed) {
+	func ensureSectionIsExpanded(_ sectionIndex: Int, completion: (() -> Void)? = nil) {
+		guard let sectionNode = coordinator.rootNode.childAtIndex(sectionIndex) else {
+				return
+		}
+		
+		if !coordinator.isExpanded(sectionNode) {
+			coordinator.expandSection(sectionIndex)
+			self.applyChanges(animate: true) {
+				completion?()
+			}
+		} else {
+			completion?()
+		}
+	}
+	
+	func discloseFeed(_ feed: Feed, completion: (() -> Void)? = nil) {
 		
 		guard let node = coordinator.rootNode.descendantNodeRepresentingObject(feed as AnyObject) else {
-				return
+			completion?()
+			return
 		}
 		
 		if let indexPath = coordinator.indexPathFor(node) {
 			tableView.scrollToRow(at: indexPath, at: .middle, animated: true)
 			coordinator.selectFeed(indexPath)
+			completion?()
 			return
 		}
 	
 		// It wasn't already visable, so expand its folder and try again
 		guard let parent = node.parent, let indexPath = coordinator.indexPathFor(parent) else {
+			completion?()
 			return
 		}
 		
-		coordinator.expand(indexPath) { [weak self] indexPaths in
-			self?.tableView.beginUpdates()
-			tableView.reloadRows(at: [indexPath], with: .automatic)
-			self?.tableView.insertRows(at: indexPaths, with: .automatic)
-			self?.tableView.endUpdates()
-		}
-		
-		if let indexPath = coordinator.indexPathFor(node) {
-			tableView.scrollToRow(at: indexPath, at: .middle, animated: true)
-			coordinator.selectFeed(indexPath)
+		coordinator.expandFolder(indexPath)
+		reloadNode(parent)
+
+		self.applyChanges(animate: true) { [weak self] in
+			if let indexPath = self?.coordinator.indexPathFor(node) {
+				self?.tableView.scrollToRow(at: indexPath, at: .middle, animated: true)
+				self?.coordinator.selectFeed(indexPath)
+				completion?()
+			}
 		}
 
 	}
 
+	func focus() {
+		becomeFirstResponder()
+	}
+	
 }
 
 // MARK: MasterTableViewCellDelegate
@@ -544,7 +527,38 @@ private extension MasterFeedViewController {
 		markAllAsReadButton.isEnabled = coordinator.isAnyUnreadAvailable
 		addNewItemButton.isEnabled = !AccountManager.shared.activeAccounts.isEmpty
 	}
+	
+	func reloadNode(_ node: Node) {
+		var snapshot = dataSource.snapshot()
+		snapshot.reloadItems([node])
+		dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+			self?.restoreSelectionIfNecessary()
+		}
+	}
+	
+	func applyChanges(animate: Bool, completion: (() -> Void)? = nil) {
+        var snapshot = NSDiffableDataSourceSnapshot<Int, Node>()
+		let sections = coordinator.allSections
+		snapshot.appendSections(sections)
 
+		for section in sections {
+			snapshot.appendItems(coordinator.nodesFor(section: section), toSection: section)
+		}
+        
+		dataSource.apply(snapshot, animatingDifferences: animate) { [weak self] in
+			self?.restoreSelectionIfNecessary()
+			completion?()
+		}
+	}
+
+    func makeDataSource() -> UITableViewDiffableDataSource<Int, Node> {
+		return MasterFeedDataSource(coordinator: coordinator, errorHandler: ErrorHandler.present(self), tableView: tableView, cellProvider: { [weak self] tableView, indexPath, node in
+			let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath) as! MasterFeedTableViewCell
+			self?.configure(cell, node)
+			return cell
+		})
+    }
+	
 	func configure(_ cell: MasterFeedTableViewCell, _ node: Node) {
 		
 		cell.delegate = self
@@ -602,6 +616,17 @@ private extension MasterFeedViewController {
 		}
 	}
 
+	private func reloadAllVisibleCells() {
+		let visibleNodes = tableView.indexPathsForVisibleRows!.compactMap { return coordinator.nodeFor($0) }
+		reloadCells(visibleNodes)
+	}
+	
+	private func reloadCells(_ nodes: [Node]) {
+		var snapshot = dataSource.snapshot()
+		snapshot.reloadItems(nodes)
+		dataSource.apply(snapshot, animatingDifferences: false)
+	}
+	
 	private func accountForNode(_ node: Node) -> Account? {
 		if let account = node.representedObject as? Account {
 			return account
@@ -619,32 +644,27 @@ private extension MasterFeedViewController {
 		guard let indexPath = tableView.indexPath(for: cell)  else {
 			return
 		}
-		coordinator.expand(indexPath) { [weak self] indexPaths in
-			self?.tableView.beginUpdates()
-			self?.tableView.insertRows(at: indexPaths, with: .automatic)
-			self?.tableView.endUpdates()
-		}
+		coordinator.expandFolder(indexPath)
+		self.applyChanges(animate: true)
 	}
 
 	func collapse(_ cell: MasterFeedTableViewCell) {
 		guard let indexPath = tableView.indexPath(for: cell) else {
 			return
 		}
-		coordinator.collapse(indexPath) { [weak self] indexPaths in
-			self?.tableView.beginUpdates()
-			self?.tableView.deleteRows(at: indexPaths, with: .automatic)
-			self?.tableView.endUpdates()
+		coordinator.collapseFolder(indexPath)
+		self.applyChanges(animate: true)
+	}
+
+	func restoreSelectionIfNecessary() {
+		guard traitCollection.userInterfaceIdiom == .pad else {
+			return
+		}
+		if let indexPath = coordinator.masterFeedIndexPathForCurrentTimeline(), indexPath != tableView.indexPathForSelectedRow {
+			tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
 		}
 	}
 
-	func performBlockAndRestoreSelection(_ block: (() -> Void)) {
-		let indexPaths = tableView.indexPathsForSelectedRows
-		block()
-		indexPaths?.forEach { [weak self] indexPath in
-			self?.tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
-		}
-	}
-	
 	func makeFeedContextMenu(indexPath: IndexPath, includeDeleteRename: Bool) -> UIContextMenuConfiguration {
 		return UIContextMenuConfiguration(identifier: nil, previewProvider: nil, actionProvider: { [ weak self] suggestedActions in
 			
@@ -690,31 +710,25 @@ private extension MasterFeedViewController {
 	}
 
 	func homePageAction(indexPath: IndexPath) -> UIAction? {
-		guard let node = coordinator.nodeFor(indexPath),
-			let feed = node.representedObject as? Feed,
-			let homePageURL = feed.homePageURL,
-			let url = URL(string: homePageURL) else {
-				return nil
+		guard coordinator.homePageURLForFeed(indexPath) != nil else {
+			return nil
 		}
 		
 		let title = NSLocalizedString("Open Home Page", comment: "Open Home Page")
-		let action = UIAction(title: title, image: AppAssets.safariImage) { action in
-			UIApplication.shared.open(url, options: [:])
+		let action = UIAction(title: title, image: AppAssets.safariImage) { [weak self] action in
+			self?.coordinator.showBrowserForFeed(indexPath)
 		}
 		return action
 	}
 	
 	func homePageAlertAction(indexPath: IndexPath, completionHandler: @escaping (Bool) -> Void) -> UIAlertAction? {
-		guard let node = coordinator.nodeFor(indexPath),
-			let feed = node.representedObject as? Feed,
-			let homePageURL = feed.homePageURL,
-			let url = URL(string: homePageURL) else {
-				return nil
+		guard coordinator.homePageURLForFeed(indexPath) != nil else {
+			return nil
 		}
-		
+
 		let title = NSLocalizedString("Open Home Page", comment: "Open Home Page")
-		let action = UIAlertAction(title: title, style: .default) { action in
-			UIApplication.shared.open(url, options: [:])
+		let action = UIAlertAction(title: title, style: .default) { [weak self] action in
+			self?.coordinator.showBrowserForFeed(indexPath)
 			completionHandler(true)
 		}
 		return action
@@ -820,7 +834,7 @@ private extension MasterFeedViewController {
 				feed.rename(to: name) { result in
 					switch result {
 					case .success:
-						break
+						self?.reloadNode(node)
 					case .failure(let error):
 						self?.presentError(error)
 					}
@@ -829,7 +843,7 @@ private extension MasterFeedViewController {
 				folder.rename(to: name) { result in
 					switch result {
 					case .success:
-						break
+						self?.reloadNode(node)
 					case .failure(let error):
 						self?.presentError(error)
 					}
@@ -851,31 +865,21 @@ private extension MasterFeedViewController {
 	}
 	
 	func delete(indexPath: IndexPath) {
-
 		guard let undoManager = undoManager,
 			let deleteNode = coordinator.nodeFor(indexPath),
-			let deleteCommand = DeleteCommand(nodesToDelete: [deleteNode], treeController: coordinator.treeController, undoManager: undoManager, errorHandler: ErrorHandler.present(self))
+			let deleteCommand = DeleteCommand(nodesToDelete: [deleteNode], undoManager: undoManager, errorHandler: ErrorHandler.present(self))
 				else {
 					return
 		}
 
-		var deleteIndexPaths = [indexPath]
-		if coordinator.isExpanded(deleteNode) {
-			for i in 0..<deleteNode.numberOfChildNodes {
-				deleteIndexPaths.append(IndexPath(row: indexPath.row + 1 + i, section: indexPath.section))
-			}
+		if let folder = deleteNode.representedObject as? Folder {
+			ActivityManager.cleanUp(folder)
+		} else if let feed = deleteNode.representedObject as? Feed {
+			ActivityManager.cleanUp(feed)
 		}
 		
 		pushUndoableCommand(deleteCommand)
-
-		coordinator.beginUpdates()
-		deleteCommand.perform {
-			self.coordinator.treeController.rebuild()
-			self.coordinator.rebuildShadowTable()
-			self.tableView.deleteRows(at: deleteIndexPaths, with: .automatic)
-			self.coordinator.endUpdates()
-		}
-		
+		deleteCommand.perform()
 	}
 	
 }

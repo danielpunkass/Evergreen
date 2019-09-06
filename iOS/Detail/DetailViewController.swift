@@ -14,26 +14,48 @@ import SafariServices
 
 class DetailViewController: UIViewController {
 
-	@IBOutlet weak var nextUnreadBarButtonItem: UIBarButtonItem!
-	@IBOutlet weak var prevArticleBarButtonItem: UIBarButtonItem!
-	@IBOutlet weak var nextArticleBarButtonItem: UIBarButtonItem!
-	@IBOutlet weak var readBarButtonItem: UIBarButtonItem!
-	@IBOutlet weak var starBarButtonItem: UIBarButtonItem!
-	@IBOutlet weak var actionBarButtonItem: UIBarButtonItem!
-	@IBOutlet weak var browserBarButtonItem: UIBarButtonItem!
-	@IBOutlet weak var webView: WKWebView!
+	@IBOutlet private weak var nextUnreadBarButtonItem: UIBarButtonItem!
+	@IBOutlet private weak var prevArticleBarButtonItem: UIBarButtonItem!
+	@IBOutlet private weak var nextArticleBarButtonItem: UIBarButtonItem!
+	@IBOutlet private weak var readBarButtonItem: UIBarButtonItem!
+	@IBOutlet private weak var starBarButtonItem: UIBarButtonItem!
+	@IBOutlet private weak var actionBarButtonItem: UIBarButtonItem!
+	@IBOutlet private weak var browserBarButtonItem: UIBarButtonItem!
+	@IBOutlet private weak var webViewContainer: UIView!
+	private var webView: WKWebView!
+
+	weak var coordinator: SceneCoordinator!
 	
-	weak var coordinator: AppCoordinator!
+	private let keyboardManager = KeyboardManager(type: .detail)
+	override var keyCommands: [UIKeyCommand]? {
+		return keyboardManager.keyCommands
+	}
+	
+	deinit {
+		webView.removeFromSuperview()
+		DetailViewControllerWebViewProvider.shared.enqueueWebView(webView)
+		webView = nil
+	}
 	
 	override func viewDidLoad() {
-		
 		super.viewDidLoad()
-		webView.isHidden = true
+
+		webView = DetailViewControllerWebViewProvider.shared.dequeueWebView()
+		webView.translatesAutoresizingMaskIntoConstraints = false
 		webView.navigationDelegate = self
 		
-		markAsRead()
-		updateUI()
-		reloadHTML()
+		webViewContainer.addSubview(webView)
+		
+		let constraints: [NSLayoutConstraint] = [
+			webView.leadingAnchor.constraint(equalTo: webViewContainer.safeAreaLayoutGuide.leadingAnchor),
+			webView.trailingAnchor.constraint(equalTo: webViewContainer.safeAreaLayoutGuide.trailingAnchor),
+			webView.topAnchor.constraint(equalTo: webViewContainer.safeAreaLayoutGuide.topAnchor),
+			webView.bottomAnchor.constraint(equalTo: webViewContainer.safeAreaLayoutGuide.bottomAnchor),
+		]
+		
+		NSLayoutConstraint.activate(constraints)
+
+		updateArticleSelection()
 		
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
@@ -44,12 +66,6 @@ class DetailViewController: UIViewController {
 	override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
 		updateProgressIndicatorIfNeeded()
-	}
-	
-	func markAsRead() {
-		if let article = coordinator.currentArticle {
-			markArticles(Set([article]), statusKey: .read, flag: true)
-		}
 	}
 	
 	func updateUI() {
@@ -135,7 +151,7 @@ class DetailViewController: UIViewController {
 	}
 	
 	@IBAction func toggleStar(_ sender: Any) {
-		coordinator.toggleStarForCurrentArticle()
+		coordinator.toggleStarredForCurrentArticle()
 	}
 	
 	@IBAction func openBrowser(_ sender: Any) {
@@ -153,15 +169,43 @@ class DetailViewController: UIViewController {
 		present(activityViewController, animated: true)
 	}
 	
+	// MARK: Keyboard Shortcuts
+	@objc func navigateToTimeline(_ sender: Any?) {
+		coordinator.navigateToTimeline()
+	}
+	
 	// MARK: API
 	func updateArticleSelection() {
-		markAsRead()
 		updateUI()
 		reloadHTML()
 	}
 
+	func focus() {
+		webView.becomeFirstResponder()
+	}
 
+	func finalScrollPosition() -> CGFloat {
+		return webView.scrollView.contentSize.height - webView.scrollView.bounds.size.height + webView.scrollView.contentInset.bottom
+	}
+	
+	func canScrollDown() -> Bool {
+		return webView.scrollView.contentOffset.y < finalScrollPosition()
+	}
+
+	func scrollPageDown() {
+		let scrollToY: CGFloat = {
+			let fullScroll = webView.scrollView.contentOffset.y + webView.scrollView.bounds.size.height
+			let final = finalScrollPosition()
+			return fullScroll < final ? fullScroll : final
+		}()
+		
+		let convertedPoint = self.view.convert(CGPoint(x: 0, y: 0), to: webView.scrollView)
+		let scrollToPoint = CGPoint(x: convertedPoint.x, y: scrollToY)
+		webView.scrollView.setContentOffset(scrollToPoint, animated: true)
+	}
+	
 }
+//print("\(candidateY) : \(webView.scrollView.contentSize.height)")
 
 class ArticleActivityItemSource: NSObject, UIActivityItemSource {
 	
@@ -213,16 +257,6 @@ extension DetailViewController: WKNavigationDelegate {
 		}
 		
 	}
-	
-	func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-		// We initially hide the webview and only show it after it has loaded to avoid the
-		// white flashing that WKWebView does when it loads.  This is especially noticable
-		// in dark mode.
-		DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-			webView.isHidden = false
-		}
-	}
-	
 }
 
 private extension DetailViewController {
@@ -233,4 +267,54 @@ private extension DetailViewController {
 		}
 	}
 	
+}
+
+// MARK: -
+
+/// WKWebView has an awful behavior of a flash to white on first load when in dark mode.
+/// Keep a queue of WebViews where we've already done a trivial load so that by the time we need them in the UI, they're past the flash-to-shite part of their lifecycle.
+class DetailViewControllerWebViewProvider {
+	static var shared = DetailViewControllerWebViewProvider()
+	
+	func dequeueWebView() -> WKWebView {
+		if let webView = queue.popLast() {
+			replenishQueueIfNeeded()
+			return webView
+		}
+		
+		assertionFailure("Creating WKWebView in \(#function); queue has run dry.")
+		let webView = WKWebView(frame: .zero)
+		return webView
+	}
+	
+	func enqueueWebView(_ webView: WKWebView) {
+		guard queue.count < maximumQueueDepth else {
+			return
+		}
+
+		webView.uiDelegate = nil
+		webView.navigationDelegate = nil
+
+		let html = ArticleRenderer.noContentHTML(style: .defaultStyle)
+		webView.loadHTMLString(html, baseURL: nil)
+
+		queue.insert(webView, at: 0)
+	}
+
+	// MARK: Private
+
+	private let minimumQueueDepth = 3
+	private let maximumQueueDepth = 6
+	private var queue: [WKWebView] = []
+	
+	private init() {
+		replenishQueueIfNeeded()
+	}
+	
+	private func replenishQueueIfNeeded() {
+		while queue.count < minimumQueueDepth {
+			let webView = WKWebView(frame: .zero)
+			enqueueWebView(webView)
+		}
+	}
 }

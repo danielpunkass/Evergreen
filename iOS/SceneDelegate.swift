@@ -7,11 +7,12 @@
 //
 
 import UIKit
+import Account
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 	
     var window: UIWindow?
-	var coordinator = AppCoordinator()
+	var coordinator = SceneCoordinator()
 	
     // UIWindowScene delegate
     
@@ -21,12 +22,22 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 		window!.rootViewController = coordinator.start()
 		window!.makeKeyAndVisible()
 
+		if let shortcutItem = connectionOptions.shortcutItem {
+			handleShortcutItem(shortcutItem)
+			return
+		}
+		
         if let userActivity = connectionOptions.userActivities.first ?? session.stateRestorationActivity {
 			DispatchQueue.main.asyncAfter(deadline: .now()) {
 				self.coordinator.handle(userActivity)
 			}
         }
     }
+	
+	func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
+		handleShortcutItem(shortcutItem)
+		completionHandler(true)
+	}
 	
 	func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
 		coordinator.handle(userActivity)
@@ -40,8 +51,25 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 		appDelegate.prepareAccountsForForeground()
 	}
 	
-//    func stateRestorationActivity(for scene: UIScene) -> NSUserActivity? {
-//        return scene.userActivity
-//    }
+    func stateRestorationActivity(for scene: UIScene) -> NSUserActivity? {
+		return coordinator.stateRestorationActivity
+    }
 
+}
+
+private extension SceneDelegate {
+	
+	func handleShortcutItem(_ shortcutItem: UIApplicationShortcutItem) {
+		switch shortcutItem.type {
+		case "com.ranchero.NetNewsWire.FirstUnread":
+			coordinator.selectFirstUnreadInAllUnread()
+		case "com.ranchero.NetNewsWire.ShowSearch":
+			coordinator.showSearch()
+		case "com.ranchero.NetNewsWire.ShowAdd":
+			coordinator.showAdd(.feed)
+		default:
+			break
+		}
+	}
+	
 }

@@ -49,6 +49,9 @@
 	<true/>
 	<key>NSUserActivityTypes</key>
 	<array>
+		<string>com.ranchero.NetNewsWire.NextUnread</string>
+		<string>com.ranchero.NetNewsWire.SelectFeed</string>
+		<string>com.ranchero.NetNewsWire.SelectFolder</string>
 		<string>com.ranchero.NetNewsWire.SelectAllUnread</string>
 		<string>com.ranchero.NetNewsWire.SelectStarred</string>
 		<string>com.ranchero.NetNewsWire.SelectToday</string>
@@ -83,7 +86,9 @@
 		<string>fetch</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
+	<string>LaunchScreenPhone</string>
+	<key>UILaunchStoryboardName~ipad</key>
+	<string>LaunchScreenPad</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arm64</string>

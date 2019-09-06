@@ -68,6 +68,10 @@ public final class ArticlesDatabase {
 		return articlesTable.fetchArticlesMatching(searchString, feedIDs)
 	}
 
+	public func fetchArticlesMatchingWithArticleIDs(_ searchString: String, _ articleIDs: Set<String>) -> Set<Article> {
+		return articlesTable.fetchArticlesMatchingWithArticleIDs(searchString, articleIDs)
+	}
+
 	// MARK: - Fetching Articles Async
 
 	public func fetchArticlesAsync(_ feedID: String, _ callback: @escaping ArticleSetBlock) {
@@ -92,6 +96,10 @@ public final class ArticlesDatabase {
 
 	public func fetchArticlesMatchingAsync(_ searchString: String, _ feedIDs: Set<String>, _ callback: @escaping ArticleSetBlock) {
 		articlesTable.fetchArticlesMatchingAsync(searchString, feedIDs, callback)
+	}
+
+	public func fetchArticlesMatchingWithArticleIDsAsync(_ searchString: String, _ articleIDs: Set<String>, _ callback: @escaping ArticleSetBlock) {
+		articlesTable.fetchArticlesMatchingWithArticleIDsAsync(searchString, articleIDs, callback)
 	}
 
 	// MARK: - Unread Counts
@@ -122,22 +130,22 @@ public final class ArticlesDatabase {
 		return articlesTable.update(feedID, parsedItems, defaultRead, completion)
 	}
 	
-	public func ensureStatuses(_ articleIDs: Set<String>, _ statusKey: ArticleStatus.Key, _ flag: Bool) {
-		articlesTable.ensureStatuses(articleIDs, statusKey, flag)
+	public func ensureStatuses(_ articleIDs: Set<String>, _ defaultRead: Bool, _ statusKey: ArticleStatus.Key, _ flag: Bool) {
+		articlesTable.ensureStatuses(articleIDs, defaultRead, statusKey, flag)
 	}
 	
 	// MARK: - Status
 	
-	public func fetchUnreadArticleIDs(_ callback: @escaping (Set<String>) -> Void) {
-		articlesTable.fetchUnreadArticleIDs(callback)
+	public func fetchUnreadArticleIDs() -> Set<String> {
+		return articlesTable.fetchUnreadArticleIDs()
 	}
 	
-	public func fetchStarredArticleIDs(_ callback: @escaping (Set<String>) -> Void) {
-		articlesTable.fetchStarredArticleIDs(callback)
+	public func fetchStarredArticleIDs() -> Set<String> {
+		return articlesTable.fetchStarredArticleIDs()
 	}
 	
-	public func fetchArticleIDsForStatusesWithoutArticles(_ callback: @escaping (Set<String>) -> Void) {
-		articlesTable.fetchArticleIDsForStatusesWithoutArticles(callback)
+	public func fetchArticleIDsForStatusesWithoutArticles() -> Set<String> {
+		return articlesTable.fetchArticleIDsForStatusesWithoutArticles()
 	}
 	
 	public func mark(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) -> Set<ArticleStatus>? {
