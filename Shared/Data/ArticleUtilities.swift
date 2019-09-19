@@ -43,11 +43,17 @@ private func accountAndArticlesDictionary(_ articles: Set<Article>) -> [String: 
 extension Article {
 	
 	var feed: Feed? {
-		return account?.existingFeed(with: feedID)
+		return account?.existingFeed(withFeedID: feedID)
 	}
 	
 	var preferredLink: String? {
-		return url ?? externalURL
+		if let url = url, !url.isEmpty {
+			return url
+		}
+		if let externalURL = externalURL, !externalURL.isEmpty {
+			return externalURL
+		}
+		return nil
 	}
 	
 	var body: String? {
@@ -81,6 +87,28 @@ extension Article {
 		}
 		
 		return FaviconGenerator.favicon(feed)
+	}
+	
+}
+
+// MARK: SortableArticle
+
+extension Article: SortableArticle {
+	
+	var sortableName: String {
+		return feed?.name ?? ""
+	}
+	
+	var sortableDate: Date {
+		return logicalDatePublished
+	}
+	
+	var sortableArticleID: String {
+		return articleID
+	}
+	
+	var sortableFeedID: String {
+		return feedID
 	}
 	
 }

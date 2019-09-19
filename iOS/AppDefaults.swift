@@ -11,11 +11,13 @@ import UIKit
 struct AppDefaults {
 
 	struct Key {
+		static let lastImageCacheFlushDate = "lastImageCacheFlushDate"
 		static let firstRunDate = "firstRunDate"
+		static let timelineGroupByFeed = "timelineGroupByFeed"
+		static let timelineNumberOfLines = "timelineNumberOfLines"
 		static let timelineSortDirection = "timelineSortDirection"
 		static let refreshInterval = "refreshInterval"
 		static let lastRefresh = "lastRefresh"
-		static let timelineNumberOfLines = "timelineNumberOfLines"
 	}
 
 	static let isFirstRun: Bool = {
@@ -26,6 +28,15 @@ struct AppDefaults {
 		return true
 	}()
 	
+	static var lastImageCacheFlushDate: Date? {
+		get {
+			return date(for: Key.lastImageCacheFlushDate)
+		}
+		set {
+			setDate(for: Key.lastImageCacheFlushDate, newValue)
+		}
+	}
+
 	static var refreshInterval: RefreshInterval {
 		get {
 			let rawValue = UserDefaults.standard.integer(forKey: Key.refreshInterval)
@@ -33,6 +44,15 @@ struct AppDefaults {
 		}
 		set {
 			UserDefaults.standard.set(newValue.rawValue, forKey: Key.refreshInterval)
+		}
+	}
+	
+	static var timelineGroupByFeed: Bool {
+		get {
+			return bool(for: Key.timelineGroupByFeed)
+		}
+		set {
+			setBool(for: Key.timelineGroupByFeed, newValue)
 		}
 	}
 
@@ -64,7 +84,11 @@ struct AppDefaults {
 	}
 	
 	static func registerDefaults() {
-		let defaults: [String : Any] = [Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue, Key.refreshInterval: RefreshInterval.everyHour.rawValue, Key.timelineNumberOfLines: 3]
+		let defaults: [String : Any] = [Key.lastImageCacheFlushDate: Date(),
+										Key.refreshInterval: RefreshInterval.everyHour.rawValue,
+										Key.timelineGroupByFeed: false,
+										Key.timelineNumberOfLines: 3,
+										Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue]
 		UserDefaults.standard.register(defaults: defaults)
 	}
 

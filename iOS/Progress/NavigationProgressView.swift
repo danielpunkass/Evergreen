@@ -24,7 +24,7 @@ public final class NavigationProgressView: UIView {
 	
 	internal let bar = UIView()
 	
-	@objc public dynamic var progressTintColor: UIColor? = AppAssets.netNewsWireBlueColor {
+	@objc public dynamic var progressTintColor: UIColor? = AppAssets.primaryAccentColor {
 		didSet {
 			bar.backgroundColor = progressTintColor
 		}
@@ -44,7 +44,6 @@ public final class NavigationProgressView: UIView {
 			progress = tmpProgress
 		}
 	}
-	
 	
 	/* ====================================================================== */
 	// MARK: - initializer
@@ -119,14 +118,15 @@ public final class NavigationProgressView: UIView {
 	// MARK: - Method
 	/* ====================================================================== */
 	
-	internal func setProgress(_ progress: Float, animated: Bool) {
-		let duration: TimeInterval = animated ? 0.1 : 0
+	internal func setProgress(_ progress: Float, animated: Bool, completion: @escaping () -> Void) {
+		let duration: TimeInterval = animated ? 0.2 : 0
 		
 		self.progress = progress
 		
-		UIView.animate(withDuration: duration, animations: {
-			self.layoutIfNeeded()
-		})
+		UIView.animate(withDuration: duration, animations: { self.layoutIfNeeded() }) { _ in
+			completion()
+		}
+		
 	}
 	
 }

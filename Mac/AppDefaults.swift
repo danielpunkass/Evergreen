@@ -19,9 +19,11 @@ struct AppDefaults {
 
 	struct Key {
 		static let firstRunDate = "firstRunDate"
+		static let lastImageCacheFlushDate = "lastImageCacheFlushDate"
 		static let sidebarFontSize = "sidebarFontSize"
 		static let timelineFontSize = "timelineFontSize"
 		static let timelineSortDirection = "timelineSortDirection"
+		static let timelineGroupByFeed = "timelineGroupByFeed"
 		static let detailFontSize = "detailFontSize"
 		static let openInBrowserInBackground = "openInBrowserInBackground"
 		static let mainWindowWidths = "mainWindowWidths"
@@ -35,6 +37,9 @@ struct AppDefaults {
 		static let timelineShowsSeparators = "CorreiaSeparators"
 		static let showTitleOnMainWindow = "KafasisTitleMode"
 		static let hideDockUnreadCount = "JustinMillerHideDockUnreadCount"
+
+		static let webInspectorEnabled = "WebInspectorEnabled"
+		static let webInspectorStartsAttached = "__WebInspectorPageGroupLevel1__.WebKit2InspectorStartsAttached"
 	}
 
 	private static let smallestFontSizeRawValue = FontSize.small.rawValue
@@ -47,6 +52,15 @@ struct AppDefaults {
 		firstRunDate = Date()
 		return true
 	}()
+	
+	static var lastImageCacheFlushDate: Date? {
+		get {
+			return date(for: Key.lastImageCacheFlushDate)
+		}
+		set {
+			setDate(for: Key.lastImageCacheFlushDate, newValue)
+		}
+	}
 	
 	static var openInBrowserInBackground: Bool {
 		get {
@@ -128,12 +142,39 @@ struct AppDefaults {
 		return bool(for: Key.hideDockUnreadCount)
 	}
 
+	static var webInspectorEnabled: Bool {
+		get {
+			return bool(for: Key.webInspectorEnabled)
+		}
+		set {
+			setBool(for: Key.webInspectorEnabled, newValue)
+		}
+	}
+
+	static var webInspectorStartsAttached: Bool {
+		get {
+			return bool(for: Key.webInspectorStartsAttached)
+		}
+		set {
+			setBool(for: Key.webInspectorStartsAttached, newValue)
+		}
+	}
+
 	static var timelineSortDirection: ComparisonResult {
 		get {
 			return sortDirection(for: Key.timelineSortDirection)
 		}
 		set {
 			setSortDirection(for: Key.timelineSortDirection, newValue)
+		}
+	}
+	
+	static var timelineGroupByFeed: Bool {
+		get {
+			return bool(for: Key.timelineGroupByFeed)
+		}
+		set {
+			setBool(for: Key.timelineGroupByFeed, newValue)
 		}
 	}
 	
@@ -161,7 +202,14 @@ struct AppDefaults {
 	}
 
 	static func registerDefaults() {
-		let defaults: [String : Any] = [Key.sidebarFontSize: FontSize.medium.rawValue, Key.timelineFontSize: FontSize.medium.rawValue, Key.detailFontSize: FontSize.medium.rawValue, Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue, "NSScrollViewShouldScrollUnderTitlebar": false, Key.refreshInterval: RefreshInterval.everyHour.rawValue]
+		let defaults: [String : Any] = [Key.lastImageCacheFlushDate: Date(),
+										Key.sidebarFontSize: FontSize.medium.rawValue,
+										Key.timelineFontSize: FontSize.medium.rawValue,
+										Key.detailFontSize: FontSize.medium.rawValue,
+										Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue,
+										Key.timelineGroupByFeed: false,
+										"NSScrollViewShouldScrollUnderTitlebar": false,
+										Key.refreshInterval: RefreshInterval.everyHour.rawValue]
 
 		UserDefaults.standard.register(defaults: defaults)
 

@@ -12,16 +12,13 @@ import Articles
 
 // Main thread only.
 
-public extension Notification.Name {
-	static let AccountsDidChange = Notification.Name("AccountsDidChange")
-}
-
 public final class AccountManager: UnreadCountProvider {
 
-	public static let shared = AccountManager()
+	public static var shared: AccountManager!
+	
 	public let defaultAccount: Account
 
-	private let accountsFolder = RSDataSubfolder(nil, "Accounts")!
+	private let accountsFolder: String
     private var accountsDictionary = [String: Account]()
 
 	private let defaultAccountFolderName = "OnMyMac"
@@ -75,7 +72,9 @@ public final class AccountManager: UnreadCountProvider {
 		return CombinedRefreshProgress(downloadProgressArray: downloadProgressArray)
 	}
 	
-	public init() {
+	public init(accountsFolder: String) {
+		self.accountsFolder = accountsFolder
+		
 		// The local "On My Mac" account must always exist, even if it's empty.
 		let localAccountFolder = (accountsFolder as NSString).appendingPathComponent("OnMyMac")
 		do {
@@ -115,7 +114,9 @@ public final class AccountManager: UnreadCountProvider {
 		let account = Account(dataFolder: accountFolder, type: type, accountID: accountID)!
 		accountsDictionary[accountID] = account
 		
-		NotificationCenter.default.post(name: .AccountsDidChange, object: self)
+		var userInfo = [String: Any]()
+		userInfo[Account.UserInfoKey.account] = account
+		NotificationCenter.default.post(name: .UserDidAddAccount, object: self, userInfo: userInfo)
 		
 		return account
 	}
@@ -137,7 +138,10 @@ public final class AccountManager: UnreadCountProvider {
 		}
 		
 		updateUnreadCount()
-		NotificationCenter.default.post(name: .AccountsDidChange, object: self)
+
+		var userInfo = [String: Any]()
+		userInfo[Account.UserInfoKey.account] = account
+		NotificationCenter.default.post(name: .UserDidDeleteAccount, object: self, userInfo: userInfo)
 	}
 	
 	public func existingAccount(with accountID: String) -> Account? {

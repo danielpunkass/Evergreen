@@ -27,6 +27,15 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 			}
 		}
 	}
+
+	private var webInspectorEnabled: Bool {
+		get {
+			return webView.configuration.preferences._developerExtrasEnabled
+		}
+		set {
+			webView.configuration.preferences._developerExtrasEnabled = newValue
+		}
+	}
 	
 	private var waitingForFirstReload = false
 	private let keyboardDelegate = DetailKeyboardDelegate()
@@ -86,6 +95,10 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 		// See bug #901.
 		webView.isHidden = true
 		waitingForFirstReload = true
+
+		webInspectorEnabled = AppDefaults.webInspectorEnabled
+
+		NotificationCenter.default.addObserver(self, selector: #selector(webInspectorEnabledDidChange(_:)), name: .WebInspectorEnabledDidChange, object: nil)
 
 		reloadHTML()
 	}
@@ -163,6 +176,8 @@ private extension DetailWebViewController {
 			html = ArticleRenderer.multipleSelectionHTML(style: style)
 		case .article(let article):
 			html = ArticleRenderer.articleHTML(article: article, style: style)
+		case .extracted(let article, let extractedArticle):
+			html = ArticleRenderer.articleHTML(article: article, extractedArticle: extractedArticle, style: style)
 		}
 
 		webView.loadHTMLString(html, baseURL: nil)
@@ -184,6 +199,10 @@ private extension DetailWebViewController {
 			let scrollInfo = ScrollInfo(contentHeight: contentHeight, viewHeight: self.webView.frame.height, offsetY: offsetY)
 			callback(scrollInfo)
 		}
+	}
+
+	@objc func webInspectorEnabledDidChange(_ notification: Notification) {
+		self.webInspectorEnabled = notification.object! as! Bool
 	}
 }
 

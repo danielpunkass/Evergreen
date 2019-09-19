@@ -18,16 +18,8 @@ struct AppAssets {
 		return UIColor(named: "barBackgroundColor")!
 	}()
 
-	static var barTintColor: UIColor = {
-		return UIColor(named: "barTintColor")!
-	}()
-
-	static var barTitleColor: UIColor = {
-		return UIColor(named: "barTitleColor")!
-	}()
-
 	static var circleClosedImage: UIImage = {
-		return UIImage(systemName: "circle.fill")!
+		return UIImage(systemName: "largecircle.fill.circle")!
 	}()
 	
 	static var circleOpenImage: UIImage = {
@@ -60,10 +52,6 @@ struct AppAssets {
 		return RSImage(named: "faviconTemplateImage")!
 	}()
 	
-	static var feedImage: RSImage = {
-		return RSImage(named: "feedImage")!
-	}()
-	
 	static var markAllInFeedAsReadImage: UIImage = {
 		return UIImage(systemName: "asterisk.circle")!
 	}()
@@ -84,28 +72,28 @@ struct AppAssets {
 		return UIImage(systemName: "ellipsis.circle")!
 	}()
 	
-	static var netNewsWireBlueColor: UIColor = {
-		return UIColor(named: "netNewsWireBlueColor")!
-	}()
-	
 	static var openInSidebarImage: UIImage = {
 		return UIImage(systemName: "arrow.turn.down.left")!
+	}()
+	
+	static var primaryAccentColor: UIColor = {
+		return UIColor(named: "primaryAccentColor")!
 	}()
 	
 	static var safariImage: UIImage = {
 		return UIImage(systemName: "safari")!
 	}()
 	
-	static var settingsImage: UIImage = {
-		return UIImage(named: "settingsImage")!
+	static var searchFeedImage: UIImage = {
+		return UIImage(systemName: "magnifyingglass")!
+	}()
+	
+	static var secondaryAccentColor: UIColor = {
+		return UIColor(named: "secondaryAccentColor")!
 	}()
 	
 	static var shareImage: UIImage = {
 		return UIImage(systemName: "square.and.arrow.up")!
-	}()
-	
-	static var smartFeedColor: UIColor = {
-		return UIColor(named: "smartFeedColor")!
 	}()
 	
 	static var smartFeedImage: UIImage = {
@@ -124,12 +112,12 @@ struct AppAssets {
 		return UIImage(systemName: "star")!
 	}()
 	
-	static var tableViewCellHighlightedTextColor: UIColor = {
-		return UIColor(named: "tableViewCellHighlightedTextColor")!
+	static var starredFeedImage: UIImage = {
+		return UIImage(systemName: "star.fill")!
 	}()
 
-	static var tableViewCellSelectionColor: UIColor = {
-		return UIColor(named: "tableViewCellSelectionColor")!
+	static var tableViewCellHighlightedTextColor: UIColor = {
+		return UIColor(named: "tableViewCellHighlightedTextColor")!
 	}()
 
 	static var timelineStarImage: UIImage = {
@@ -137,12 +125,16 @@ struct AppAssets {
 		return image.withTintColor(AppAssets.starColor, renderingMode: .alwaysOriginal)
 	}()
 	
-	static var timelineUnreadCircleColor: UIColor = {
-		return UIColor(named: "timelineUnreadCircleColor")!
+	static var todayFeedImage: UIImage = {
+		return UIImage(systemName: "sun.max.fill")!
 	}()
-	
+
 	static var trashImage: UIImage = {
 		return UIImage(systemName: "trash")!
+	}()
+	
+	static var unreadFeedImage: UIImage = {
+		return UIImage(systemName: "largecircle.fill.circle")!
 	}()
 	
 }

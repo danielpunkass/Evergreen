@@ -14,36 +14,44 @@ import Account
 struct ArticleRenderer {
 
 	private let article: Article?
+	private let extractedArticle: ExtractedArticle?
 	private let articleStyle: ArticleStyle
 	private let title: String
+	private let body: String
 	private let baseURL: String?
 
-	private init(article: Article?, style: ArticleStyle) {
+	private init(article: Article?, extractedArticle: ExtractedArticle?, style: ArticleStyle) {
 		self.article = article
+		self.extractedArticle = extractedArticle
 		self.articleStyle = style
 		self.title = article?.title ?? ""
+		if let content = extractedArticle?.content {
+			self.body = content
+		} else {
+			self.body = article?.body ?? ""
+		}
 		self.baseURL = article?.baseURL?.absoluteString
 	}
 
 	// MARK: - API
 
-	static func articleHTML(article: Article, style: ArticleStyle) -> String {
-		let renderer = ArticleRenderer(article: article, style: style)
+	static func articleHTML(article: Article, extractedArticle: ExtractedArticle? = nil, style: ArticleStyle) -> String {
+		let renderer = ArticleRenderer(article: article, extractedArticle: extractedArticle, style: style)
 		return renderer.articleHTML
 	}
 
 	static func multipleSelectionHTML(style: ArticleStyle) -> String {
-		let renderer = ArticleRenderer(article: nil, style: style)
+		let renderer = ArticleRenderer(article: nil, extractedArticle: nil, style: style)
 		return renderer.multipleSelectionHTML
 	}
 
 	static func noSelectionHTML(style: ArticleStyle) -> String {
-		let renderer = ArticleRenderer(article: nil, style: style)
+		let renderer = ArticleRenderer(article: nil, extractedArticle: nil, style: style)
 		return renderer.noSelectionHTML
 	}
 	
 	static func noContentHTML(style: ArticleStyle) -> String {
-		let renderer = ArticleRenderer(article: nil, style: style)
+		let renderer = ArticleRenderer(article: nil, extractedArticle: nil, style: style)
 		return renderer.noContentHTML
 	}
 }
@@ -53,7 +61,7 @@ struct ArticleRenderer {
 private extension ArticleRenderer {
 
 	private var articleHTML: String {
-		let body = RSMacroProcessor.renderedText(withTemplate: template(), substitutions: substitutions(), macroStart: "[[", macroEnd: "]]")
+		let body = RSMacroProcessor.renderedText(withTemplate: template(), substitutions: articleSubstitutions(), macroStart: "[[", macroEnd: "]]")
 		return renderHTML(withBody: body)
 	}
 
@@ -101,7 +109,7 @@ private extension ArticleRenderer {
 		return title
 	}
 
-	func substitutions() -> [String: String] {
+	func articleSubstitutions() -> [String: String] {
 		var d = [String: String]()
 
 		guard let article = article else {
@@ -112,7 +120,6 @@ private extension ArticleRenderer {
 		let title = titleOrTitleLink()
 		d["title"] = title
 
-		let body = article.body ?? ""
 		d["body"] = body
 
 		d["avatars"] = ""
@@ -174,7 +181,7 @@ private extension ArticleRenderer {
 			return cachedImgTag
 		}
 
-		if let favicon = appDelegate.faviconDownloader.favicon(for: feed) {
+		if let favicon = appDelegate.faviconDownloader.faviconAsAvatar(for: feed) {
 			if let s = base64String(forImage: favicon) {
 				var dimension = min(favicon.size.height, CGFloat(ArticleRenderer.avatarDimension)) // Assuming square images.
 				dimension = max(dimension, 16) // Some favicons say they’re < 16. Force them larger.
@@ -342,6 +349,9 @@ private extension ArticleRenderer {
 				anchors[i].addEventListener("mouseenter", function() { mouseDidEnterLink(this) });
 				anchors[i].addEventListener("mouseleave", function() { mouseDidExitLink(this) });
 			}
+		
+			document.getElementsByTagName("body")[0].querySelectorAll("style, link[rel=stylesheet]").forEach(element => element.remove());
+			document.getElementsByTagName("body")[0].querySelectorAll("[style]").forEach(element => element.removeAttribute("style"));
 		}
 
 		function mouseDidEnterLink(anchor) {
@@ -376,7 +386,20 @@ private extension ArticleRenderer {
 		s += "<meta name=\"viewport\" content=\"width=device-width\">\n"
 		s += title.htmlBySurroundingWithTag("title")
 		s += styleString().htmlBySurroundingWithTag("style")
-		s += "\n\n</head><body>\n\n"
+		s += """
+
+		<script type="text/javascript">
+
+		function startup() {
+			document.getElementsByTagName("body")[0].querySelectorAll("style, link[rel=stylesheet]").forEach(element => element.remove());
+			document.getElementsByTagName("body")[0].querySelectorAll("[style]").forEach(element => element.removeAttribute("style"));
+		}
+
+		</script>
+
+		"""
+		
+		s += "\n\n</head><body onload='startup()'>\n\n"
 		s += body
 		s += "\n\n</body></html>"
 		

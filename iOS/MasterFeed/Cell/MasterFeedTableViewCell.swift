@@ -93,7 +93,7 @@ class MasterFeedTableViewCell : NNWTableViewCell {
 	}()
 
 	private let faviconImageView: UIImageView = {
-		return NonIntrinsicImageView(image: AppAssets.feedImage)
+		return NonIntrinsicImageView(image: AppAssets.faviconTemplateImage)
 	}()
 
 	private var unreadCountView = MasterFeedUnreadCountView(frame: CGRect.zero)
@@ -113,14 +113,14 @@ class MasterFeedTableViewCell : NNWTableViewCell {
 	override func setHighlighted(_ highlighted: Bool, animated: Bool) {
 		super.setHighlighted(highlighted, animated: animated)
 
-		let tintColor = isHighlighted || isSelected ? AppAssets.tableViewCellHighlightedTextColor : AppAssets.netNewsWireBlueColor
+		let tintColor = isHighlighted || isSelected ? AppAssets.tableViewCellHighlightedTextColor : AppAssets.secondaryAccentColor
 		faviconImageView.tintColor = tintColor
 	}
 
 	override func setSelected(_ selected: Bool, animated: Bool) {
 		super.setSelected(selected, animated: animated)
 
-		let tintColor = isHighlighted || isSelected ? AppAssets.tableViewCellHighlightedTextColor : AppAssets.netNewsWireBlueColor
+		let tintColor = isHighlighted || isSelected ? AppAssets.tableViewCellHighlightedTextColor : AppAssets.secondaryAccentColor
 		faviconImageView.tintColor = tintColor
 	}
 	
