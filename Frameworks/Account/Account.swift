@@ -29,6 +29,7 @@ public extension Notification.Name {
 	static let AccountDidDownloadArticles = Notification.Name(rawValue: "AccountDidDownloadArticles")
 	static let AccountStateDidChange = Notification.Name(rawValue: "AccountStateDidChange")
 	static let StatusesDidChange = Notification.Name(rawValue: "StatusesDidChange")
+	static let FeedMetadataDidChange = Notification.Name(rawValue: "FeedMetadataDidChange")
 }
 
 public enum AccountType: Int {
@@ -173,13 +174,17 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 
 	private lazy var opmlFile = OPMLFile(filename: (dataFolder as NSString).appendingPathComponent("Subscriptions.opml"), account: self)
 	private lazy var metadataFile = AccountMetadataFile(filename: (dataFolder as NSString).appendingPathComponent("Settings.plist"), account: self)
-	var metadata = AccountMetadata()
+	var metadata = AccountMetadata() {
+		didSet {
+			delegate.accountMetadata = metadata
+		}
+	}
 
 	private lazy var feedMetadataFile = FeedMetadataFile(filename: (dataFolder as NSString).appendingPathComponent("FeedMetadata.plist"), account: self)
 	typealias FeedMetadataDictionary = [String: FeedMetadata]
 	var feedMetadata = FeedMetadataDictionary()
 
-	private var startingUp = true
+	var startingUp = true
 
     public var unreadCount = 0 {
         didSet {
@@ -189,12 +194,8 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
         }
     }
     
-	public var isTagBasedSystem: Bool {
-		return delegate.isTagBasedSystem
-	}
-	
-	public var isOPMLImportSupported: Bool {
-		return delegate.isOPMLImportSupported
+	public var behaviors: AccountBehaviors {
+		return delegate.behaviors
 	}
 	
 	var refreshInProgress = false {
@@ -205,7 +206,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 				}
 				else {
 					NotificationCenter.default.post(name: .AccountRefreshDidFinish, object: self)
-					opmlFile.queueSaveToDiskIfNeeded()
+					opmlFile.markAsDirty()
 				}
 			}
 		}
@@ -213,10 +214,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 
 	var refreshProgress: DownloadProgress {
 		return delegate.refreshProgress
-	}
-	
-	var isSubfoldersSupported: Bool {
-		return delegate.isSubfoldersSupported
 	}
 	
 	init?(dataFolder: String, type: AccountType, accountID: String, transport: Transport? = nil) {
@@ -230,7 +227,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		case .feedly:
 			self.delegate = FeedlyAccountDelegate(dataFolder: dataFolder, transport: transport)
 		default:
-			fatalError("Only Local and Feedbin accounts are supported")
+			return nil
 		}
 
 		self.accountID = accountID
@@ -371,6 +368,12 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		
 	}
 	
+	public func saveIfNecessary() {
+		metadataFile.saveIfNecessary()
+		feedMetadataFile.saveIfNecessary()
+		opmlFile.saveIfNecessary()
+	}
+	
 	func loadOPMLItems(_ items: [RSOPMLItem], parentFolder: Folder?) {
 		var feedsToAdd = Set<Feed>()
 
@@ -391,6 +394,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			}
 
 			if let folder = ensureFolder(with: folderName) {
+				folder.externalID = item.attributes?["nnw_externalID"] as? String
 				if let itemChildren = item.children {
 					loadOPMLItems(itemChildren, parentFolder: folder)
 				}
@@ -409,12 +413,20 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		
 	}
 	
+	public func resetFeedMetadataAndUnreadCounts() {
+		for feed in flattenedFeeds() {
+			feed.metadata = feedMetadata(feedURL: feed.url, feedID: feed.feedID)
+		}
+		fetchAllUnreadCounts()
+		NotificationCenter.default.post(name: .FeedMetadataDidChange, object: self, userInfo: nil)
+	}
+	
 	public func markArticles(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) -> Set<Article>? {
 		return delegate.markArticles(for: self, articles: articles, statusKey: statusKey, flag: flag)
 	}
 
 	@discardableResult
-	public func ensureFolder(with name: String) -> Folder? {
+	func ensureFolder(with name: String) -> Folder? {
 		// TODO: support subfolders, maybe, some day
 
 		if name.isEmpty {
@@ -1012,13 +1024,13 @@ extension Account {
 
 extension Account: OPMLRepresentable {
 
-	public func OPMLString(indentLevel: Int) -> String {
+	public func OPMLString(indentLevel: Int, strictConformance: Bool) -> String {
 		var s = ""
 		for feed in topLevelFeeds {
-			s += feed.OPMLString(indentLevel: indentLevel + 1)
+			s += feed.OPMLString(indentLevel: indentLevel + 1, strictConformance: strictConformance)
 		}
 		for folder in folders! {
-			s += folder.OPMLString(indentLevel: indentLevel + 1)
+			s += folder.OPMLString(indentLevel: indentLevel + 1, strictConformance: strictConformance)
 		}
 		return s
 	}

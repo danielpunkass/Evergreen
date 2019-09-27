@@ -1,5 +1,5 @@
 //
-//  DetailViewController.swift
+//  ArticleViewController.swift
 //  NetNewsWire
 //
 //  Created by Maurice Parker on 4/8/19.
@@ -12,8 +12,17 @@ import Account
 import Articles
 import SafariServices
 
-class DetailViewController: UIViewController {
+enum ArticleViewState: Equatable {
+	case noSelection
+	case multipleSelection
+	case loading
+	case article(Article)
+	case extracted(Article, ExtractedArticle)
+}
 
+class ArticleViewController: UIViewController {
+
+	@IBOutlet private weak var articleExtractorButton: ArticleExtractorButton!
 	@IBOutlet private weak var nextUnreadBarButtonItem: UIBarButtonItem!
 	@IBOutlet private weak var prevArticleBarButtonItem: UIBarButtonItem!
 	@IBOutlet private weak var nextArticleBarButtonItem: UIBarButtonItem!
@@ -26,6 +35,35 @@ class DetailViewController: UIViewController {
 
 	weak var coordinator: SceneCoordinator!
 	
+	var state: ArticleViewState = .noSelection {
+		didSet {
+			if state != oldValue {
+				updateUI()
+				reloadHTML()
+			}
+		}
+	}
+	
+	var currentArticle: Article? {
+		switch state {
+		case .article(let article):
+			return article
+		case .extracted(let article, _):
+			return article
+		default:
+			return nil
+		}
+	}
+
+	var articleExtractorButtonState: ArticleExtractorButtonState {
+		get {
+			return articleExtractorButton.buttonState
+		}
+		set {
+			articleExtractorButton.buttonState = newValue
+		}
+	}
+	
 	private let keyboardManager = KeyboardManager(type: .detail)
 	override var keyCommands: [UIKeyCommand]? {
 		return keyboardManager.keyCommands
@@ -33,34 +71,33 @@ class DetailViewController: UIViewController {
 	
 	deinit {
 		webView.removeFromSuperview()
-		DetailViewControllerWebViewProvider.shared.enqueueWebView(webView)
+		ArticleViewControllerWebViewProvider.shared.enqueueWebView(webView)
 		webView = nil
 	}
 	
 	override func viewDidLoad() {
 		super.viewDidLoad()
 
-		webView = DetailViewControllerWebViewProvider.shared.dequeueWebView()
-		webView.translatesAutoresizingMaskIntoConstraints = false
-		webView.navigationDelegate = self
-		
-		webViewContainer.addSubview(webView)
-		
-		let constraints: [NSLayoutConstraint] = [
-			webView.leadingAnchor.constraint(equalTo: webViewContainer.safeAreaLayoutGuide.leadingAnchor),
-			webView.trailingAnchor.constraint(equalTo: webViewContainer.safeAreaLayoutGuide.trailingAnchor),
-			webView.topAnchor.constraint(equalTo: webViewContainer.safeAreaLayoutGuide.topAnchor),
-			webView.bottomAnchor.constraint(equalTo: webViewContainer.safeAreaLayoutGuide.bottomAnchor),
-		]
-		
-		NSLayoutConstraint.activate(constraints)
-
-		updateArticleSelection()
-		
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(progressDidChange(_:)), name: .AccountRefreshProgressDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(contentSizeCategoryDidChange(_:)), name: UIContentSizeCategory.didChangeNotification, object: nil)
+
+		// For some reason interface builder won't let me set this there.
+		articleExtractorButton.addTarget(self, action: #selector(toggleArticleExtractor(_:)), for: .touchUpInside)
+		
+		ArticleViewControllerWebViewProvider.shared.dequeueWebView() { webView in
+			
+			self.webView = webView
+			self.webViewContainer.addChildAndPin(webView)
+			webView.navigationDelegate = self
+			
+			// Even though page.html should be loaded into this webview, we have to do it again
+			// to work around this bug: http://www.openradar.me/22855188
+			webView.loadHTMLString(ArticleRenderer.page.html, baseURL: ArticleRenderer.page.baseURL)
+
+		}
+		
 	}
 
 	override func viewDidAppear(_ animated: Bool) {
@@ -70,7 +107,8 @@ class DetailViewController: UIViewController {
 	
 	func updateUI() {
 		
-		guard let article = coordinator.currentArticle else {
+		guard let article = currentArticle else {
+			articleExtractorButton.isEnabled = false
 			nextUnreadBarButtonItem.isEnabled = false
 			prevArticleBarButtonItem.isEnabled = false
 			nextArticleBarButtonItem.isEnabled = false
@@ -85,6 +123,7 @@ class DetailViewController: UIViewController {
 		prevArticleBarButtonItem.isEnabled = coordinator.isPrevArticleAvailable
 		nextArticleBarButtonItem.isEnabled = coordinator.isNextArticleAvailable
 
+		articleExtractorButton.isEnabled = true
 		readBarButtonItem.isEnabled = true
 		starBarButtonItem.isEnabled = true
 		browserBarButtonItem.isEnabled = true
@@ -99,13 +138,33 @@ class DetailViewController: UIViewController {
 	}
 	
 	func reloadHTML() {
-		
-		guard let article = coordinator.currentArticle, let webView = webView else {
-			return
-		}
+
 		let style = ArticleStylesManager.shared.currentStyle
-		let html = ArticleRenderer.articleHTML(article: article, style: style)
-		webView.loadHTMLString(html, baseURL: nil)
+		let rendering: ArticleRenderer.Rendering
+
+		switch state {
+		case .noSelection:
+			rendering = ArticleRenderer.noSelectionHTML(style: style)
+		case .multipleSelection:
+			rendering = ArticleRenderer.multipleSelectionHTML(style: style)
+		case .loading:
+			rendering = ArticleRenderer.loadingHTML(style: style)
+		case .article(let article):
+			rendering = ArticleRenderer.articleHTML(article: article, style: style)
+		case .extracted(let article, let extractedArticle):
+			rendering = ArticleRenderer.articleHTML(article: article, extractedArticle: extractedArticle, style: style)
+		}
+		
+		let templateData = TemplateData(style: rendering.style, body: rendering.html)
+		
+		let encoder = JSONEncoder()
+		var render = "error();"
+		if let data = try? encoder.encode(templateData) {
+			let json = String(data: data, encoding: .utf8)!
+			render = "render(\(json));"
+		}
+
+		webView?.evaluateJavaScript(render)
 		
 	}
 	
@@ -119,7 +178,7 @@ class DetailViewController: UIViewController {
 		guard let articles = note.userInfo?[Account.UserInfoKey.articles] as? Set<Article> else {
 			return
 		}
-		if articles.count == 1 && articles.first?.articleID == coordinator.currentArticle?.articleID {
+		if articles.count == 1 && articles.first?.articleID == currentArticle?.articleID {
 			updateUI()
 		}
 	}
@@ -133,6 +192,10 @@ class DetailViewController: UIViewController {
 	}
 	
 	// MARK: Actions
+	
+	@IBAction func toggleArticleExtractor(_ sender: Any) {
+		coordinator.toggleArticleExtractor()
+	}
 	
 	@IBAction func nextUnread(_ sender: Any) {
 		coordinator.selectNextUnread()
@@ -159,11 +222,11 @@ class DetailViewController: UIViewController {
 	}
 	
 	@IBAction func showActivityDialog(_ sender: Any) {
-		guard let currentArticle = coordinator.currentArticle, let preferredLink = currentArticle.preferredLink, let url = URL(string: preferredLink) else {
+		guard let preferredLink = currentArticle?.preferredLink, let url = URL(string: preferredLink) else {
 			return
 		}
 		
-		let itemSource = ArticleActivityItemSource(url: url, subject: currentArticle.title)
+		let itemSource = ArticleActivityItemSource(url: url, subject: currentArticle!.title)
 		let activityViewController = UIActivityViewController(activityItems: [itemSource], applicationActivities: nil)
 		activityViewController.popoverPresentationController?.barButtonItem = actionBarButtonItem
 		present(activityViewController, animated: true)
@@ -175,10 +238,6 @@ class DetailViewController: UIViewController {
 	}
 	
 	// MARK: API
-	func updateArticleSelection() {
-		updateUI()
-		reloadHTML()
-	}
 
 	func focus() {
 		webView.becomeFirstResponder()
@@ -205,33 +264,10 @@ class DetailViewController: UIViewController {
 	}
 	
 }
-//print("\(candidateY) : \(webView.scrollView.contentSize.height)")
 
-class ArticleActivityItemSource: NSObject, UIActivityItemSource {
-	
-	private let url: URL
-	private let subject: String?
-	
-	init(url: URL, subject: String?) {
-		self.url = url
-		self.subject = subject
-	}
-	
-	func activityViewControllerPlaceholderItem(_ : UIActivityViewController) -> Any {
-		return url
-	}
-	
-	func activityViewController(_ activityViewController: UIActivityViewController, itemForActivityType activityType: UIActivity.ActivityType?) -> Any? {
-		return url
-	}
-	
-	func activityViewController(_ activityViewController: UIActivityViewController, subjectForActivityType activityType: UIActivity.ActivityType?) -> String {
-		return subject ?? ""
-	}
-	
-}
+// MARK: WKNavigationDelegate
 
-extension DetailViewController: WKNavigationDelegate {
+extension ArticleViewController: WKNavigationDelegate {
 	func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
 		
 		if navigationAction.navigationType == .linkActivated {
@@ -257,9 +293,17 @@ extension DetailViewController: WKNavigationDelegate {
 		}
 		
 	}
+
+	func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+		self.updateUI()
+		self.reloadHTML()
+	}
+	
 }
 
-private extension DetailViewController {
+// MARK: Private
+
+private extension ArticleViewController {
 	
 	func updateProgressIndicatorIfNeeded() {
 		if !(UIDevice.current.userInterfaceIdiom == .pad) {
@@ -269,52 +313,7 @@ private extension DetailViewController {
 	
 }
 
-// MARK: -
-
-/// WKWebView has an awful behavior of a flash to white on first load when in dark mode.
-/// Keep a queue of WebViews where we've already done a trivial load so that by the time we need them in the UI, they're past the flash-to-shite part of their lifecycle.
-class DetailViewControllerWebViewProvider {
-	static var shared = DetailViewControllerWebViewProvider()
-	
-	func dequeueWebView() -> WKWebView {
-		if let webView = queue.popLast() {
-			replenishQueueIfNeeded()
-			return webView
-		}
-		
-		assertionFailure("Creating WKWebView in \(#function); queue has run dry.")
-		let webView = WKWebView(frame: .zero)
-		return webView
-	}
-	
-	func enqueueWebView(_ webView: WKWebView) {
-		guard queue.count < maximumQueueDepth else {
-			return
-		}
-
-		webView.uiDelegate = nil
-		webView.navigationDelegate = nil
-
-		let html = ArticleRenderer.noContentHTML(style: .defaultStyle)
-		webView.loadHTMLString(html, baseURL: nil)
-
-		queue.insert(webView, at: 0)
-	}
-
-	// MARK: Private
-
-	private let minimumQueueDepth = 3
-	private let maximumQueueDepth = 6
-	private var queue: [WKWebView] = []
-	
-	private init() {
-		replenishQueueIfNeeded()
-	}
-	
-	private func replenishQueueIfNeeded() {
-		while queue.count < minimumQueueDepth {
-			let webView = WKWebView(frame: .zero)
-			enqueueWebView(webView)
-		}
-	}
+private struct TemplateData: Codable {
+	let style: String
+	let body: String
 }

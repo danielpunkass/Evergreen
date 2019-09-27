@@ -53,6 +53,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(feedSettingDidChange(_:)), name: .FeedSettingDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(feedMetadataDidChange(_:)), name: .FeedMetadataDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(userDidAddFeed(_:)), name: .UserDidAddFeed, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(progressDidChange(_:)), name: .AccountRefreshProgressDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(contentSizeCategoryDidChange), name: UIContentSizeCategory.didChangeNotification, object: nil)
@@ -121,6 +122,10 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		if key == Feed.FeedSettingKey.homePageURL || key == Feed.FeedSettingKey.faviconURL {
 			configureCellsForRepresentedObject(feed)
 		}
+	}
+	
+	@objc func feedMetadataDidChange(_ note: Notification) {
+		reloadAllVisibleCells()
 	}
 	
 	@objc func userDidAddFeed(_ notification: Notification) {
@@ -218,7 +223,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 				
 				if let self = self {
 				
-					let alert = UIAlertController(title: feed.name, message: nil, preferredStyle: .actionSheet)
+					let alert = UIAlertController(title: feed.nameForDisplay, message: nil, preferredStyle: .actionSheet)
 					if let popoverController = alert.popoverPresentationController {
 						popoverController.sourceView = view
 						popoverController.sourceRect = CGRect(x: view.frame.size.width/2, y: view.frame.size.height/2, width: 1, height: 1)
@@ -596,12 +601,11 @@ private extension MasterFeedViewController {
 			cell.indentationLevel = 0
 		}
 		cell.disclosureExpanded = node.isExpanded
-		cell.allowDisclosureSelection = node.canHaveChildNodes
+		cell.isDisclosureAvailable = node.canHaveChildNodes
 		
 		cell.name = nameFor(node)
 		cell.unreadCount = coordinator.unreadCountFor(node)
 		configureFavicon(cell, node)
-		cell.shouldShowImage = node.representedObject is SmallIconProvider
 		
 	}
 	

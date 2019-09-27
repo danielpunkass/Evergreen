@@ -18,7 +18,7 @@ protocol MasterFeedTableViewCellDelegate: class {
 class MasterFeedTableViewCell : NNWTableViewCell {
 
 	weak var delegate: MasterFeedTableViewCellDelegate?
-	var allowDisclosureSelection = false
+	var isDisclosureAvailable = false
 	
 	override var accessibilityLabel: String? {
 		set {}
@@ -40,21 +40,7 @@ class MasterFeedTableViewCell : NNWTableViewCell {
 	
 	var faviconImage: UIImage? {
 		didSet {
-			if let image = faviconImage {
-				faviconImageView.image = shouldShowImage ? image : nil
-			}
-			else {
-				faviconImageView.image = nil
-			}
-		}
-	}
-
-	var shouldShowImage = false {
-		didSet {
-			if shouldShowImage != oldValue {
-				setNeedsLayout()
-			}
-			faviconImageView.image = shouldShowImage ? faviconImage : nil
+			faviconImageView.image = faviconImage
 		}
 	}
 
@@ -93,12 +79,15 @@ class MasterFeedTableViewCell : NNWTableViewCell {
 	}()
 
 	private let faviconImageView: UIImageView = {
-		return NonIntrinsicImageView(image: AppAssets.faviconTemplateImage)
+		let imageView = NonIntrinsicImageView(image: AppAssets.faviconTemplateImage)
+		imageView.layer.cornerRadius = MasterFeedTableViewCellLayout.faviconCornerRadius
+		imageView.clipsToBounds = true
+		return imageView
 	}()
 
 	private var unreadCountView = MasterFeedUnreadCountView(frame: CGRect.zero)
 	private var showingEditControl = false
-	private var disclosureButton: UIButton?
+	var disclosureButton: UIButton?
 	
 	required init?(coder: NSCoder) {
 		super.init(coder: coder)
@@ -114,6 +103,7 @@ class MasterFeedTableViewCell : NNWTableViewCell {
 		super.setHighlighted(highlighted, animated: animated)
 
 		let tintColor = isHighlighted || isSelected ? AppAssets.tableViewCellHighlightedTextColor : AppAssets.secondaryAccentColor
+		disclosureButton?.tintColor  = tintColor
 		faviconImageView.tintColor = tintColor
 	}
 
@@ -121,6 +111,7 @@ class MasterFeedTableViewCell : NNWTableViewCell {
 		super.setSelected(selected, animated: animated)
 
 		let tintColor = isHighlighted || isSelected ? AppAssets.tableViewCellHighlightedTextColor : AppAssets.secondaryAccentColor
+		disclosureButton?.tintColor  = tintColor
 		faviconImageView.tintColor = tintColor
 	}
 	
@@ -130,20 +121,18 @@ class MasterFeedTableViewCell : NNWTableViewCell {
 	}
 	
 	override func sizeThatFits(_ size: CGSize) -> CGSize {
-		let shouldShowDisclosure = !(showingEditControl && showsReorderControl)
-		let layout = MasterFeedTableViewCellLayout(cellWidth: bounds.size.width, insets: safeAreaInsets, shouldShowImage: shouldShowImage, label: titleView, unreadCountView: unreadCountView, showingEditingControl: showingEditControl, indent: indentationLevel == 1, shouldShowDisclosure: shouldShowDisclosure)
+		let layout = MasterFeedTableViewCellLayout(cellWidth: bounds.size.width, insets: safeAreaInsets, label: titleView, unreadCountView: unreadCountView, showingEditingControl: showingEditControl, indent: indentationLevel == 1, shouldShowDisclosure: isDisclosureAvailable)
 		return CGSize(width: bounds.width, height: layout.height)
 	}
 	
 	override func layoutSubviews() {
 		super.layoutSubviews()
-		let shouldShowDisclosure = !(showingEditControl && showsReorderControl)
-		let layout = MasterFeedTableViewCellLayout(cellWidth: bounds.size.width, insets: safeAreaInsets, shouldShowImage: shouldShowImage, label: titleView, unreadCountView: unreadCountView, showingEditingControl: showingEditControl, indent: indentationLevel == 1, shouldShowDisclosure: shouldShowDisclosure)
+		let layout = MasterFeedTableViewCellLayout(cellWidth: bounds.size.width, insets: safeAreaInsets, label: titleView, unreadCountView: unreadCountView, showingEditingControl: showingEditControl, indent: indentationLevel == 1, shouldShowDisclosure: isDisclosureAvailable)
 		layoutWith(layout)
 	}
 	
 	@objc func buttonPressed(_ sender: UIButton) {
-		if allowDisclosureSelection {
+		if isDisclosureAvailable {
 			disclosureExpanded = !disclosureExpanded
 			delegate?.disclosureSelected(self, expanding: disclosureExpanded)
 		}
@@ -161,21 +150,20 @@ private extension MasterFeedTableViewCell {
 	}
 
 	func addDisclosureView() {
-		
 		disclosureButton = NonIntrinsicButton(type: .roundedRect)
-		disclosureButton!.tintColor = AppAssets.chevronDisclosureColor
 		disclosureButton!.addTarget(self, action: #selector(buttonPressed(_:)), for: UIControl.Event.touchUpInside)
-		
+		disclosureButton?.setImage(AppAssets.chevronBaseImage, for: .normal)
 		updateDisclosureImage()
 		addSubviewAtInit(disclosureButton!)
-		
 	}
 	
 	func updateDisclosureImage() {
-		if disclosureExpanded {
-			disclosureButton?.setImage(AppAssets.chevronDownImage, for: .normal)
-		} else {
-			disclosureButton?.setImage(AppAssets.chevronRightImage, for: .normal)
+		UIView.animate(withDuration: 0.3) {
+			if self.disclosureExpanded {
+				self.disclosureButton?.imageView?.transform = CGAffineTransform(rotationAngle: 1.570796)
+			} else {
+				self.disclosureButton?.imageView?.transform = CGAffineTransform(rotationAngle: 0)
+			}
 		}
 	}
 
@@ -189,6 +177,7 @@ private extension MasterFeedTableViewCell {
 		titleView.setFrameIfNotEqual(layout.titleRect)
 		unreadCountView.setFrameIfNotEqual(layout.unreadCountRect)
 		disclosureButton?.setFrameIfNotEqual(layout.disclosureButtonRect)
+		disclosureButton?.isHidden = !isDisclosureAvailable
 		separatorInset = layout.separatorInsets
 	}
 	

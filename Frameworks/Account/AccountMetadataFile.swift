@@ -27,12 +27,12 @@ final class AccountMetadataFile {
 		managedFile.markAsDirty()
 	}
 	
-	func queueSaveToDiskIfNeeded() {
-		managedFile.queueSaveToDiskIfNeeded()
-	}
-
 	func load() {
 		managedFile.load()
+	}
+	
+	func saveIfNecessary() {
+		managedFile.saveIfNecessary()
 	}
 	
 }
@@ -49,13 +49,13 @@ private extension AccountMetadataFile {
 				let decoder = PropertyListDecoder()
 				account.metadata = (try? decoder.decode(AccountMetadata.self, from: fileData)) ?? AccountMetadata()
 			}
+			account.metadata.delegate = account
 		})
 		
 		if let error = errorPointer?.pointee {
 			os_log(.error, log: log, "Read from disk coordination failed: %@.", error.localizedDescription)
 		}
 		
-		account.metadata.delegate = account
 	}
 	
 	func saveCallback() {

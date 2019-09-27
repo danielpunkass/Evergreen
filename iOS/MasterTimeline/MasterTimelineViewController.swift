@@ -13,6 +13,7 @@ import Articles
 
 class MasterTimelineViewController: UITableViewController, UndoableCommandRunner {
 
+	private var titleView: MasterTimelineTitleView?
 	private var numberOfTextLines = 0
 	
 	@IBOutlet weak var markAllAsReadButton: UIBarButtonItem!
@@ -342,6 +343,7 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	}
 
 	@objc func faviconDidBecomeAvailable(_ note: Notification) {
+		titleView?.imageView.image = coordinator.timelineFavicon
 		if coordinator.showAvatars {
 			queueReloadAvailableCells()
 		}
@@ -454,7 +456,13 @@ private extension MasterTimelineViewController {
 	func resetUI() {
 		
 		title = coordinator.timelineName
-		navigationController?.title = coordinator.timelineName
+		if let titleView = Bundle.main.loadNibNamed("MasterTimelineTitleView", owner: self, options: nil)?[0] as? MasterTimelineTitleView {
+			self.titleView = titleView
+			titleView.imageView.image = coordinator.timelineFavicon
+			titleView.label.text = coordinator.timelineName
+			navigationItem.titleView = titleView
+		}
+
 		
 		tableView.selectRow(at: nil, animated: false, scrollPosition: .top)
 		if dataSource.snapshot().itemIdentifiers(inSection: 0).count > 0 {

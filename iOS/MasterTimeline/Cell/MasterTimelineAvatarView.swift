@@ -15,7 +15,6 @@ final class MasterTimelineAvatarView: UIView {
 			if image !== oldValue {
 				imageView.image = image
 				setNeedsLayout()
-				setNeedsDisplay()
 			}
 		}
 	}
@@ -23,6 +22,8 @@ final class MasterTimelineAvatarView: UIView {
 	private let imageView: UIImageView = {
 		let imageView = NonIntrinsicImageView(image: AppAssets.faviconTemplateImage)
 		imageView.contentMode = .scaleAspectFit
+		imageView.clipsToBounds = true
+		imageView.layer.cornerRadius = 2.0
 		return imageView
 	}()
 
@@ -46,21 +47,17 @@ final class MasterTimelineAvatarView: UIView {
 
 	override func didMoveToSuperview() {
 		setNeedsLayout()
-		setNeedsDisplay()
 	}
 
 	override func layoutSubviews() {
 		imageView.setFrameIfNotEqual(rectForImageView())
+		if hasExposedVerticalBackground {
+			backgroundColor = AppAssets.avatarBackgroundColor
+		} else {
+			backgroundColor = nil
+		}
 	}
 
-	override func draw(_ dirtyRect: CGRect) {
-		if hasExposedVerticalBackground {
-			AppAssets.avatarBackgroundColor.set()
-		} else {
-			UIColor.systemBackground.set()
-		}
-		UIRectFill(dirtyRect)
-	}
 }
 
 private extension MasterTimelineAvatarView {

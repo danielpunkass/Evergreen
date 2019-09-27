@@ -53,7 +53,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UISplitViewControllerDele
 		super.init()
 		appDelegate = self
 
-		AccountManager.shared = AccountManager(accountsFolder: RSDataSubfolder(nil, "Accounts")!)
+		// Force lazy initialization of the web view provider so that it can warm up the queue of prepared web views
+		let _ = ArticleViewControllerWebViewProvider.shared
+		AccountManager.shared = AccountManager()
 		
 		registerBackgroundTasks()
 		
@@ -217,7 +219,7 @@ private extension AppDelegate {
 	
 	private func initializeHomeScreenQuickActions() {
 		let unreadTitle = NSLocalizedString("First Unread", comment: "First Unread")
-		let unreadIcon = UIApplicationShortcutIcon(systemImageName: "arrow.down.circle")
+		let unreadIcon = UIApplicationShortcutIcon(systemImageName: "chevron.down.circle")
 		let unreadItem = UIApplicationShortcutItem(type: "com.ranchero.NetNewsWire.FirstUnread", localizedTitle: unreadTitle, localizedSubtitle: nil, icon: unreadIcon, userInfo: nil)
 		
 		let searchTitle = NSLocalizedString("Search", comment: "Search")

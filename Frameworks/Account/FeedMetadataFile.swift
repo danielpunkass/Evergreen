@@ -27,12 +27,12 @@ final class FeedMetadataFile {
 		managedFile.markAsDirty()
 	}
 	
-	func queueSaveToDiskIfNeeded() {
-		managedFile.queueSaveToDiskIfNeeded()
-	}
-
 	func load() {
 		managedFile.load()
+	}
+	
+	func saveIfNecessary() {
+		managedFile.saveIfNecessary()
 	}
 	
 }
@@ -49,13 +49,16 @@ private extension FeedMetadataFile {
 				let decoder = PropertyListDecoder()
 				account.feedMetadata = (try? decoder.decode(Account.FeedMetadataDictionary.self, from: fileData)) ?? Account.FeedMetadataDictionary()
 			}
+			account.feedMetadata.values.forEach { $0.delegate = account }
+			if !account.startingUp {
+				account.resetFeedMetadataAndUnreadCounts()
+			}
 		})
 		
 		if let error = errorPointer?.pointee {
 			os_log(.error, log: log, "Read from disk coordination failed: %@.", error.localizedDescription)
 		}
 		
-		account.feedMetadata.values.forEach { $0.delegate = account }
 
 	}
 	

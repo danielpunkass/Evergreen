@@ -28,12 +28,12 @@ final class OPMLFile {
 		managedFile.markAsDirty()
 	}
 	
-	func queueSaveToDiskIfNeeded() {
-		managedFile.queueSaveToDiskIfNeeded()
-	}
-
 	func load() {
 		managedFile.load()
+	}
+	
+	func saveIfNecessary() {
+		managedFile.saveIfNecessary()
 	}
 	
 }
@@ -122,7 +122,7 @@ private extension OPMLFile {
 
 		"""
 
-		let middleText = account.OPMLString(indentLevel: 0)
+		let middleText = account.OPMLString(indentLevel: 0, strictConformance: false)
 
 		let closingText =
 		"""

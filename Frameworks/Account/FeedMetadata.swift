@@ -21,10 +21,10 @@ final class FeedMetadata: Codable {
 		case homePageURL
 		case iconURL
 		case faviconURL
-		case name
 		case editedName
 		case authors
 		case contentHash
+		case isArticleExtractorAlwaysOn
 		case conditionalGetInfo
 		case subscriptionID
 		case folderRelationship
@@ -62,14 +62,6 @@ final class FeedMetadata: Codable {
 		}
 	}
 
-	var name: String? {
-		didSet {
-			if name != oldValue {
-				valueDidChange(.name)
-			}
-		}
-	}
-
 	var editedName: String? {
 		didSet {
 			if editedName != oldValue {
@@ -81,6 +73,14 @@ final class FeedMetadata: Codable {
 	var contentHash: String? {
 		didSet {
 			if contentHash != oldValue {
+				valueDidChange(.contentHash)
+			}
+		}
+	}
+	
+	var isArticleExtractorAlwaysOn: Bool? {
+		didSet {
+			if isArticleExtractorAlwaysOn != oldValue {
 				valueDidChange(.contentHash)
 			}
 		}

@@ -10,6 +10,28 @@ import RSCore
 
 struct AppAssets {
 
+	static var articleExtractorError: UIImage = {
+		return UIImage(named: "articleExtractorError")!
+	}()
+
+	static var articleExtractorOff: UIImage = {
+		return UIImage(named: "articleExtractorOff")!
+	}()
+
+	static var articleExtractorOffTinted: UIImage = {
+		let image = UIImage(named: "articleExtractorOff")!
+		return image.maskWithColor(color: AppAssets.primaryAccentColor.cgColor)!
+	}()
+
+	static var articleExtractorOn: UIImage = {
+		return UIImage(named: "articleExtractorOn")!
+	}()
+
+	static var articleExtractorOnTinted: UIImage = {
+		let image = UIImage(named: "articleExtractorOn")!
+		return image.maskWithColor(color: AppAssets.primaryAccentColor.cgColor)!
+	}()
+
 	static var avatarBackgroundColor: UIColor = {
 		return UIColor(named: "avatarBackgroundColor")!
 	}()
@@ -26,18 +48,12 @@ struct AppAssets {
 		return UIImage(systemName: "circle")!
 	}()
 	
-	static var chevronDisclosureColor: UIColor = {
-		return UIColor(named: "chevronDisclosureColor")!
+	static var chevronSmallImage: UIImage = {
+		return UIImage(named: "chevronSmall")!
 	}()
 	
-	static var chevronDownImage: UIImage = {
-		let image = UIImage(systemName: "chevron.down")!
-		return image.withTintColor(AppAssets.chevronDisclosureColor, renderingMode: .alwaysOriginal)
-	}()
-	
-	static var chevronRightImage: UIImage = {
-		let image = UIImage(systemName: "chevron.right")!
-		return image.withTintColor(AppAssets.chevronDisclosureColor, renderingMode: .alwaysOriginal)
+	static var chevronBaseImage: UIImage = {
+		return UIImage(named: "chevronBase")!
 	}()
 	
 	static var copyImage: UIImage = {

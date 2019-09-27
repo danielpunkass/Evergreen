@@ -20,10 +20,12 @@ class ShareViewController: SLComposeServiceViewController, ShareFolderPickerCont
 
 	private var url: URL?
 	private var container: Container?
+	private var folderItem: SLComposeSheetConfigurationItem!
 	
 	override func viewDidLoad() {
 		
-		AccountManager.shared = AccountManager(accountsFolder: RSDataSubfolder(nil, "Accounts")!)
+		AccountManager.shared = AccountManager()
+
 		pickerData = FlattenedAccountFolderPickerData()
 		
 		if pickerData?.containers.count ?? 0 > 0 {
@@ -99,7 +101,6 @@ class ShareViewController: SLComposeServiceViewController, ShareFolderPickerCont
 	}
 	
 	override func didSelectPost() {
-
 		var account: Account?
 		if let containerAccount = container as? Account {
 			account = containerAccount
@@ -118,6 +119,7 @@ class ShareViewController: SLComposeServiceViewController, ShareFolderPickerCont
 
 			switch result {
 			case .success:
+				account!.saveIfNecessary()
 				self.extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
 			case .failure(let error):
 				self.presentError(error) {
@@ -126,16 +128,12 @@ class ShareViewController: SLComposeServiceViewController, ShareFolderPickerCont
 			}
 
 		}
-
-		
-		
-		// This is called after the user selects Post. Do the upload of contentText and/or NSExtensionContext attachments.
-		
-		// Inform the host that we're done, so it un-blocks its UI. Note: Alternatively you could call super's -didSelectPost, which will similarly complete the extension context.
 	}
 	
-	func shareFolderPickerDidSelect(_ container: Container) {
+	func shareFolderPickerDidSelect(_ container: Container, _ selectionName: String) {
 		self.container = container
+		self.folderItem.value = selectionName
+		self.popConfigurationViewController()
 	}
 
 	override func configurationItems() -> [Any]! {
@@ -145,7 +143,7 @@ class ShareViewController: SLComposeServiceViewController, ShareFolderPickerCont
 		urlItem.title = "URL"
 		urlItem.value = url?.absoluteString ?? ""
 		
-		guard let folderItem = SLComposeSheetConfigurationItem() else { return nil }
+		folderItem = SLComposeSheetConfigurationItem()
 		folderItem.title = "Folder"
 		
 		if let nameProvider = container as? DisplayNameProvider {
@@ -165,7 +163,7 @@ class ShareViewController: SLComposeServiceViewController, ShareFolderPickerCont
 			
 		}
 		
-		return [folderItem, urlItem]
+		return [folderItem!, urlItem]
 		
 	}
 	

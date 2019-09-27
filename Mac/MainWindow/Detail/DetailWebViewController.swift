@@ -28,14 +28,16 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 		}
 	}
 
-	private var webInspectorEnabled: Bool {
-		get {
-			return webView.configuration.preferences._developerExtrasEnabled
+	#if !MAC_APP_STORE
+		private var webInspectorEnabled: Bool {
+			get {
+				return webView.configuration.preferences._developerExtrasEnabled
+			}
+			set {
+				webView.configuration.preferences._developerExtrasEnabled = newValue
+			}
 		}
-		set {
-			webView.configuration.preferences._developerExtrasEnabled = newValue
-		}
-	}
+	#endif
 	
 	private var waitingForFirstReload = false
 	private let keyboardDelegate = DetailKeyboardDelegate()
@@ -96,11 +98,14 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 		webView.isHidden = true
 		waitingForFirstReload = true
 
-		webInspectorEnabled = AppDefaults.webInspectorEnabled
+		#if !MAC_APP_STORE
+			webInspectorEnabled = AppDefaults.webInspectorEnabled
 
-		NotificationCenter.default.addObserver(self, selector: #selector(webInspectorEnabledDidChange(_:)), name: .WebInspectorEnabledDidChange, object: nil)
+			NotificationCenter.default.addObserver(self, selector: #selector(webInspectorEnabledDidChange(_:)), name: .WebInspectorEnabledDidChange, object: nil)
+		#endif
 
-		reloadHTML()
+		webView.loadHTMLString(ArticleRenderer.page.html, baseURL: ArticleRenderer.page.baseURL)
+		
 	}
 
 	// MARK: Scrolling
@@ -151,6 +156,7 @@ extension DetailWebViewController: WKNavigationDelegate {
 		if waitingForFirstReload {
 			assert(webView.isHidden)
 			waitingForFirstReload = false
+			reloadHTML()
 
 			// Waiting for the first navigation to complete isn't long enough to avoid the flash of white.
 			// A hard coded value is awful, but 5/100th of a second seems to be enough.
@@ -162,25 +168,40 @@ extension DetailWebViewController: WKNavigationDelegate {
 }
 
 // MARK: - Private
+struct TemplateData: Codable {
+	let style: String
+	let body: String
+}
 
 private extension DetailWebViewController {
 
 	func reloadHTML() {
 		let style = ArticleStylesManager.shared.currentStyle
-		let html: String
+		let rendering: ArticleRenderer.Rendering
 
 		switch state {
 		case .noSelection:
-			html = ArticleRenderer.noSelectionHTML(style: style)
+			rendering = ArticleRenderer.noSelectionHTML(style: style)
 		case .multipleSelection:
-			html = ArticleRenderer.multipleSelectionHTML(style: style)
+			rendering = ArticleRenderer.multipleSelectionHTML(style: style)
+		case .loading:
+			rendering = ArticleRenderer.loadingHTML(style: style)
 		case .article(let article):
-			html = ArticleRenderer.articleHTML(article: article, style: style)
+			rendering = ArticleRenderer.articleHTML(article: article, style: style)
 		case .extracted(let article, let extractedArticle):
-			html = ArticleRenderer.articleHTML(article: article, extractedArticle: extractedArticle, style: style)
+			rendering = ArticleRenderer.articleHTML(article: article, extractedArticle: extractedArticle, style: style)
+		}
+		
+		let templateData = TemplateData(style: rendering.style, body: rendering.html)
+		
+		let encoder = JSONEncoder()
+		var render = "error();"
+		if let data = try? encoder.encode(templateData) {
+			let json = String(data: data, encoding: .utf8)!
+			render = "render(\(json));"
 		}
 
-		webView.loadHTMLString(html, baseURL: nil)
+		webView.evaluateJavaScript(render)
 	}
 
 	func fetchScrollInfo(_ callback: @escaping (ScrollInfo?) -> Void) {
@@ -201,9 +222,11 @@ private extension DetailWebViewController {
 		}
 	}
 
-	@objc func webInspectorEnabledDidChange(_ notification: Notification) {
-		self.webInspectorEnabled = notification.object! as! Bool
-	}
+	#if !MAC_APP_STORE
+		@objc func webInspectorEnabledDidChange(_ notification: Notification) {
+			self.webInspectorEnabled = notification.object! as! Bool
+		}
+	#endif
 }
 
 // MARK: - ScrollInfo

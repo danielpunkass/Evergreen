@@ -66,6 +66,8 @@ class MasterFeedTableViewSectionHeader: UITableViewHeaderFooterView {
 	private let unreadCountView = MasterFeedUnreadCountView(frame: CGRect.zero)
 	private var disclosureView: UIImageView = {
 		let iView = NonIntrinsicImageView()
+		iView.tintColor = UIColor.tertiaryLabel
+		iView.image = AppAssets.chevronSmallImage
 		iView.contentMode = .center
 		return iView
 	}()
@@ -104,7 +106,7 @@ class MasterFeedTableViewSectionHeader: UITableViewHeaderFooterView {
 		// cell below.
 		unreadCountView.unreadCount = 888
 		
-		let layout = MasterFeedTableViewCellLayout(cellWidth: size.width, insets: safeAreaInsets, shouldShowImage: false, label: titleView, unreadCountView: unreadCountView, showingEditingControl: false, indent: false, shouldShowDisclosure: true)
+		let layout = MasterFeedTableViewCellLayout(cellWidth: size.width, insets: safeAreaInsets, label: titleView, unreadCountView: unreadCountView, showingEditingControl: false, indent: false, shouldShowDisclosure: true)
 		
 		return CGSize(width: bounds.width, height: layout.height)
 		
@@ -112,7 +114,7 @@ class MasterFeedTableViewSectionHeader: UITableViewHeaderFooterView {
 
 	override func layoutSubviews() {
 		super.layoutSubviews()
-		let layout = MasterFeedTableViewCellLayout(cellWidth: bounds.size.width, insets: safeAreaInsets, shouldShowImage: false, label: titleView, unreadCountView: unreadCountView, showingEditingControl: false, indent: false, shouldShowDisclosure: true)
+		let layout = MasterFeedTableViewCellLayout(cellWidth: bounds.size.width, insets: safeAreaInsets, label: titleView, unreadCountView: unreadCountView, showingEditingControl: false, indent: false, shouldShowDisclosure: true)
 		layoutWith(layout)
 	}
 
@@ -131,10 +133,12 @@ private extension MasterFeedTableViewSectionHeader {
 	}
 	
 	func updateDisclosureImage() {
-		if disclosureExpanded {
-			disclosureView.image = AppAssets.chevronDownImage
-		} else {
-			disclosureView.image = AppAssets.chevronRightImage
+		UIView.animate(withDuration: 0.3) {
+			if self.disclosureExpanded {
+				self.disclosureView.transform = CGAffineTransform(rotationAngle: 1.570796)
+			} else {
+				self.disclosureView.transform = CGAffineTransform(rotationAngle: 0)
+			}
 		}
 	}
 
