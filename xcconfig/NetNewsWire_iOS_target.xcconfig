@@ -27,7 +27,9 @@ PROVISIONING_PROFILE_SPECIFIER =
 //
 
 #include? "../../SharedXcodeSettings/DeveloperSettings.xcconfig"
+#include "./common/NetNewsWire_target_common.xcconfig"
 
+// This stuff could move to an NetNewsWire_ios_target_common.xcconfig maybe
 ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES
 COMBINE_HIDPI_IMAGES = YES
 LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/../Frameworks

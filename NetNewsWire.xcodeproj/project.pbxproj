@@ -1017,6 +1017,7 @@
 		51F85BF82274AA7B00C787DC /* UIBarButtonItem-Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIBarButtonItem-Extensions.swift"; sourceTree = "<group>"; };
 		51F85BFA2275D85000C787DC /* Array-Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array-Extensions.swift"; sourceTree = "<group>"; };
 		51F85BFC2275DCA800C787DC /* SingleLineUILabelSizer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SingleLineUILabelSizer.swift; sourceTree = "<group>"; };
+		6558D09E2346FA7600FAA13C /* common */ = {isa = PBXFileReference; lastKnownFileType = folder; path = common; sourceTree = "<group>"; };
 		6581C73320CED60000F4AD34 /* Subscribe to Feed.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Subscribe to Feed.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6581C73420CED60100F4AD34 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		6581C73720CED60100F4AD34 /* SafariExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariExtensionHandler.swift; sourceTree = "<group>"; };
@@ -1199,7 +1200,7 @@
 		D5907CDD2002F0BE005947E5 /* NetNewsWire_project_debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NetNewsWire_project_debug.xcconfig; sourceTree = "<group>"; };
 		D5907CDE2002F0BE005947E5 /* NetNewsWire_project.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NetNewsWire_project.xcconfig; sourceTree = "<group>"; };
 		D5907CDF2002F0F9005947E5 /* NetNewsWireTests_target.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NetNewsWireTests_target.xcconfig; sourceTree = "<group>"; };
-		D5907CE02002F0FA005947E5 /* NetNewsWire_target.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NetNewsWire_target.xcconfig; sourceTree = "<group>"; };
+		D5907CE02002F0FA005947E5 /* NetNewsWire_Mac_target.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NetNewsWire_Mac_target.xcconfig; sourceTree = "<group>"; };
 		D5907D7E2004AC00005947E5 /* NSApplication+Scriptability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSApplication+Scriptability.swift"; sourceTree = "<group>"; };
 		D5907D962004B7EB005947E5 /* Account+Scriptability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Account+Scriptability.swift"; sourceTree = "<group>"; };
 		D5907DB12004BB37005947E5 /* ScriptingObjectContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptingObjectContainer.swift; sourceTree = "<group>"; };
@@ -2121,9 +2122,10 @@
 				D5907CDD2002F0BE005947E5 /* NetNewsWire_project_debug.xcconfig */,
 				D5907CDC2002F0BE005947E5 /* NetNewsWire_project_release.xcconfig */,
 				D5907CDE2002F0BE005947E5 /* NetNewsWire_project.xcconfig */,
-				D5907CE02002F0FA005947E5 /* NetNewsWire_target.xcconfig */,
+				D5907CE02002F0FA005947E5 /* NetNewsWire_Mac_target.xcconfig */,
 				D5907CDF2002F0F9005947E5 /* NetNewsWireTests_target.xcconfig */,
 				51121AA12265430A00BC0EC1 /* NetNewsWire_iOS_target.xcconfig */,
+				6558D09E2346FA7600FAA13C /* common */,
 			);
 			path = xcconfig;
 			sourceTree = "<group>";
@@ -3382,7 +3384,7 @@
 /* Begin XCBuildConfiguration section */
 		6581C74720CED60100F4AD34 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_target.xcconfig */;
+			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_Mac_target.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/SafariExtension/Subscribe_to_Feed.entitlements;
@@ -3397,7 +3399,7 @@
 		};
 		6581C74820CED60100F4AD34 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_target.xcconfig */;
+			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_Mac_target.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/SafariExtension/Subscribe_to_Feed.entitlements;
@@ -3412,7 +3414,7 @@
 		};
 		65FC74D7233E7F4D000DEAD3 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_target.xcconfig */;
+			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_Mac_target.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/Resources/NetNewsWire.entitlements;
@@ -3428,7 +3430,7 @@
 		};
 		65FC74D8233E7F4D000DEAD3 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_target.xcconfig */;
+			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_Mac_target.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/Resources/NetNewsWire.entitlements;
@@ -3444,7 +3446,7 @@
 		};
 		65FC74ED233E7F68000DEAD3 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_target.xcconfig */;
+			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_Mac_target.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/SafariExtension/Subscribe_to_Feed.entitlements;
@@ -3459,7 +3461,7 @@
 		};
 		65FC74EE233E7F68000DEAD3 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_target.xcconfig */;
+			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_Mac_target.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/SafariExtension/Subscribe_to_Feed.entitlements;
@@ -3752,7 +3754,7 @@
 		};
 		849C647B1ED37A5D003D8FC0 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_target.xcconfig */;
+			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_Mac_target.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/Resources/NetNewsWire.entitlements;
@@ -3768,7 +3770,7 @@
 		};
 		849C647C1ED37A5D003D8FC0 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_target.xcconfig */;
+			baseConfigurationReference = D5907CE02002F0FA005947E5 /* NetNewsWire_Mac_target.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/Resources/NetNewsWire.entitlements;

@@ -27,7 +27,7 @@ PROVISIONING_PROFILE_SPECIFIER =
 //
 
 #include? "../../SharedXcodeSettings/DeveloperSettings.xcconfig"
-#include "./common/NetNewsWire_macapp_target_common.xcconfig"
+#include "./common/NetNewsWire_mac_target_common.xcconfig"
 
 // High Level Settings common to both the Mac application and any extensions we bundle with it
 MARKETING_VERSION = 5.0.3b1

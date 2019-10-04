@@ -1,3 +1,4 @@
+#include "./NetNewsWire_target_common.xcconfig"
 
 // Settings common to both the Mac Direct and Mac App Store targets
 ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO
