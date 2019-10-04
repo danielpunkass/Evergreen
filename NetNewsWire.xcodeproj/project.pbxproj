@@ -147,6 +147,8 @@
 		51F85BF92274AA7B00C787DC /* UIBarButtonItem-Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F85BF82274AA7B00C787DC /* UIBarButtonItem-Extensions.swift */; };
 		51F85BFB2275D85000C787DC /* Array-Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F85BFA2275D85000C787DC /* Array-Extensions.swift */; };
 		51F85BFD2275DCA800C787DC /* SingleLineUILabelSizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F85BFC2275DCA800C787DC /* SingleLineUILabelSizer.swift */; };
+		6558D0D72346FE7500FAA13C /* container-migration.plist in Resources */ = {isa = PBXBuildFile; fileRef = 6558D0D62346FE7500FAA13C /* container-migration.plist */; };
+		6558D0D82346FE7500FAA13C /* container-migration.plist in Resources */ = {isa = PBXBuildFile; fileRef = 6558D0D62346FE7500FAA13C /* container-migration.plist */; };
 		6581C73820CED60100F4AD34 /* SafariExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6581C73720CED60100F4AD34 /* SafariExtensionHandler.swift */; };
 		6581C73A20CED60100F4AD34 /* SafariExtensionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6581C73920CED60100F4AD34 /* SafariExtensionViewController.swift */; };
 		6581C73D20CED60100F4AD34 /* SafariExtensionViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = 6581C73B20CED60100F4AD34 /* SafariExtensionViewController.xib */; };
@@ -1018,6 +1020,7 @@
 		51F85BFA2275D85000C787DC /* Array-Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array-Extensions.swift"; sourceTree = "<group>"; };
 		51F85BFC2275DCA800C787DC /* SingleLineUILabelSizer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SingleLineUILabelSizer.swift; sourceTree = "<group>"; };
 		6558D09E2346FA7600FAA13C /* common */ = {isa = PBXFileReference; lastKnownFileType = folder; path = common; sourceTree = "<group>"; };
+		6558D0D62346FE7500FAA13C /* container-migration.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "container-migration.plist"; sourceTree = "<group>"; };
 		6581C73320CED60000F4AD34 /* Subscribe to Feed.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Subscribe to Feed.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6581C73420CED60100F4AD34 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		6581C73720CED60100F4AD34 /* SafariExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariExtensionHandler.swift; sourceTree = "<group>"; };
@@ -1977,6 +1980,7 @@
 				84C9FC8922629E8F00D921D6 /* Credits.rtf */,
 				84C9FC8A22629E8F00D921D6 /* NetNewsWire.sdef */,
 				84C9FC9022629ECB00D921D6 /* NetNewsWire.entitlements */,
+				6558D0D62346FE7500FAA13C /* container-migration.plist */,
 				84C9FC9122629F2200D921D6 /* Info.plist */,
 				84C9FC8622629E8F00D921D6 /* KeyboardShortcuts */,
 			);
@@ -2597,6 +2601,7 @@
 				65FC74BD233E7F4D000DEAD3 /* styleSheet.css in Resources */,
 				65FC74BE233E7F4D000DEAD3 /* RenameSheet.xib in Resources */,
 				65FC74BF233E7F4D000DEAD3 /* AddFolderSheet.xib in Resources */,
+				6558D0D82346FE7500FAA13C /* container-migration.plist in Resources */,
 				65FC74C0233E7F4D000DEAD3 /* AccountsFeedbin.xib in Resources */,
 				65FC74C1233E7F4D000DEAD3 /* TimelineTableView.xib in Resources */,
 				65FC74C2233E7F4D000DEAD3 /* MainWindow.storyboard in Resources */,
@@ -2668,6 +2673,7 @@
 				848362FD2262A30800DA1D35 /* styleSheet.css in Resources */,
 				8483630B2262A3F000DA1D35 /* RenameSheet.xib in Resources */,
 				848363052262A3CC00DA1D35 /* AddFolderSheet.xib in Resources */,
+				6558D0D72346FE7500FAA13C /* container-migration.plist in Resources */,
 				5144EA52227B8E4500D19003 /* AccountsFeedbin.xib in Resources */,
 				8405DDA222168920008CE1BF /* TimelineTableView.xib in Resources */,
 				8483630E2262A3FE00DA1D35 /* MainWindow.storyboard in Resources */,
