@@ -3425,7 +3425,7 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/Resources/NetNewsWire.entitlements;
 				CODE_SIGN_IDENTITY = "-";
-				INFOPLIST_FILE = "NetNewsWire copy-Info.plist";
+				INFOPLIST_FILE = "NetNewsWire-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 10.14.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.ranchero.NetNewsWire-Evergreen";
@@ -3441,7 +3441,7 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/Resources/NetNewsWire.entitlements;
 				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_FILE = "NetNewsWire copy-Info.plist";
+				INFOPLIST_FILE = "NetNewsWire-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 10.14.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.ranchero.NetNewsWire-Evergreen";
@@ -3457,7 +3457,7 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/SafariExtension/Subscribe_to_Feed.entitlements;
 				CODE_SIGN_IDENTITY = "-";
-				INFOPLIST_FILE = "Subscribe to Feed copy-Info.plist";
+				INFOPLIST_FILE = "Subscribe to Feed-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.ranchero.NetNewsWire-Evergreen.Subscribe-to-Feed";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -3472,7 +3472,7 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CODE_SIGN_ENTITLEMENTS = Mac/SafariExtension/Subscribe_to_Feed.entitlements;
 				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_FILE = "Subscribe to Feed copy-Info.plist";
+				INFOPLIST_FILE = "Subscribe to Feed-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.ranchero.NetNewsWire-Evergreen.Subscribe-to-Feed";
 				PRODUCT_NAME = "$(TARGET_NAME)";
