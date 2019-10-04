@@ -30,8 +30,8 @@ PROVISIONING_PROFILE_SPECIFIER =
 #include "./common/NetNewsWire_macapp_target_common.xcconfig"
 
 // High Level Settings common to both the Mac application and any extensions we bundle with it
-MARKETING_VERSION = 5.0.2
-CURRENT_PROJECT_VERSION = 2615
+MARKETING_VERSION = 5.0.3b1
+CURRENT_PROJECT_VERSION = 2616
 
 COMBINE_HIDPI_IMAGES = YES
 PRODUCT_BUNDLE_IDENTIFIER = com.ranchero.NetNewsWire-Evergreen
