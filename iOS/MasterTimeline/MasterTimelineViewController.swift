@@ -46,6 +46,8 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(progressDidChange(_:)), name: .AccountRefreshProgressDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(contentSizeCategoryDidChange), name: UIContentSizeCategory.didChangeNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange), name: .DisplayNameDidChange, object: nil)
+
 
 		// Setup the Search Controller
 		searchController.delegate = self
@@ -87,28 +89,20 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	// MARK: Actions
 
 	@IBAction func markAllAsRead(_ sender: Any) {
-		
-		let title = NSLocalizedString("Mark All Read", comment: "Mark All Read")
-		let message = NSLocalizedString("Mark all articles in this timeline as read?", comment: "Mark all articles")
-		let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
-
-		let cancelTitle = NSLocalizedString("Cancel", comment: "Cancel")
-		let cancelAction = UIAlertAction(title: cancelTitle, style: .cancel)
-		alertController.addAction(cancelAction)
-		
-		let markTitle = NSLocalizedString("Mark All Read", comment: "Mark All Read")
-		let markAction = UIAlertAction(title: markTitle, style: .default) { [weak self] (action) in
-			self?.coordinator.markAllAsReadInTimeline()
+		if coordinator.displayUndoAvailableTip {
+			let alertController = UndoAvailableAlertController.alert { [weak self] _ in
+				self?.coordinator.displayUndoAvailableTip = false
+				self?.coordinator.markAllAsReadInTimeline()
+			}
+			
+			present(alertController, animated: true)
+		} else {
+			coordinator.markAllAsReadInTimeline()
 		}
-		
-		alertController.addAction(markAction)
-		
-		present(alertController, animated: true)
-		
 	}
 	
 	@IBAction func firstUnread(_ sender: Any) {
-		coordinator.selectNextUnread()
+		coordinator.selectFirstUnread()
 	}
 	
 	// MARK: Keyboard shortcuts
@@ -129,11 +123,19 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		coordinator.navigateToDetail()
 	}
 	
+	@objc func showFeedInspector(_ sender: UITapGestureRecognizer) {
+		coordinator.showFeedInspector()
+	}
+	
 	// MARK: API
 	
-	func restoreSelectionIfNecessary() {
+	func restoreSelectionIfNecessary(adjustScroll: Bool) {
 		if let article = coordinator.currentArticle, let indexPath = dataSource.indexPath(for: article) {
-			tableView.selectRowAndScrollIfNotVisible(at: indexPath, animated: false, deselect: coordinator.isRootSplitCollapsed)
+			if adjustScroll {
+				tableView.selectRowAndScrollIfNotVisible(at: indexPath, animated: false, deselect: coordinator.isRootSplitCollapsed)
+			} else {
+				tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+			}
 		}
 	}
 
@@ -145,13 +147,13 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		applyChanges(animate: animate)
 	}
 	
-	func updateArticleSelection(animate: Bool) {
+	func updateArticleSelection(animated: Bool) {
 		if let article = coordinator.currentArticle, let indexPath = dataSource.indexPath(for: article) {
 			if tableView.indexPathForSelectedRow != indexPath {
 				tableView.selectRowAndScrollIfNotVisible(at: indexPath, animated: true, deselect: coordinator.isRootSplitCollapsed)
 			}
 		} else {
-			tableView.selectRow(at: nil, animated: animate, scrollPosition: .none)
+			tableView.selectRow(at: nil, animated: animated, scrollPosition: .none)
 		}
 		
 		updateUI()
@@ -169,8 +171,7 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 
 	// MARK: - Table view
 
-	override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-		
+	override func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
 		guard let article = dataSource.itemIdentifier(for: indexPath) else { return nil }
 		
 		// Set up the read action
@@ -185,6 +186,13 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		
 		readAction.image = article.status.read ? AppAssets.circleClosedImage : AppAssets.circleOpenImage
 		readAction.backgroundColor = AppAssets.primaryAccentColor
+		
+		return UISwipeActionsConfiguration(actions: [readAction])
+	}
+	
+	override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+		
+		guard let article = dataSource.itemIdentifier(for: indexPath) else { return nil }
 		
 		// Set up the star action
 		let starTitle = article.status.starred ?
@@ -243,8 +251,7 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		moreAction.image = AppAssets.moreImage
 		moreAction.backgroundColor = UIColor.systemGray
 
-		let configuration = UISwipeActionsConfiguration(actions: [readAction, starAction, moreAction])
-		return configuration
+		return UISwipeActionsConfiguration(actions: [starAction, moreAction])
 		
 	}
 
@@ -286,7 +293,7 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
 		becomeFirstResponder()
 		let article = dataSource.itemIdentifier(for: indexPath)
-		coordinator.selectArticle(article, automated: false)
+		coordinator.selectArticle(article, animated: true)
 	}
 	
 	// MARK: Notifications
@@ -365,6 +372,10 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		updateProgressIndicatorIfNeeded()
 	}
 	
+	@objc func displayNameDidChange(_ note: Notification) {
+		titleView?.label.text = coordinator.timelineName
+	}
+	
 	// MARK: Reloading
 	
 	func queueReloadAvailableCells() {
@@ -380,7 +391,7 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		var snapshot = dataSource.snapshot()
 		snapshot.reloadItems(articles)
 		dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
-			self?.restoreSelectionIfNecessary()
+			self?.restoreSelectionIfNecessary(adjustScroll: false)
 		}
 	}
 	
@@ -454,12 +465,25 @@ private extension MasterTimelineViewController {
 	}
 
 	func resetUI() {
-		
 		title = coordinator.timelineName
+		
 		if let titleView = Bundle.main.loadNibNamed("MasterTimelineTitleView", owner: self, options: nil)?[0] as? MasterTimelineTitleView {
 			self.titleView = titleView
+			
 			titleView.imageView.image = coordinator.timelineFavicon
+			if traitCollection.userInterfaceStyle == .dark && titleView.imageView.image?.isDark() ?? false {
+				titleView.imageView.backgroundColor = AppAssets.avatarBackgroundColor
+			}
+			
 			titleView.label.text = coordinator.timelineName
+			updateTitleUnreadCount(animate: false)
+
+			if coordinator.timelineFetcher is Feed {
+				titleView.heightAnchor.constraint(equalToConstant: 44.0).isActive = true
+				let tap = UITapGestureRecognizer(target: self, action:#selector(showFeedInspector(_:)))
+				titleView.addGestureRecognizer(tap)
+			}
+			
 			navigationItem.titleView = titleView
 		}
 
@@ -469,13 +493,32 @@ private extension MasterTimelineViewController {
 			tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
 		}
 		
-		updateUI()
-		
+		updateToolbar()
+
 	}
 	
 	func updateUI() {
+		updateTitleUnreadCount(animate: true)
+		updateToolbar()
+	}
+	
+	func updateToolbar() {
 		markAllAsReadButton.isEnabled = coordinator.isTimelineUnreadAvailable
 		firstUnreadButton.isEnabled = coordinator.isTimelineUnreadAvailable
+	}
+	
+	func updateTitleUnreadCount(animate: Bool) {
+		if let unreadCountProvider = coordinator.timelineFetcher as? UnreadCountProvider {
+			if animate {
+				UIView.animate(withDuration: 0.3) {
+					self.titleView?.unreadCountView.unreadCount = unreadCountProvider.unreadCount
+					self.titleView?.setNeedsLayout()
+					self.titleView?.layoutIfNeeded()
+				}
+			} else {
+				self.titleView?.unreadCountView.unreadCount = unreadCountProvider.unreadCount
+			}
+		}
 	}
 	
 	func updateProgressIndicatorIfNeeded() {
@@ -490,7 +533,7 @@ private extension MasterTimelineViewController {
 		snapshot.appendItems(coordinator.articles, toSection: 0)
         
 		dataSource.apply(snapshot, animatingDifferences: animate) { [weak self] in
-			self?.restoreSelectionIfNecessary()
+			self?.restoreSelectionIfNecessary(adjustScroll: false)
 			completion?()
 		}
 	}

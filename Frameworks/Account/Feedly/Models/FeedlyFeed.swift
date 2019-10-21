@@ -8,9 +8,10 @@
 
 import Foundation
 
-struct FeedlyFeed: Decodable {
+struct FeedlyFeed: Codable {
 	var feedId: String
 	var id: String
 	var title: String
 	var updated: Date?
+	var website: String?
 }

@@ -16,7 +16,7 @@ enum ArticleExtractorButtonState {
 }
 
 class ArticleExtractorButton: UIButton {
-
+	
 	var buttonState: ArticleExtractorButtonState = .off {
 		didSet {
 			if buttonState != oldValue {

@@ -23,30 +23,16 @@ final class FeedlyUpdateAccountFeedsWithItemsOperation: FeedlyOperation {
 	}
 	
 	override func main() {
+		assert(Thread.isMainThread) // Needs to be on main thread because Feed is a main-thread-only model type.
 		guard !isCancelled else {
 			didFinish()
 			return
 		}
 		
-		let group = DispatchGroup()
-		let allFeeds = organisedItemsProvider.allFeeds
+		let feedIDsAndItems = organisedItemsProvider.parsedItemsKeyedByFeedId
 		
-		os_log(.debug, log: log, "Begin updating %i feeds in collection \"%@\"", allFeeds.count, organisedItemsProvider.collection.label)
-		
-		for feed in allFeeds {
-			guard let items = organisedItemsProvider.parsedItems(for: feed) else {
-				continue
-			}
-			group.enter()
-			os_log(.debug, log: log, "Updating %i items for feed \"%@\" in collection \"%@\"", items.count, feed.nameForDisplay, organisedItemsProvider.collection.label)
-			
-			account.update(feed, parsedItems: items, defaultRead: true) {
-				group.leave()
-			}
-		}
-		
-		group.notify(qos: .userInitiated, queue: .main) {
-			os_log(.debug, log: self.log, "Finished updating feeds in collection \"%@\"", self.organisedItemsProvider.collection.label)
+		account.update(feedIDsAndItems: feedIDsAndItems, defaultRead: true) {
+			os_log(.debug, log: self.log, "Updated %i feeds for \"%@\"", feedIDsAndItems.count, self.organisedItemsProvider.providerName)
 			self.didFinish()
 		}
 	}

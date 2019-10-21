@@ -21,8 +21,12 @@ enum ArticleViewState: Equatable {
 }
 
 class ArticleViewController: UIViewController {
+	
+	private struct MessageName {
+		static let imageWasClicked = "imageWasClicked"
+		static let imageWasShown = "imageWasShown"
+	}
 
-	@IBOutlet private weak var articleExtractorButton: ArticleExtractorButton!
 	@IBOutlet private weak var nextUnreadBarButtonItem: UIBarButtonItem!
 	@IBOutlet private weak var prevArticleBarButtonItem: UIBarButtonItem!
 	@IBOutlet private weak var nextArticleBarButtonItem: UIBarButtonItem!
@@ -31,7 +35,17 @@ class ArticleViewController: UIViewController {
 	@IBOutlet private weak var actionBarButtonItem: UIBarButtonItem!
 	@IBOutlet private weak var browserBarButtonItem: UIBarButtonItem!
 	@IBOutlet private weak var webViewContainer: UIView!
+
+	private var articleExtractorButton: ArticleExtractorButton = {
+		let button = ArticleExtractorButton(type: .system)
+		button.frame = CGRect(x: 0, y: 0, width: 44.0, height: 44.0)
+		button.setImage(AppAssets.articleExtractorOff, for: .normal)
+		return button
+	}()
+	
 	private var webView: WKWebView!
+	private lazy var transition = ImageTransition(controller: self)
+	private var clickedImageCompletion: (() -> Void)?
 
 	weak var coordinator: SceneCoordinator!
 	
@@ -54,7 +68,7 @@ class ArticleViewController: UIViewController {
 			return nil
 		}
 	}
-
+	
 	var articleExtractorButtonState: ArticleExtractorButtonState {
 		get {
 			return articleExtractorButton.buttonState
@@ -70,9 +84,11 @@ class ArticleViewController: UIViewController {
 	}
 	
 	deinit {
-		webView.removeFromSuperview()
-		ArticleViewControllerWebViewProvider.shared.enqueueWebView(webView)
-		webView = nil
+		if webView != nil  {
+			webView.removeFromSuperview()
+			ArticleViewControllerWebViewProvider.shared.enqueueWebView(webView)
+			webView = nil
+		}
 	}
 	
 	override func viewDidLoad() {
@@ -82,19 +98,29 @@ class ArticleViewController: UIViewController {
 		NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(progressDidChange(_:)), name: .AccountRefreshProgressDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(contentSizeCategoryDidChange(_:)), name: UIContentSizeCategory.didChangeNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground(_:)), name: UIApplication.willEnterForegroundNotification, object: nil)
 
-		// For some reason interface builder won't let me set this there.
 		articleExtractorButton.addTarget(self, action: #selector(toggleArticleExtractor(_:)), for: .touchUpInside)
-		
+		navigationItem.titleView = articleExtractorButton
+
 		ArticleViewControllerWebViewProvider.shared.dequeueWebView() { webView in
 			
 			self.webView = webView
 			self.webViewContainer.addChildAndPin(webView)
 			webView.navigationDelegate = self
-			
+			webView.uiDelegate = self
+
+			webView.configuration.userContentController.removeScriptMessageHandler(forName: MessageName.imageWasClicked)
+			webView.configuration.userContentController.removeScriptMessageHandler(forName: MessageName.imageWasShown)
+			webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasClicked)
+			webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasShown)
+
 			// Even though page.html should be loaded into this webview, we have to do it again
 			// to work around this bug: http://www.openradar.me/22855188
-			webView.loadHTMLString(ArticleRenderer.page.html, baseURL: ArticleRenderer.page.baseURL)
+			let url = Bundle.main.url(forResource: "page", withExtension: "html")!
+			webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+//			let request = URLRequest(url: url)
+//			webView.load(request)
 
 		}
 		
@@ -191,6 +217,20 @@ class ArticleViewController: UIViewController {
 		reloadHTML()
 	}
 	
+	// Don't delete this even though it looks like it isn't doing anything.  This is to work
+	// around a bug (don't know if it is an Apple one or ours) that happens when the root
+	// split view controller is not collapsed.  When the app goes to the background and then
+	// comes back to the foreground the article extractor button will disappear.  The
+	// navigationItem will still have a reference to the articleExtractorButton, but if you
+	// check in the view debugger, the button isn't in the view hierarchy anymore.
+	// Setting the titleView to nil and then back to the articleExtractorButton hides that
+	// this happened.  If we move the articleExtractorButton to someplace other than the
+	// titleView, then this code can be safely deleted.
+	@objc func willEnterForeground(_ note: Notification) {
+		navigationItem.titleView = nil
+		navigationItem.titleView = articleExtractorButton
+	}
+	
 	// MARK: Actions
 	
 	@IBAction func toggleArticleExtractor(_ sender: Any) {
@@ -263,6 +303,15 @@ class ArticleViewController: UIViewController {
 		webView.scrollView.setContentOffset(scrollToPoint, animated: true)
 	}
 	
+	func hideClickedImage() {
+		webView?.evaluateJavaScript("hideClickedImage();")
+	}
+	
+	func showClickedImage(completion: @escaping () -> Void) {
+		clickedImageCompletion = completion
+		webView?.evaluateJavaScript("showClickedImage();")
+	}
+	
 }
 
 // MARK: WKNavigationDelegate
@@ -301,6 +350,79 @@ extension ArticleViewController: WKNavigationDelegate {
 	
 }
 
+// MARK: WKUIDelegate
+
+extension ArticleViewController: WKUIDelegate {
+	func webView(_ webView: WKWebView, contextMenuForElement elementInfo: WKContextMenuElementInfo, willCommitWithAnimator animator: UIContextMenuInteractionCommitAnimating) {
+		// We need to have at least an unimplemented WKUIDelegate assigned to the WKWebView.  This makes the
+		// link preview launch Safari when the link preview is tapped.  In theory, you shoud be able to get
+		// the link from the elementInfo above and transition to SFSafariViewController instead of launching
+		// Safari.  As the time of this writing, the link in elementInfo is always nil.  ¯\_(ツ)_/¯
+	}
+}
+
+// MARK: WKScriptMessageHandler
+
+extension ArticleViewController: WKScriptMessageHandler {
+
+	func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+		switch message.name {
+		case MessageName.imageWasShown:
+			clickedImageCompletion?()
+		case MessageName.imageWasClicked:
+			imageWasClicked(body: message.body as? String)
+		default:
+			return
+		}
+	}
+	
+}
+
+class WrapperScriptMessageHandler: NSObject, WKScriptMessageHandler {
+	
+	// We need to wrap a message handler to prevent a circlular reference
+	private weak var handler: WKScriptMessageHandler?
+	
+	init(_ handler: WKScriptMessageHandler) {
+		self.handler = handler
+	}
+	
+	func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+		handler?.userContentController(userContentController, didReceive: message)
+	}
+	
+}
+
+// MARK: UIViewControllerTransitioningDelegate
+
+extension ArticleViewController: UIViewControllerTransitioningDelegate {
+
+	func animationController(forPresented presented: UIViewController, presenting: UIViewController, source: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+		transition.presenting = true
+		return transition
+	}
+	
+	func animationController(forDismissed dismissed: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+		transition.presenting = false
+		return transition
+	}
+}
+
+// MARK: JSON
+
+private struct TemplateData: Codable {
+	let style: String
+	let body: String
+}
+
+private struct ImageClickMessage: Codable {
+	let x: Float
+	let y: Float
+	let width: Float
+	let height: Float
+	let imageURL: String
+}
+
 // MARK: Private
 
 private extension ArticleViewController {
@@ -311,9 +433,22 @@ private extension ArticleViewController {
 		}
 	}
 	
-}
-
-private struct TemplateData: Codable {
-	let style: String
-	let body: String
+	func imageWasClicked(body: String?) {
+		guard let body = body,
+			let data = body.data(using: .utf8),
+			let clickMessage = try? JSONDecoder().decode(ImageClickMessage.self, from: data),
+			let range = clickMessage.imageURL.range(of: ";base64,")
+			else { return }
+		
+		let base64Image = String(clickMessage.imageURL.suffix(from: range.upperBound))
+		if let imageData = Data(base64Encoded: base64Image), let image = UIImage(data: imageData) {
+			let rect = CGRect(x: CGFloat(clickMessage.x), y: CGFloat(clickMessage.y), width: CGFloat(clickMessage.width), height: CGFloat(clickMessage.height))
+			transition.originFrame = webView.convert(rect, to: nil)
+			transition.maskFrame = webView.convert(webView.frame, to: nil)
+			transition.originImage = image
+			
+			coordinator.showFullScreenImage(image: image, transitioningDelegate: self)
+		}
+	}
+	
 }

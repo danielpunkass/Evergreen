@@ -7,17 +7,22 @@
 //
 
 import AppKit
+import UserNotifications
 import Articles
 import RSTree
 import RSWeb
 import Account
 import RSCore
+#if TEST
+import Sparkle
+#endif
 
 var appDelegate: AppDelegate!
 
 @NSApplicationMain
-class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, UnreadCountProvider {
+class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, UNUserNotificationCenterDelegate, UnreadCountProvider {
 
+	var userNotificationManager: UserNotificationManager!
 	var faviconDownloader: FaviconDownloader!
 	var imageDownloader: ImageDownloader!
 	var authorAvatarDownloader: AuthorAvatarDownloader!
@@ -79,7 +84,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	// MARK: - API
-
 	func logMessage(_ message: String, type: LogItem.ItemType) {
 
 		#if DEBUG
@@ -110,9 +114,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 	
 	// MARK: - NSApplicationDelegate
-
+	
 	func applicationWillFinishLaunching(_ notification: Notification) {
 		installAppleEventHandlers()
+		#if TEST
+			// Don't prompt for updates while running automated tests
+			SUUpdater.shared()?.automaticallyChecksForUpdates = false
+		#endif
 	}
 	
 	func applicationDidFinishLaunching(_ note: Notification) {
@@ -129,7 +137,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 			logDebugMessage("Is first run.")
 		}
 		let localAccount = AccountManager.shared.defaultAccount
-		DefaultFeedsImporter.importIfNeeded(isFirstRun, account: localAccount)
+
+		if isFirstRun && !AccountManager.shared.anyAccountHasAtLeastOneFeed() {
+			// Import feeds. Either old NNW 3 feeds or the default feeds.
+			if !NNW3ImportController.importSubscriptionsIfFileExists(account: localAccount) {
+				DefaultFeedsImporter.importDefaultFeeds(account: localAccount)
+			}
+		}
 
 		let tempDirectory = NSTemporaryDirectory()
 		let bundleIdentifier = (Bundle.main.infoDictionary!["CFBundleIdentifier"]! as! String)
@@ -179,6 +193,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		refreshTimer = AccountRefreshTimer()
 		syncTimer = ArticleStatusSyncTimer()
 		
+		UNUserNotificationCenter.current().requestAuthorization(options:[.badge, .sound, .alert]) { (granted, error) in
+			if granted {
+				DispatchQueue.main.async {
+					NSApplication.shared.registerForRemoteNotifications()
+				}
+			}
+		}
+
+		UNUserNotificationCenter.current().delegate = self
+		userNotificationManager = UserNotificationManager()
+
 		#if RELEASE
 			debugMenuItem.menu?.removeItem(debugMenuItem)
 			DispatchQueue.main.async {
@@ -197,6 +222,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 				CrashReporter.check(appName: "NetNewsWire")
 			}
 		#endif
+	}
+	
+	func application(_ application: NSApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([NSUserActivityRestoring]) -> Void) -> Bool {
+		guard let mainWindowController = mainWindowController else {
+			return false
+		}
+		mainWindowController.handle(userActivity)
+		return true
 	}
 
 	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -222,7 +255,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	
 	func applicationDidResignActive(_ notification: Notification) {
 
-		TimelineStringFormatter.emptyCaches()
+		ArticleStringFormatter.emptyCaches()
 
 		saveState()
 	}
@@ -243,7 +276,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	// MARK: Notifications
-
 	@objc func unreadCountDidChange(_ note: Notification) {
 
 		if note.object is AccountManager {
@@ -277,7 +309,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	// MARK: Main Window
-
 	func windowControllerWithName(_ storyboardName: String) -> NSWindowController {
 
 		let storyboard = NSStoryboard(name: NSStoryboard.Name(storyboardName), bundle: nil)
@@ -294,7 +325,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	// MARK: NSUserInterfaceValidations
-
 	func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
 		if shuttingDown {
 			return false
@@ -322,8 +352,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		return true
 	}
 
+	// MARK: UNUserNotificationCenterDelegate
+	
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.alert, .badge, .sound])
+    }
+	
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+		mainWindowController?.handle(response)
+		completionHandler()
+    }
+	
 	// MARK: Add Feed
-
 	func addFeed(_ urlString: String?, name: String? = nil, account: Account? = nil, folder: Folder? = nil) {
 
 		createAndShowMainWindow()
@@ -335,14 +375,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	// MARK: - Dock Badge
-
 	@objc func updateDockBadge() {
 		let label = unreadCount > 0 && !AppDefaults.hideDockUnreadCount ? "\(unreadCount)" : ""
 		NSApplication.shared.dockTile.badgeLabel = label
 	}
 
 	// MARK: - Actions
-
 	@IBAction func showPreferences(_ sender: Any?) {
 
 		if preferencesWindowController == nil {
@@ -392,7 +430,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	@IBAction func toggleInspectorWindow(_ sender: Any?) {
-
 		if inspectorWindowController == nil {
 			inspectorWindowController = (windowControllerWithName("Inspector") as! InspectorWindowController)
 		}
@@ -407,7 +444,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	@IBAction func importOPMLFromFile(_ sender: Any?) {
-
 		createAndShowMainWindow()
 		if mainWindowController!.isDisplayingSheet {
 			return
@@ -415,11 +451,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		
 		importOPMLController = ImportOPMLWindowController()
 		importOPMLController?.runSheetOnWindow(mainWindowController!.window!)
-		
+	}
+	
+	@IBAction func importNNW3FromFile(_ sender: Any?) {
+		createAndShowMainWindow()
+		if mainWindowController!.isDisplayingSheet {
+			return
+		}
+		NNW3ImportController.askUserToImportNNW3Subscriptions(window: mainWindowController!.window!)
 	}
 	
 	@IBAction func exportOPML(_ sender: Any?) {
-
 		createAndShowMainWindow()
 		if mainWindowController!.isDisplayingSheet {
 			return
@@ -427,11 +469,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		
 		exportOPMLController = ExportOPMLWindowController()
 		exportOPMLController?.runSheetOnWindow(mainWindowController!.window!)
-		
 	}
 	
 	@IBAction func addAppNews(_ sender: Any?) {
-
 		if AccountManager.shared.anyAccountHasFeedWithURL(appNewsURLString) {
 			return
 		}
@@ -459,7 +499,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	@IBAction func openSlackGroup(_ sender: Any?) {
-		Browser.open("https://join.slack.com/t/netnewswire/shared_invite/enQtNjM4MDA1MjQzMDkzLTNlNjBhOWVhYzdhYjA4ZWFhMzQ1MTUxYjU0NTE5ZGY0YzYwZWJhNjYwNTNmNTg2NjIwYWY4YzhlYzk5NmU3ZTc", inBackground: false)
+		Browser.open("https://ranchero.com/netnewswire/slack", inBackground: false)
 	}
 
 	@IBAction func openTechnotes(_ sender: Any?) {
@@ -549,7 +589,6 @@ extension AppDelegate {
 			// An attached inspector can display incorrectly on certain setups (like mine); default to displaying in a separate window,
 			// and reset the default to a separate window when the preference is toggled off and on again in case the inspector is
 			// accidentally reattached.
-
 			AppDefaults.webInspectorStartsAttached = false
 			NotificationCenter.default.post(name: .WebInspectorEnabledDidChange, object: newValue)
 		#endif
