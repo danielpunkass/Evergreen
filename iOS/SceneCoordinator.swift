@@ -786,9 +786,12 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 	
 	func showSettings() {
-		rootSplitViewController.present(style: .formSheet) {
-			SettingsView(viewModel: SettingsView.ViewModel()).environment(\.sceneCoordinator, self)
-		}
+		let settingsNavController = UIStoryboard.settings.instantiateInitialViewController() as! UINavigationController
+		let settingsViewController = settingsNavController.topViewController as! SettingsViewController
+		settingsNavController.modalPresentationStyle = .formSheet
+		settingsNavController.preferredContentSize = SettingsViewController.preferredContentSizeForFormSheetDisplay
+		settingsViewController.presentingParentController = rootSplitViewController
+		rootSplitViewController.present(settingsNavController, animated: true)
 	}
 	
 	func showFeedInspector() {

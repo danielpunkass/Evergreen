@@ -9,7 +9,7 @@
 import UIKit
 import RSCore
 
-class MasterTimelineTableViewCell: NNWTableViewCell {
+class MasterTimelineTableViewCell: VibrantTableViewCell {
 	
 	private let titleView = MasterTimelineTableViewCell.multiLineUILabel()
 	private let summaryView = MasterTimelineTableViewCell.multiLineUILabel()
@@ -37,7 +37,7 @@ class MasterTimelineTableViewCell: NNWTableViewCell {
 	override func applyThemeProperties() {
 		super.applyThemeProperties()
 
-		let highlightedTextColor = AppAssets.tableViewCellHighlightedTextColor
+		let highlightedTextColor = AppAssets.vibrantTextColor
 		
 		titleView.highlightedTextColor = highlightedTextColor
 		summaryView.highlightedTextColor = highlightedTextColor
