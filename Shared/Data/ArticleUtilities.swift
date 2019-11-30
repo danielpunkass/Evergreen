@@ -42,8 +42,8 @@ private func accountAndArticlesDictionary(_ articles: Set<Article>) -> [String: 
 
 extension Article {
 	
-	var feed: Feed? {
-		return account?.existingFeed(withFeedID: feedID)
+	var webFeed: WebFeed? {
+		return account?.existingWebFeed(withWebFeedID: webFeedID)
 	}
 	
 	var preferredLink: String? {
@@ -64,43 +64,97 @@ extension Article {
 		return datePublished ?? dateModified ?? status.dateArrived
 	}
 
-	func avatarImage() -> RSImage? {
-		if let authors = authors {
-			for author in authors {
-				if let image = appDelegate.authorAvatarDownloader.image(for: author) {
-					return image
-				}
+	func iconImage() -> IconImage? {
+		if let authors = authors, authors.count == 1, let author = authors.first {
+			if let image = appDelegate.authorAvatarDownloader.image(for: author) {
+				return image
 			}
 		}
 		
-		guard let feed = feed else {
+		if let authors = webFeed?.authors, authors.count == 1, let author = authors.first {
+			if let image = appDelegate.authorAvatarDownloader.image(for: author) {
+				return image
+			}
+		}
+
+		guard let webFeed = webFeed else {
 			return nil
 		}
 		
-		let feedIconImage = appDelegate.feedIconDownloader.icon(for: feed)
+		let feedIconImage = appDelegate.webFeedIconDownloader.icon(for: webFeed)
 		if feedIconImage != nil {
 			return feedIconImage
 		}
 		
-		if let faviconImage = appDelegate.faviconDownloader.faviconAsAvatar(for: feed) {
+		if let faviconImage = appDelegate.faviconDownloader.faviconAsIcon(for: webFeed) {
 			return faviconImage
 		}
 		
-		return FaviconGenerator.favicon(feed)
+		return FaviconGenerator.favicon(webFeed)
+	}
+	
+	func byline() -> String {
+		guard let authors = authors ?? webFeed?.authors, !authors.isEmpty else {
+			return ""
+		}
+
+		// If the author's name is the same as the feed, then we don't want to display it.
+		// This code assumes that multiple authors would never match the feed name so that
+		// if there feed owner has an article co-author all authors are given the byline.
+		if authors.count == 1, let author = authors.first {
+			if author.name == webFeed?.nameForDisplay {
+				return ""
+			}
+		}
+		
+		var byline = ""
+		var isFirstAuthor = true
+
+		for author in authors {
+			if !isFirstAuthor {
+				byline += ", "
+			}
+			isFirstAuthor = false
+
+			if let emailAddress = author.emailAddress, emailAddress.contains(" ") {
+				byline += emailAddress // probably name plus email address
+			}
+			else if let name = author.name, let emailAddress = author.emailAddress {
+				byline += "\(name) <\(emailAddress)>"
+			}
+			else if let name = author.name {
+				byline += name
+			}
+			else if let emailAddress = author.emailAddress {
+				byline += "<\(emailAddress)>"
+			}
+			else if let url = author.url {
+				byline += url
+			}
+		}
+
+		return byline
 	}
 	
 }
 
-// MARK: PathIDUserInfoProvider
+// MARK: Path
 
-extension Article: DeepLinkProvider {
+struct ArticlePathKey {
+	static let accountID = "accountID"
+	static let accountName = "accountName"
+	static let webFeedID = "webFeedID"
+	static let articleID = "articleID"
+}
 
-	public var deepLinkUserInfo: [AnyHashable : Any] {
+extension Article {
+
+	public var pathUserInfo: [AnyHashable : Any] {
 		return [
-			DeepLinkKey.accountID.rawValue: accountID,
-			DeepLinkKey.accountName.rawValue: account?.nameForDisplay ?? "",
-			DeepLinkKey.feedID.rawValue: feedID,
-			DeepLinkKey.articleID.rawValue: articleID
+			ArticlePathKey.accountID: accountID,
+			ArticlePathKey.accountName: account?.nameForDisplay ?? "",
+			ArticlePathKey.webFeedID: webFeedID,
+			ArticlePathKey.articleID: articleID
 		]
 	}
 
@@ -111,7 +165,7 @@ extension Article: DeepLinkProvider {
 extension Article: SortableArticle {
 	
 	var sortableName: String {
-		return feed?.name ?? ""
+		return webFeed?.name ?? ""
 	}
 	
 	var sortableDate: Date {
@@ -122,8 +176,8 @@ extension Article: SortableArticle {
 		return articleID
 	}
 	
-	var sortableFeedID: String {
-		return feedID
+	var sortableWebFeedID: String {
+		return webFeedID
 	}
 	
 }

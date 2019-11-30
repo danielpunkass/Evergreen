@@ -102,6 +102,7 @@ public final class AccountManager: UnreadCountProvider {
 
 		readAccountsFromDisk()
 
+		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidInitialize(_:)), name: .UnreadCountDidInitialize, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(accountStateDidChange(_:)), name: .AccountStateDidChange, object: nil)
 
@@ -138,6 +139,8 @@ public final class AccountManager: UnreadCountProvider {
 			return
 		}
 		
+		account.prepareForDeletion()
+		
 		accountsDictionary.removeValue(forKey: account.accountID)
 		account.isDeleted = true
 		
@@ -160,6 +163,14 @@ public final class AccountManager: UnreadCountProvider {
 		return accountsDictionary[accountID]
 	}
 	
+	public func suspendAll() {
+		accounts.forEach { $0.suspend() }
+	}
+
+	public func resumeAll() {
+		accounts.forEach { $0.resume() }
+	}
+
 	public func refreshAll(errorHandler: @escaping (Error) -> Void, completion: (() ->Void)? = nil) {
 		let group = DispatchGroup()
 		
@@ -187,7 +198,7 @@ public final class AccountManager: UnreadCountProvider {
 		
 		activeAccounts.forEach {
 			group.enter()
-			$0.syncArticleStatus() {
+			$0.syncArticleStatus() { _ in
 				group.leave()
 			}
 		}
@@ -203,7 +214,7 @@ public final class AccountManager: UnreadCountProvider {
 	
 	public func anyAccountHasAtLeastOneFeed() -> Bool {
 		for account in activeAccounts {
-			if account.hasAtLeastOneFeed() {
+			if account.hasAtLeastOneWebFeed() {
 				return true
 			}
 		}
@@ -213,7 +224,7 @@ public final class AccountManager: UnreadCountProvider {
 
 	public func anyAccountHasFeedWithURL(_ urlString: String) -> Bool {
 		for account in activeAccounts {
-			if let _ = account.existingFeed(withURL: urlString) {
+			if let _ = account.existingWebFeed(withURL: urlString) {
 				return true
 			}
 		}
@@ -262,6 +273,15 @@ public final class AccountManager: UnreadCountProvider {
 	}
 
 	// MARK: - Notifications
+	
+	@objc func unreadCountDidInitialize(_ notification: Notification) {
+		guard let _ = notification.object as? Account else {
+			return
+		}
+		if isUnreadCountsInitialized {
+			postUnreadCountDidInitializeNotification()
+		}
+	}
 	
 	@objc dynamic func unreadCountDidChange(_ notification: Notification) {
 		guard let _ = notification.object as? Account else {

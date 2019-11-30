@@ -23,6 +23,8 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 		window!.tintColor = AppAssets.primaryAccentColor
 		window!.rootViewController = coordinator.start(for: window!.frame.size)
 
+		coordinator.restoreWindowState(session.stateRestorationActivity)
+		
 		if let shortcutItem = connectionOptions.shortcutItem {
 			window!.makeKeyAndVisible()
 			handleShortcutItem(shortcutItem)
@@ -58,6 +60,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 	
 	func sceneWillEnterForeground(_ scene: UIScene) {
 		appDelegate.prepareAccountsForForeground()
+		self.coordinator.configurePanelMode(for: window!.frame.size)
 	}
 	
     func stateRestorationActivity(for scene: UIScene) -> NSUserActivity? {

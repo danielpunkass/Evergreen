@@ -117,14 +117,16 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 	func handle(_ response: UNNotificationResponse) {
 		let userInfo = response.notification.request.content.userInfo
-		sidebarViewController?.deepLinkRevealAndSelect(for: userInfo)
-		currentTimelineViewController?.goToDeepLink(for: userInfo)
+		guard let articlePathUserInfo = userInfo[UserInfoKey.articlePath] as? [AnyHashable : Any] else { return }
+		sidebarViewController?.deepLinkRevealAndSelect(for: articlePathUserInfo)
+		currentTimelineViewController?.goToDeepLink(for: articlePathUserInfo)
 	}
 
 	func handle(_ activity: NSUserActivity) {
 		guard let userInfo = activity.userInfo else { return }
-		sidebarViewController?.deepLinkRevealAndSelect(for: userInfo)
-		currentTimelineViewController?.goToDeepLink(for: userInfo)
+		guard let articlePathUserInfo = userInfo[UserInfoKey.articlePath] as? [AnyHashable : Any] else { return }
+		sidebarViewController?.deepLinkRevealAndSelect(for: articlePathUserInfo)
+		currentTimelineViewController?.goToDeepLink(for: articlePathUserInfo)
 	}
 
 	// MARK: - Notifications
@@ -170,7 +172,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 			}
 		}
 		
-		if let feed = currentFeedOrFolder as? Feed, let noteObject = noteObject as? Feed {
+		if let feed = currentFeedOrFolder as? WebFeed, let noteObject = noteObject as? WebFeed {
 			if feed == noteObject {
 				updateWindowTitle()
 				return
@@ -233,6 +235,14 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 		if item.action == #selector(moveFocusToSearchField(_:)) {
 			return currentSearchField != nil
+		}
+
+		if item.action == #selector(toggleReadFeedsFilter(_:)) {
+			return validateToggleReadFeeds(item)
+		}
+
+		if item.action == #selector(toggleReadArticlesFilter(_:)) {
+			return validateToggleReadArticles(item)
 		}
 
 		if item.action == #selector(toggleSidebar(_:)) {
@@ -436,6 +446,15 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		}
 		window?.makeFirstResponder(searchField)
 	}
+
+	@IBAction func toggleReadFeedsFilter(_ sender: Any?) {
+		sidebarViewController?.toggleReadFilter()
+	}
+	
+	@IBAction func toggleReadArticlesFilter(_ sender: Any?) {
+		timelineContainerViewController?.toggleReadFilter()
+	}
+	
 }
 
 // MARK: - SidebarDelegate
@@ -479,8 +498,8 @@ extension MainWindowController: TimelineContainerViewControllerDelegate {
 		let detailState: DetailState
 		if let articles = articles {
 			if articles.count == 1 {
-				activityManager.reading(articles.first!)
-				if articles.first?.feed?.isArticleExtractorAlwaysOn ?? false {
+				activityManager.reading(feed: nil, article: articles.first)
+				if articles.first?.webFeed?.isArticleExtractorAlwaysOn ?? false {
 					detailState = .loading
 					startArticleExtractorForCurrentLink()
 				} else {
@@ -807,6 +826,30 @@ private extension MainWindowController {
 		}
 
 		return result
+	}
+	
+	func validateToggleReadFeeds(_ item: NSValidatedUserInterfaceItem) -> Bool {
+		guard let menuItem = item as? NSMenuItem else { return false }
+
+		let showCommand = NSLocalizedString("Show Read Feeds", comment: "Command")
+		let hideCommand = NSLocalizedString("Hide Read Feeds", comment: "Command")
+		menuItem.title = sidebarViewController?.isReadFiltered ?? false ? showCommand : hideCommand
+		return true
+	}
+
+	func validateToggleReadArticles(_ item: NSValidatedUserInterfaceItem) -> Bool {
+		guard let menuItem = item as? NSMenuItem else { return false }
+		
+		let showCommand = NSLocalizedString("Show Read Articles", comment: "Command")
+		let hideCommand = NSLocalizedString("Hide Read Articles", comment: "Command")
+
+		if let isReadFiltered = timelineContainerViewController?.isReadFiltered {
+			menuItem.title = isReadFiltered ? showCommand : hideCommand
+			return true
+		} else {
+			menuItem.title = hideCommand
+			return false
+		}
 	}
 
 	// MARK: - Misc.

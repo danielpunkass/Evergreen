@@ -22,19 +22,21 @@ class AboutViewController: UITableViewController {
 		
 		configureCell(file: "About", textView: aboutTextView)
 		configureCell(file: "Credits", textView: creditsTextView)
-		configureCell(file: "Acknowledgments", textView: acknowledgmentsTextView)
 		configureCell(file: "Thanks", textView: thanksTextView)
 		configureCell(file: "Dedication", textView: dedicationTextView)
 
-		let buildLabel = NonIntrinsicLabel(frame: CGRect(x: 20.0, y: 0.0, width: 0.0, height: 0.0))
+		let buildLabel = NonIntrinsicLabel(frame: CGRect(x: 32.0, y: 0.0, width: 0.0, height: 0.0))
 		buildLabel.font = UIFont.systemFont(ofSize: 11.0)
 		buildLabel.textColor = UIColor.gray
-		buildLabel.text = NSLocalizedString("Copyright © 2002-2019 Ranchero Software", comment: "Copyright")
+		buildLabel.text = NSLocalizedString("Copyright © 2002-2019 Brent Simmons", comment: "Copyright")
 		buildLabel.numberOfLines = 0
 		buildLabel.sizeToFit()
 		buildLabel.translatesAutoresizingMaskIntoConstraints = false
-		tableView.tableFooterView = buildLabel
 		
+		let wrapperView = UIView(frame: CGRect(x: 0, y: 0, width: buildLabel.frame.width, height: buildLabel.frame.height + 10.0))
+		wrapperView.translatesAutoresizingMaskIntoConstraints = false
+		wrapperView.addSubview(buildLabel)
+		tableView.tableFooterView = wrapperView
 	}
 
 	override func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {

@@ -15,13 +15,15 @@ public enum CredentialsError: Error {
 
 public enum CredentialsType: String {
 	case basic = "password"
+	case feedWranglerBasic = "feedWranglerBasic"
+	case feedWranglerToken = "feedWranglerToken"
 	case readerBasic = "readerBasic"
 	case readerAPIKey = "readerAPIKey"
 	case oauthAccessToken = "oauthAccessToken"
 	case oauthRefreshToken = "oauthRefreshToken"
 }
 
-public struct Credentials {
+public struct Credentials: Equatable {
 	public let type: CredentialsType
 	public let username: String
 	public let secret: String

@@ -13,20 +13,27 @@ import RSTree
 import RSWeb
 import Account
 import RSCore
-#if TEST
+
+// If we're not going to import Sparkle, provide dummy protocols to make it easy
+// for AppDelegate to comply
+#if MAC_APP_STORE || TEST
+protocol SPUStandardUserDriverDelegate {}
+protocol SPUUpdaterDelegate {}
+#else
 import Sparkle
 #endif
 
 var appDelegate: AppDelegate!
 
 @NSApplicationMain
-class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, UNUserNotificationCenterDelegate, UnreadCountProvider {
+class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, UNUserNotificationCenterDelegate, UnreadCountProvider, SPUStandardUserDriverDelegate, SPUUpdaterDelegate
+{
 
 	var userNotificationManager: UserNotificationManager!
 	var faviconDownloader: FaviconDownloader!
 	var imageDownloader: ImageDownloader!
 	var authorAvatarDownloader: AuthorAvatarDownloader!
-	var feedIconDownloader: FeedIconDownloader!
+	var webFeedIconDownloader: WebFeedIconDownloader!
 	var appName: String!
 	
 	var refreshTimer: AccountRefreshTimer?
@@ -70,6 +77,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	private let log = Log()
 	private let appNewsURLString = "https://nnw.ranchero.com/feed.json"
 	private let appMovementMonitor = RSAppMovementMonitor()
+	#if !MAC_APP_STORE && !TEST
+	private var softwareUpdater: SPUUpdater!
+	#endif
 
 	override init() {
 		NSWindow.allowsAutomaticWindowTabbing = false
@@ -117,16 +127,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	
 	func applicationWillFinishLaunching(_ notification: Notification) {
 		installAppleEventHandlers()
-		#if TEST
-			// Don't prompt for updates while running automated tests
-			SUUpdater.shared()?.automaticallyChecksForUpdates = false
-		#endif
 	}
 	
 	func applicationDidFinishLaunching(_ note: Notification) {
 
-		#if MAC_APP_STORE
+		#if MAC_APP_STORE || TEST
 			checkForUpdatesMenuItem.isHidden = true
+		#else
+			// Initialize Sparkle...
+			let hostBundle = Bundle.main
+			let updateDriver = SPUStandardUserDriver(hostBundle: hostBundle, delegate: self)
+			self.softwareUpdater = SPUUpdater(hostBundle: hostBundle, applicationBundle: hostBundle, userDriver: updateDriver, delegate: self)
+
+			do {
+				try self.softwareUpdater.start()
+			}
+			catch {
+				NSLog("Failed to start software updater with error: \(error)")
+			}
 		#endif
 		
 		appName = (Bundle.main.infoDictionary!["CFBundleExecutable"]! as! String)
@@ -145,20 +163,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 			}
 		}
 
-		let tempDirectory = NSTemporaryDirectory()
-		let bundleIdentifier = (Bundle.main.infoDictionary!["CFBundleIdentifier"]! as! String)
-		let cacheFolder = (tempDirectory as NSString).appendingPathComponent(bundleIdentifier)
+		CacheCleaner.purgeIfNecessary()
 
-		// If the image disk cache hasn't been flushed for 3 days and the network is available, delete it
-		if let flushDate = AppDefaults.lastImageCacheFlushDate, flushDate.addingTimeInterval(3600*24*3) < Date() {
-			if let reachability = try? Reachability(hostname: "apple.com") {
-				if reachability.connection != .unavailable {
-					try? FileManager.default.removeItem(atPath: cacheFolder)
-					AppDefaults.lastImageCacheFlushDate = Date()
-				}
-			}
+		// Try to establish a cache in the Caches folder, but if it fails for some reason fall back to a temporary dir
+		let cacheFolder: String
+		if let userCacheFolder = try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: false).path {
+			cacheFolder = userCacheFolder
 		}
-		
+		else {
+			let bundleIdentifier = (Bundle.main.infoDictionary!["CFBundleIdentifier"]! as! String)
+			cacheFolder = (NSTemporaryDirectory() as NSString).appendingPathComponent(bundleIdentifier)
+		}
+
 		let faviconsFolder = (cacheFolder as NSString).appendingPathComponent("Favicons")
 		let faviconsFolderURL = URL(fileURLWithPath: faviconsFolder)
 		try! FileManager.default.createDirectory(at: faviconsFolderURL, withIntermediateDirectories: true, attributes: nil)
@@ -170,7 +186,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		imageDownloader = ImageDownloader(folder: imagesFolder)
 
 		authorAvatarDownloader = AuthorAvatarDownloader(imageDownloader: imageDownloader)
-		feedIconDownloader = FeedIconDownloader(imageDownloader: imageDownloader, folder: cacheFolder)
+		webFeedIconDownloader = WebFeedIconDownloader(imageDownloader: imageDownloader, folder: cacheFolder)
 
 		updateSortMenuItems()
 		updateGroupByFeedMenuItem()
@@ -179,7 +195,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 			mainWindowController?.window?.center()
 		}
 
-		NotificationCenter.default.addObserver(self, selector: #selector(feedSettingDidChange(_:)), name: .FeedSettingDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(webFeedSettingDidChange(_:)), name: .WebFeedSettingDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
 
 		DispatchQueue.main.async {
@@ -204,18 +220,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		UNUserNotificationCenter.current().delegate = self
 		userNotificationManager = UserNotificationManager()
 
-		#if RELEASE
+		if AppDefaults.showDebugMenu {
+ 			refreshTimer!.update()
+ 			syncTimer!.update()
+
+  			// The Web Inspector uses SPI and can never appear in a MAC_APP_STORE build.
+ 			#if MAC_APP_STORE
+ 			let debugMenu = debugMenuItem.submenu!
+ 			let toggleWebInspectorItemIndex = debugMenu.indexOfItem(withTarget: self, andAction: #selector(toggleWebInspectorEnabled(_:)))
+ 			if toggleWebInspectorItemIndex != -1 {
+ 				debugMenu.removeItem(at: toggleWebInspectorItemIndex)
+ 			}
+ 			#endif
+ 		} else {
 			debugMenuItem.menu?.removeItem(debugMenuItem)
 			DispatchQueue.main.async {
 				self.refreshTimer!.timedRefresh(nil)
 				self.syncTimer!.timedRefresh(nil)
 			}
-		#endif
-
-		#if DEBUG
-			refreshTimer!.update()
-			syncTimer!.update()
-		#endif
+		}
 
 		#if !MAC_APP_STORE
 			DispatchQueue.main.async {
@@ -283,12 +306,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		}
 	}
 
-	@objc func feedSettingDidChange(_ note: Notification) {
+	@objc func webFeedSettingDidChange(_ note: Notification) {
 
-		guard let feed = note.object as? Feed, let key = note.userInfo?[Feed.FeedSettingUserInfoKey] as? String else {
+		guard let feed = note.object as? WebFeed, let key = note.userInfo?[WebFeed.WebFeedSettingUserInfoKey] as? String else {
 			return
 		}
-		if key == Feed.FeedSettingKey.homePageURL || key == Feed.FeedSettingKey.faviconURL {
+		if key == WebFeed.WebFeedSettingKey.homePageURL || key == WebFeed.WebFeedSettingKey.faviconURL {
 			let _ = faviconDownloader.favicon(for: feed)
 		}
 	}
@@ -571,7 +594,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	@IBAction func groupByFeedToggled(_ sender: NSMenuItem) {		
 		AppDefaults.timelineGroupByFeed.toggle()
 	}
-	
+
+	@IBAction func checkForUpdates(_ sender: Any?) {
+		#if !MAC_APP_STORE && !TEST
+			self.softwareUpdater.checkForUpdates()
+		#endif
+	}
+
 }
 
 // MARK: - Debug Menu

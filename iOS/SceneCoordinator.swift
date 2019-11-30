@@ -8,12 +8,16 @@
 
 import UIKit
 import UserNotifications
-import SwiftUI
 import Account
 import Articles
 import RSCore
 import RSTree
 
+enum PanelMode {
+	case unset
+	case three
+	case standard
+}
 enum SearchScope: Int {
 	case timeline = 0
 	case global = 1
@@ -26,6 +30,8 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		return rootSplitViewController.undoManager
 	}
 	
+	private var panelMode: PanelMode = .unset
+	
 	private var activityManager = ActivityManager()
 	
 	private var isShowingExtractedArticle = false
@@ -35,10 +41,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	private var masterNavigationController: UINavigationController!
 	private var masterFeedViewController: MasterFeedViewController!
 	private var masterTimelineViewController: MasterTimelineViewController?
-	
-	private var subSplitViewController: UISplitViewController? {
-		return rootSplitViewController.children.last as? UISplitViewController
-	}
+	private var subSplitViewController: UISplitViewController?
 	
 	private var articleViewController: ArticleViewController? {
 		if let detail = masterNavigationController.viewControllers.last as? ArticleViewController {
@@ -56,17 +59,23 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		return nil
 	}
 	
+	private var wasRootSplitViewControllerCollapsed = false
+	
 	private let fetchAndMergeArticlesQueue = CoalescingQueue(name: "Fetch and Merge Articles", interval: 0.5)
 	private var fetchSerialNumber = 0
 	private let fetchRequestQueue = FetchRequestQueue()
 	
 	private var animatingChanges = false
+	private var expandedTable = Set<ContainerIdentifier>()
+	private var readFilterEnabledTable = [FeedIdentifier: Bool]()
 	private var shadowTable = [[Node]]()
 	private var lastSearchString = ""
 	private var lastSearchScope: SearchScope? = nil
 	private var isSearching: Bool = false
-	private var searchArticleIds: Set<String>? = nil
-	private var isArticleViewControllerPending = false
+	private var savedSearchArticles: ArticleArray? = nil
+	private var savedSearchArticleIds: Set<String>? = nil
+	var isTimelineViewControllerPending = false
+	var isArticleViewControllerPending = false
 	
 	private(set) var sortDirection = AppDefaults.timelineSortDirection {
 		didSet {
@@ -83,18 +92,22 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		}
 	}
 	
+	var prefersStatusBarHidden = false
+	
 	var displayUndoAvailableTip: Bool {
 		get { AppDefaults.displayUndoAvailableTip }
 		set { AppDefaults.displayUndoAvailableTip = newValue }
 	}
 
-	private let treeControllerDelegate = FeedTreeControllerDelegate()
-	private lazy var treeController: TreeController = {
-		return TreeController(delegate: treeControllerDelegate)
-	}()
+	private let treeControllerDelegate = WebFeedTreeControllerDelegate()
+	private let treeController: TreeController
 	
-	var stateRestorationActivity: NSUserActivity? {
-		return activityManager.stateRestorationActivity
+	var stateRestorationActivity: NSUserActivity {
+		let activity = activityManager.stateRestorationActivity
+		var userInfo = activity.userInfo == nil ? [AnyHashable: Any]() : activity.userInfo
+		userInfo![UserInfoKey.windowState] = windowState()
+		activity.userInfo = userInfo
+		return activity
 	}
 	
 	var isRootSplitCollapsed: Bool {
@@ -102,7 +115,23 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 	
 	var isThreePanelMode: Bool {
-		return subSplitViewController != nil
+		return panelMode == .three
+	}
+	
+	var isReadFeedsFiltered: Bool {
+		return treeControllerDelegate.isReadFiltered
+	}
+	
+	var isReadArticlesFiltered: Bool {
+		if let feedID = timelineFeed?.feedID, let readFilterEnabled = readFilterEnabledTable[feedID] {
+			return readFilterEnabled
+		} else {
+			return timelineDefaultReadFilterType != .none
+		}
+	}
+	
+	var timelineDefaultReadFilterType: ReadFilterType {
+		return timelineFeed?.defaultReadFilterType ?? .none
 	}
 	
 	var rootNode: Node {
@@ -111,37 +140,30 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	
 	private(set) var currentFeedIndexPath: IndexPath?
 	
-	var timelineFavicon: RSImage? {
-		return (timelineFetcher as? SmallIconProvider)?.smallIcon
-	}
-	
-	var timelineName: String? {
-		return (timelineFetcher as? DisplayNameProvider)?.nameForDisplay
-	}
-	
-	var timelineFetcher: ArticleFetcher? {
-		didSet {
-
-			if timelineFetcher is Feed {
-				showFeedNames = false
-			} else {
-				showFeedNames = true
+	var timelineIconImage: IconImage? {
+		if let feed = timelineFeed as? WebFeed {
+			
+			let feedIconImage = appDelegate.webFeedIconDownloader.icon(for: feed)
+			if feedIconImage != nil {
+				return feedIconImage
 			}
-
-			if isSearching {
-				fetchAndReplaceArticlesAsync {
-					self.masterTimelineViewController?.reinitializeArticles()
-				}
-			} else {
-				fetchAndReplaceArticlesSync()
-				masterTimelineViewController?.reinitializeArticles()
+			
+			if let faviconIconImage = appDelegate.faviconDownloader.faviconAsIcon(for: feed) {
+				return faviconIconImage
 			}
-
+			
 		}
+		
+		return (timelineFeed as? SmallIconProvider)?.smallIcon
 	}
+	
+	private var exceptionArticleFetcher: ArticleFetcher?
+	private(set) var timelineFeed: Feed?
+	
+	var timelineMiddleIndexPath: IndexPath?
 	
 	private(set) var showFeedNames = false
-	private(set) var showAvatars = false
+	private(set) var showIcons = false
 
 	var isPrevFeedAvailable: Bool {
 		guard let indexPath = currentFeedIndexPath else {
@@ -244,10 +266,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 
 	var isTimelineUnreadAvailable: Bool {
-		if let unreadProvider = timelineFetcher as? UnreadCountProvider {
-			return unreadProvider.unreadCount > 0
-		}
-		return false
+		return timelineFeed?.unreadCount ?? 0 > 0
 	}
 	
 	var isAnyUnreadAvailable: Bool {
@@ -263,15 +282,16 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 	
 	override init() {
+		treeController = TreeController(delegate: treeControllerDelegate)
+
 		super.init()
 		
-		for section in treeController.rootNode.childNodes {
-			section.isExpanded = true
+		for sectionNode in treeController.rootNode.childNodes {
+			markExpanded(sectionNode)
 			shadowTable.append([Node]())
 		}
 		
-		rebuildShadowTable()
-		
+		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidInitialize(_:)), name: .UnreadCountDidInitialize, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(containerChildrenDidChange(_:)), name: .ChildrenDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(batchUpdateDidPerform(_:)), name: .BatchUpdateDidPerform, object: nil)
@@ -289,7 +309,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		rootSplitViewController = RootSplitViewController()
 		rootSplitViewController.coordinator = self
 		rootSplitViewController.preferredDisplayMode = .allVisible
-		rootSplitViewController.viewControllers = [ThemedNavigationController.template()]
+		rootSplitViewController.viewControllers = [InteractiveNavigationController.template()]
 		rootSplitViewController.delegate = self
 		
 		masterNavigationController = (rootSplitViewController.viewControllers.first as! UINavigationController)
@@ -301,35 +321,60 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		
 		let articleViewController = UIStoryboard.main.instantiateController(ofType: ArticleViewController.self)
 		articleViewController.coordinator = self
-		let detailNavigationController = addNavControllerIfNecessary(articleViewController, showButton: false)
+		let detailNavigationController = addNavControllerIfNecessary(articleViewController, showButton: true)
 		rootSplitViewController.showDetailViewController(detailNavigationController, sender: self)
 
-		configureThreePanelMode(for: size)
+		configurePanelMode(for: size)
 		
 		return rootSplitViewController
 	}
 	
+	func restoreWindowState(_ activity: NSUserActivity?) {
+		if let activity = activity, let windowState = activity.userInfo?[UserInfoKey.windowState] as? [AnyHashable: Any] {
+			
+			if let containerExpandedWindowState = windowState[UserInfoKey.containerExpandedWindowState] as? [[AnyHashable: AnyHashable]] {
+				let containerIdentifers = containerExpandedWindowState.compactMap( { ContainerIdentifier(userInfo: $0) })
+				expandedTable = Set(containerIdentifers)
+			}
+			
+			if let readArticlesFilterState = windowState[UserInfoKey.readArticlesFilterState] as? [[AnyHashable: AnyHashable]: Bool] {
+				for key in readArticlesFilterState.keys {
+					if let feedIdentifier = FeedIdentifier(userInfo: key) {
+						readFilterEnabledTable[feedIdentifier] = readArticlesFilterState[key]
+					}
+				}
+			}
+
+			rebuildBackingStores(initialLoad: true)
+
+			// You can't assign the Feeds Read Filter until we've built the backing stores at least once or there is nothing
+			// for state restoration to work with while we are waiting for the unread counts to initialize.
+			if let readFeedsFilterState = windowState[UserInfoKey.readFeedsFilterState] as? Bool {
+				treeControllerDelegate.isReadFiltered = readFeedsFilterState
+			}
+			
+		} else {
+			
+			rebuildBackingStores(initialLoad: true)
+			
+		}
+	}
+	
 	func handle(_ activity: NSUserActivity) {
-		selectFeed(nil)
-		
-		guard let activityType = ActivityType(rawValue: activity.activityType) else { return }
-		switch activityType {
-		case .selectToday:
-			handleSelectToday()
-		case .selectAllUnread:
-			handleSelectAllUnread()
-		case .selectStarred:
-			handleSelectStarred()
-		case .selectFolder:
-			handleSelectFolder(activity.userInfo)
-		case .selectFeed:
-			handleSelectFeed(activity.userInfo)
-		case .nextUnread:
-			selectFirstUnreadInAllUnread()
-		case .readArticle:
-			handleReadArticle(activity.userInfo)
-		case .addFeedIntent:
-			showAdd(.feed)
+		selectFeed(nil, animated: false) {
+			guard let activityType = ActivityType(rawValue: activity.activityType) else { return }
+			switch activityType {
+			case .restoration:
+				break
+			case .selectFeed:
+				self.handleSelectFeed(activity.userInfo)
+			case .nextUnread:
+				self.selectFirstUnreadInAllUnread()
+			case .readArticle:
+				self.handleReadArticle(activity.userInfo)
+			case .addFeedIntent:
+				self.showAdd(.feed)
+			}
 		}
 	}
 	
@@ -338,43 +383,60 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		handleReadArticle(userInfo)
 	}
 	
-	func configureThreePanelMode(for size: CGSize) {
-		guard rootSplitViewController.traitCollection.userInterfaceIdiom == .pad && !rootSplitViewController.isCollapsed else {
+	func configurePanelMode(for size: CGSize) {
+		guard rootSplitViewController.traitCollection.userInterfaceIdiom == .pad else {
 			return
 		}
-		if size.width > size.height {
-			if !isThreePanelMode {
-				transitionToThreePanelMode()
+		
+		if (size.width / size.height) > 1.2 {
+			if panelMode == .unset || panelMode == .standard {
+				panelMode = .three
+				configureThreePanelMode()
 			}
 		} else {
-			if isThreePanelMode {
-				transitionFromThreePanelMode()
+			if panelMode == .unset || panelMode == .three {
+				panelMode = .standard
+				configureStandardPanelMode()
 			}
 		}
+		
+		wasRootSplitViewControllerCollapsed = rootSplitViewController.isCollapsed
 	}
 	
 	func selectFirstUnreadInAllUnread() {
-		selectFeed(IndexPath(row: 1, section: 0))
-		selectFirstUnreadArticleInTimeline()
+		selectFeed(IndexPath(row: 1, section: 0), animated: false) {
+			self.selectFirstUnreadArticleInTimeline()
+		}
 	}
 
 	func showSearch() {
-		selectFeed(nil)
-		installTimelineControllerIfNecessary(animated: false)
-		DispatchQueue.main.asyncAfter(deadline: .now()) {
-			self.masterTimelineViewController!.showSearchAll()
+		selectFeed(nil, animated: false) {
+			self.installTimelineControllerIfNecessary(animated: false)
+			DispatchQueue.main.asyncAfter(deadline: .now()) {
+				self.masterTimelineViewController!.showSearchAll()
+			}
 		}
 	}
 	
 	// MARK: Notifications
 	
+	@objc func unreadCountDidInitialize(_ notification: Notification) {
+		guard notification.object is AccountManager else {
+			return
+		}
+		if isReadFeedsFiltered {
+			rebuildBackingStores()
+		}
+		treeControllerDelegate.resetFilterExceptions()
+	}
+
 	@objc func statusesDidChange(_ note: Notification) {
 		updateUnreadCount()
 	}
 	
 	@objc func containerChildrenDidChange(_ note: Notification) {
 		if timelineFetcherContainsAnyPseudoFeed() || timelineFetcherContainsAnyFolder() {
-			fetchAndReplaceArticlesAsync() {}
+			refreshTimeline()
 		}
 		rebuildBackingStores()
 	}
@@ -388,42 +450,71 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 
 	@objc func accountStateDidChange(_ note: Notification) {
-		if timelineFetcherContainsAnyPseudoFeed() {
-			fetchAndReplaceArticlesSync()
-		}
-		
-		guard let account = note.userInfo?[Account.UserInfoKey.account] as? Account else {
-			assertionFailure()
-			return
-		}
-		
-		rebuildBackingStores() {
-			// If we are activating an account, then automatically expand it
-			if account.isActive, let node = self.treeController.rootNode.childNodeRepresentingObject(account) {
-				node.isExpanded = true
+		let expandNewlyActivatedAccount = {
+			if let account = note.userInfo?[Account.UserInfoKey.account] as? Account,
+				account.isActive,
+				let node = self.treeController.rootNode.childNodeRepresentingObject(account) {
+					self.markExpanded(node)
 			}
 		}
+
+		if timelineFetcherContainsAnyPseudoFeed() {
+			fetchAndReplaceArticlesAsync(animated: true) {
+				self.masterTimelineViewController?.reinitializeArticles()
+				self.rebuildBackingStores() {
+					expandNewlyActivatedAccount()
+				}
+			}
+		} else {
+			rebuildBackingStores() {
+				expandNewlyActivatedAccount()
+			}
+		}
+		
 	}
 	
 	@objc func userDidAddAccount(_ note: Notification) {
-		if timelineFetcherContainsAnyPseudoFeed() {
-			fetchAndReplaceArticlesSync()
-		}
-		
-		rebuildBackingStores() {
-			// Automatically expand any new accounts
+		let expandNewAccount = {
 			if let account = note.userInfo?[Account.UserInfoKey.account] as? Account,
 				let node = self.treeController.rootNode.childNodeRepresentingObject(account) {
-				node.isExpanded = true
+				self.markExpanded(node)
+			}
+		}
+		
+		if timelineFetcherContainsAnyPseudoFeed() {
+			fetchAndReplaceArticlesAsync(animated: true) {
+				self.masterTimelineViewController?.reinitializeArticles()
+				self.rebuildBackingStores() {
+					expandNewAccount()
+				}
+			}
+		} else {
+			rebuildBackingStores() {
+				expandNewAccount()
 			}
 		}
 	}
 
 	@objc func userDidDeleteAccount(_ note: Notification) {
-		if timelineFetcherContainsAnyPseudoFeed() {
-			fetchAndReplaceArticlesSync()
+		let cleanupAccount = {
+			if let account = note.userInfo?[Account.UserInfoKey.account] as? Account,
+				let node = self.treeController.rootNode.childNodeRepresentingObject(account) {
+				self.unmarkExpanded(node)
+			}
 		}
-		rebuildBackingStores()
+		
+		if timelineFetcherContainsAnyPseudoFeed() {
+			fetchAndReplaceArticlesAsync(animated: true) {
+				self.masterTimelineViewController?.reinitializeArticles()
+				self.rebuildBackingStores() {
+					cleanupAccount()
+				}
+			}
+		} else {
+			rebuildBackingStores() {
+				cleanupAccount()
+			}
+		}
 	}
 
 	@objc func userDefaultsDidChange(_ note: Notification) {
@@ -432,7 +523,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 	
 	@objc func accountDidDownloadArticles(_ note: Notification) {
-		guard let feeds = note.userInfo?[Account.UserInfoKey.feeds] as? Set<Feed> else {
+		guard let feeds = note.userInfo?[Account.UserInfoKey.webFeeds] as? Set<WebFeed> else {
 			return
 		}
 		
@@ -465,9 +556,46 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		}
 		return 0
 	}
+	
+	func refreshTimeline() {
+		fetchAndReplaceArticlesAsync(animated: true) {
+			self.masterTimelineViewController?.reinitializeArticles()
+		}
+	}
+	
+	func showAllFeeds() {
+		treeControllerDelegate.isReadFiltered = false
+		rebuildBackingStores()
+	}
+	
+	func hideReadFeeds() {
+		treeControllerDelegate.isReadFiltered = true
+		rebuildBackingStores()
+	}
+	
+	func showAllArticles() {
+		if let feedID = timelineFeed?.feedID {
+			readFilterEnabledTable[feedID] = false
+		}
+		refreshTimeline()
+	}
+	
+	func hideReadArticles() {
+		if let feedID = timelineFeed?.feedID {
+			readFilterEnabledTable[feedID] = true
+		}
+		refreshTimeline()
+	}
+	
+	func isExpanded(_ node: Node) -> Bool {
+		if let containerID = (node.representedObject as? ContainerIdentifiable)?.containerID {
+			return expandedTable.contains(containerID)
+		}
+		return false
+	}
 		
 	func expand(_ node: Node) {
-		node.isExpanded = true
+		markExpanded(node)
 		animatingChanges = true
 		rebuildShadowTable()
 		animatingChanges = false
@@ -475,10 +603,10 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	
 	func expandAllSectionsAndFolders() {
 		for sectionNode in treeController.rootNode.childNodes {
-			sectionNode.isExpanded = true
+			markExpanded(sectionNode)
 			for topLevelNode in sectionNode.childNodes {
 				if topLevelNode.representedObject is Folder {
-					topLevelNode.isExpanded = true
+					markExpanded(topLevelNode)
 				}
 			}
 		}
@@ -488,7 +616,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 	
 	func collapse(_ node: Node) {
-		node.isExpanded = false
+		unmarkExpanded(node)
 		animatingChanges = true
 		rebuildShadowTable()
 		animatingChanges = false
@@ -496,10 +624,10 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	
 	func collapseAllFolders() {
 		for sectionNode in treeController.rootNode.childNodes {
-			sectionNode.isExpanded = true
+			unmarkExpanded(sectionNode)
 			for topLevelNode in sectionNode.childNodes {
 				if topLevelNode.representedObject is Folder {
-					topLevelNode.isExpanded = true
+					unmarkExpanded(topLevelNode)
 				}
 			}
 		}
@@ -509,61 +637,75 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 	
 	func masterFeedIndexPathForCurrentTimeline() -> IndexPath? {
-		guard let node = treeController.rootNode.descendantNodeRepresentingObject(timelineFetcher as AnyObject) else {
+		guard let node = treeController.rootNode.descendantNodeRepresentingObject(timelineFeed as AnyObject) else {
 			return nil
 		}
 		return indexPathFor(node)
 	}
 	
-	func selectFeed(_ indexPath: IndexPath?, animated: Bool = false) {
-		guard indexPath != currentFeedIndexPath else { return 	}
+	func selectFeed(_ indexPath: IndexPath?, animated: Bool, deselectArticle: Bool = true, completion: (() -> Void)? = nil) {
+		guard indexPath != currentFeedIndexPath else {
+			completion?()
+			return
+		}
 		
-		selectArticle(nil)
 		currentFeedIndexPath = indexPath
+		masterFeedViewController.updateFeedSelection(animated: animated)
 
-		masterFeedViewController.updateFeedSelection()
+		emptyTheTimeline()
+		if deselectArticle {
+			selectArticle(nil)
+		}
 
-		if let ip = indexPath, let node = nodeFor(ip), let fetcher = node.representedObject as? ArticleFetcher {
-			timelineFetcher = fetcher
-			updateSelectingActivity(with: node)
-			installTimelineControllerIfNecessary(animated: animated)
-		} else {
-			timelineFetcher = nil
-			activityManager.invalidateSelecting()
-			if rootSplitViewController.isCollapsed && navControllerForTimeline().viewControllers.last is MasterTimelineViewController {
-				navControllerForTimeline().popViewController(animated: animated)
+		if let ip = indexPath, let node = nodeFor(ip), let feed = node.representedObject as? Feed {
+			
+			self.activityManager.selecting(feed: feed)
+			self.installTimelineControllerIfNecessary(animated: animated)
+			setTimelineFeed(feed, animated: false) {
+				completion?()
 			}
+			
+		} else {
+			
+			setTimelineFeed(nil, animated: false) {
+				self.activityManager.invalidateSelecting()
+				if self.rootSplitViewController.isCollapsed && self.navControllerForTimeline().viewControllers.last is MasterTimelineViewController {
+					self.navControllerForTimeline().popViewController(animated: animated)
+				}
+				completion?()
+			}
+			
 		}
 		
 	}
 	
 	func selectPrevFeed() {
 		if let indexPath = prevFeedIndexPath {
-			selectFeed(indexPath)
+			selectFeed(indexPath, animated: true)
 		}
 	}
 	
 	func selectNextFeed() {
 		if let indexPath = nextFeedIndexPath {
-			selectFeed(indexPath)
+			selectFeed(indexPath, animated: true)
 		}
 	}
 	
 	func selectTodayFeed() {
 		masterFeedViewController?.ensureSectionIsExpanded(0) {
-			self.selectFeed(IndexPath(row: 0, section: 0))
+			self.selectFeed(IndexPath(row: 0, section: 0), animated: true)
 		}
 	}
 
 	func selectAllUnreadFeed() {
 		masterFeedViewController?.ensureSectionIsExpanded(0) {
-			self.selectFeed(IndexPath(row: 1, section: 0))
+			self.selectFeed(IndexPath(row: 1, section: 0), animated: true)
 		}
 	}
 
 	func selectStarredFeed() {
 		masterFeedViewController?.ensureSectionIsExpanded(0) {
-			self.selectFeed(IndexPath(row: 2, section: 0))
+			self.selectFeed(IndexPath(row: 2, section: 0), animated: true)
 		}
 	}
 
@@ -572,7 +714,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		
 		stopArticleExtractor()
 		currentArticle = article
-		activityManager.reading(currentArticle)
+		activityManager.reading(feed: timelineFeed, article: article)
 		
 		if article == nil {
 			if rootSplitViewController.isCollapsed {
@@ -588,16 +730,14 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		
 		let currentArticleViewController: ArticleViewController
 		if articleViewController == nil {
-			currentArticleViewController = UIStoryboard.main.instantiateController(ofType: ArticleViewController.self)
-			currentArticleViewController.coordinator = self
-			installArticleController(currentArticleViewController, animated: animated)
+			currentArticleViewController = installArticleController(animated: animated)
 		} else {
 			currentArticleViewController = articleViewController!
 		}
 		
 		masterTimelineViewController?.updateArticleSelection(animated: animated)
 		
-		if article!.feed?.isArticleExtractorAlwaysOn ?? false {
+		if article!.webFeed?.isArticleExtractorAlwaysOn ?? false {
 			startArticleExtractorForCurrentLink()
 			currentArticleViewController.state = .loading
 		} else {
@@ -610,22 +750,26 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	
 	func beginSearching() {
 		isSearching = true
-		searchArticleIds = Set(articles.map { $0.articleID })
-		timelineFetcher = nil
+		savedSearchArticles = articles
+		savedSearchArticleIds = Set(articles.map { $0.articleID })
+		setTimelineFeed(nil, animated: true)
+		selectArticle(nil)
 	}
 
 	func endSearching() {
-		isSearching = false
-		lastSearchString = ""
-		lastSearchScope = nil
-		searchArticleIds = nil
-		
-		if let ip = currentFeedIndexPath, let node = nodeFor(ip), let fetcher = node.representedObject as? ArticleFetcher {
-			timelineFetcher = fetcher
+		if let ip = currentFeedIndexPath, let node = nodeFor(ip), let feed = node.representedObject as? Feed {
+			timelineFeed = feed
+			masterTimelineViewController?.reinitializeArticles()
+			replaceArticles(with: savedSearchArticles!, animated: true)
 		} else {
-			timelineFetcher = nil
+			setTimelineFeed(nil, animated: true)
 		}
 		
+		lastSearchString = ""
+		lastSearchScope = nil
+		savedSearchArticleIds = nil
+		savedSearchArticles = nil
+		isSearching = false
 		selectArticle(nil)
 	}
 	
@@ -634,7 +778,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		guard isSearching else { return }
 		
 		if searchString.count < 3 {
-			timelineFetcher = nil
+			setTimelineFeed(nil, animated: true)
 			return
 		}
 		
@@ -642,9 +786,9 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 			
 			switch searchScope {
 			case .global:
-				timelineFetcher = SmartFeed(delegate: SearchFeedDelegate(searchString: searchString))
+				setTimelineFeed(SmartFeed(delegate: SearchFeedDelegate(searchString: searchString)), animated: true)
 			case .timeline:
-				timelineFetcher = SmartFeed(delegate: SearchTimelineFeedDelegate(searchString: searchString, articleIDs: searchArticleIds!))
+				setTimelineFeed(SmartFeed(delegate: SearchTimelineFeedDelegate(searchString: searchString, articleIDs: savedSearchArticleIds!)), animated: true)
 			}
 			
 			lastSearchString = searchString
@@ -700,9 +844,10 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 			return
 		}
 		
-		selectNextUnreadFeedFetcher()
-		if selectNextUnreadArticleInTimeline() {
-			activityManager.selectingNextUnread()
+		selectNextUnreadFeed() {
+			if self.selectNextUnreadArticleInTimeline() {
+				self.activityManager.selectingNextUnread()
+			}
 		}
 
 	}
@@ -719,15 +864,6 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		markArticlesWithUndo(articles, statusKey: .read, flag: true)
 	}
 	
-	func markAllAsRead() {
-		let accounts = AccountManager.shared.activeAccounts
-		var articles = Set<Article>()
-		accounts.forEach { account in
-			articles.formUnion(account.fetchArticles(.unread))
-		}
-		markAllAsRead(Array(articles))
-	}
-
 	func markAllAsReadInTimeline() {
 		markAllAsRead(articles)
 		masterNavigationController.popViewController(animated: true)
@@ -779,9 +915,23 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		markArticlesWithUndo([article], statusKey: .starred, flag: !article.status.starred)
 	}
 
-	func discloseFeed(_ feed: Feed, completion: (() -> Void)? = nil) {
-		masterFeedViewController.discloseFeed(feed) {
+	func discloseFeed(_ feed: WebFeed, animated: Bool, completion: (() -> Void)? = nil) {
+		masterFeedViewController.discloseFeed(feed, animated: animated) {
 			completion?()
+		}
+	}
+	
+	func showStatusBar() {
+		prefersStatusBarHidden = false
+		UIView.animate(withDuration: 0.15) {
+			self.rootSplitViewController.setNeedsStatusBarAppearanceUpdate()
+		}
+	}
+	
+	func hideStatusBar() {
+		prefersStatusBarHidden = true
+		UIView.animate(withDuration: 0.15) {
+			self.rootSplitViewController.setNeedsStatusBarAppearanceUpdate()
 		}
 	}
 	
@@ -789,28 +939,40 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		let settingsNavController = UIStoryboard.settings.instantiateInitialViewController() as! UINavigationController
 		let settingsViewController = settingsNavController.topViewController as! SettingsViewController
 		settingsNavController.modalPresentationStyle = .formSheet
-		settingsNavController.preferredContentSize = SettingsViewController.preferredContentSizeForFormSheetDisplay
 		settingsViewController.presentingParentController = rootSplitViewController
 		rootSplitViewController.present(settingsNavController, animated: true)
 	}
 	
-	func showFeedInspector() {
-		guard let feed = timelineFetcher as? Feed else {
-			return
-		}
-		rootSplitViewController.present(style: .formSheet) {
-			FeedInspectorView(viewModel: FeedInspectorView.ViewModel(feed: feed))
-		}
+	func showAccountInspector(for account: Account) {
+		let accountInspectorNavController =
+			UIStoryboard.inspector.instantiateViewController(identifier: "AccountInspectorNavigationViewController") as! UINavigationController
+		let accountInspectorController = accountInspectorNavController.topViewController as! AccountInspectorViewController
+		accountInspectorNavController.modalPresentationStyle = .formSheet
+		accountInspectorNavController.preferredContentSize = AccountInspectorViewController.preferredContentSizeForFormSheetDisplay
+		accountInspectorController.isModal = true
+		accountInspectorController.account = account
+		rootSplitViewController.present(accountInspectorNavController, animated: true)
 	}
 	
-	func showFeedInspector(for feed: Feed) {
-		rootSplitViewController.present(style: .formSheet) {
-			FeedInspectorView(viewModel: FeedInspectorView.ViewModel(feed: feed))
+	func showFeedInspector() {
+		guard let feed = timelineFeed as? WebFeed else {
+			return
 		}
+		showFeedInspector(for: feed)
+	}
+	
+	func showFeedInspector(for feed: WebFeed) {
+		let feedInspectorNavController =
+			UIStoryboard.inspector.instantiateViewController(identifier: "FeedInspectorNavigationViewController") as! UINavigationController
+		let feedInspectorController = feedInspectorNavController.topViewController as! WebFeedInspectorViewController
+		feedInspectorNavController.modalPresentationStyle = .formSheet
+		feedInspectorNavController.preferredContentSize = WebFeedInspectorViewController.preferredContentSizeForFormSheetDisplay
+		feedInspectorController.webFeed = feed
+		rootSplitViewController.present(feedInspectorNavController, animated: true)
 	}
 	
 	func showAdd(_ type: AddControllerType, initialFeed: String? = nil, initialFeedName: String? = nil) {
-		selectFeed(nil)
+		selectFeed(nil, animated: false)
 
 		let addViewController = UIStoryboard.add.instantiateInitialViewController() as! UINavigationController
 		
@@ -865,7 +1027,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	
 	func homePageURLForFeed(_ indexPath: IndexPath) -> URL? {
 		guard let node = nodeFor(indexPath),
-			let feed = node.representedObject as? Feed,
+			let feed = node.representedObject as? WebFeed,
 			let homePageURL = feed.homePageURL,
 			let url = URL(string: homePageURL) else {
 				return nil
@@ -922,7 +1084,37 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 extension SceneCoordinator: UISplitViewControllerDelegate {
 	
 	func splitViewController(_ splitViewController: UISplitViewController, collapseSecondary secondaryViewController:UIViewController, onto primaryViewController:UIViewController) -> Bool {
+		guard !isThreePanelMode else {
+			return true
+		}
+		
+		if let articleViewController = (secondaryViewController as? UINavigationController)?.topViewController as? ArticleViewController {
+			masterNavigationController.pushViewController(articleViewController, animated: false)
+			return false
+		}
+		
 		return currentArticle == nil
+	}
+	
+	func splitViewController(_ splitViewController: UISplitViewController, separateSecondaryFrom primaryViewController: UIViewController) -> UIViewController? {
+		guard !isThreePanelMode else {
+			return subSplitViewController
+		}
+		
+		guard currentArticle != nil else {
+			let articleViewController = UIStoryboard.main.instantiateController(ofType: ArticleViewController.self)
+			articleViewController.coordinator = self
+			let controller = addNavControllerIfNecessary(articleViewController, showButton: true)
+			return controller
+		}
+		
+		if let articleViewController = masterNavigationController.viewControllers.last as? ArticleViewController {
+			masterNavigationController.popViewController(animated: false)
+			let controller = addNavControllerIfNecessary(articleViewController, showButton: true)
+			return controller
+		}
+		
+		return nil
 	}
 	
 }
@@ -930,20 +1122,20 @@ extension SceneCoordinator: UISplitViewControllerDelegate {
 // MARK: UINavigationControllerDelegate
 
 extension SceneCoordinator: UINavigationControllerDelegate {
-
+	
 	func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
 		
 		if UIApplication.shared.applicationState == .background {
 			return
 		}
-		
+
 		// If we are showing the Feeds and only the feeds start clearing stuff
-		if viewController === masterFeedViewController && !isThreePanelMode {
+		if viewController === masterFeedViewController && !isThreePanelMode && !isTimelineViewControllerPending {
 			activityManager.invalidateCurrentActivities()
-			selectFeed(nil)
+			selectFeed(nil, animated: true)
 			return
 		}
-		
+
 		// If we are using a phone and navigate away from the detail, clear up the article resources (including activity).
 		// Don't clear it if we have pushed an ArticleViewController, but don't yet see it on the navigation stack.
 		// This happens when we are going to the next unread and we need to grab another timeline to continue.  The
@@ -951,12 +1143,14 @@ extension SceneCoordinator: UINavigationControllerDelegate {
 		if viewController === masterTimelineViewController && !isThreePanelMode && rootSplitViewController.isCollapsed && !isArticleViewControllerPending {
 			stopArticleExtractor()
 			currentArticle = nil
+			masterTimelineViewController?.updateArticleSelection(animated: animated)
 			activityManager.invalidateReading()
+
+			// Restore any bars hidden by the article controller
+			showStatusBar()
+			navigationController.setNavigationBarHidden(false, animated: true)
+			navigationController.setToolbarHidden(false, animated: true)
 			return
-		}
-		
-		if viewController is ArticleViewController {
-			isArticleViewControllerPending = false
 		}
 		
 	}
@@ -1002,13 +1196,13 @@ private extension SceneCoordinator {
 		}
 		unreadCount = count
 	}
-
-	func rebuildBackingStores(_ updateExpandedNodes: (() -> Void)? = nil) {
+	
+	func rebuildBackingStores(initialLoad: Bool = false, updateExpandedNodes: (() -> Void)? = nil) {
 		if !animatingChanges && !BatchUpdate.shared.isPerforming {
 			treeController.rebuild()
 			updateExpandedNodes?()
 			rebuildShadowTable()
-			masterFeedViewController.reloadFeeds()
+			masterFeedViewController.reloadFeeds(initialLoad: initialLoad)
 		}
 	}
 	
@@ -1020,10 +1214,10 @@ private extension SceneCoordinator {
 			var result = [Node]()
 			let sectionNode = treeController.rootNode.childAtIndex(i)!
 			
-			if sectionNode.isExpanded {
+			if isExpanded(sectionNode) {
 				for node in sectionNode.childNodes {
 					result.append(node)
-					if node.isExpanded {
+					if isExpanded(node) {
 						for child in node.childNodes {
 							result.append(child)
 						}
@@ -1059,10 +1253,26 @@ private extension SceneCoordinator {
 		return indexPathFor(node)
 	}
 	
-	func updateShowAvatars() {
+	func setTimelineFeed(_ feed: Feed?, animated: Bool, completion: (() -> Void)? = nil) {
+		timelineFeed = feed
+		timelineMiddleIndexPath = nil
 		
+		fetchAndReplaceArticlesAsync(animated: animated) {
+			self.masterTimelineViewController?.reinitializeArticles()
+			completion?()
+		}
+	}
+	
+	func updateShowNamesAndIcons() {
+		
+		if timelineFeed is WebFeed {
+			showFeedNames = false
+		} else {
+			showFeedNames = true
+		}
+
 		if showFeedNames {
-			self.showAvatars = true
+			self.showIcons = true
 			return
 		}
 		
@@ -1070,16 +1280,28 @@ private extension SceneCoordinator {
 			if let authors = article.authors {
 				for author in authors {
 					if author.avatarURL != nil {
-						self.showAvatars = true
+						self.showIcons = true
 						return
 					}
 				}
 			}
 		}
 		
-		self.showAvatars = false
+		self.showIcons = false
 	}
 	
+	func markExpanded(_ node: Node) {
+		if let containerID = (node.representedObject as? ContainerIdentifiable)?.containerID {
+			expandedTable.insert(containerID)
+		}
+	}
+	
+	func unmarkExpanded(_ node: Node) {
+		if let containerID = (node.representedObject as? ContainerIdentifiable)?.containerID {
+			expandedTable.remove(containerID)
+		}
+	}
+
 	// MARK: Select Prev Unread
 
 	@discardableResult
@@ -1165,12 +1387,12 @@ private extension SceneCoordinator {
 					return true
 				}
 				
-				if node.isExpanded {
+				if isExpanded(node) {
 					continue
 				}
 				
 				if unreadCountProvider.unreadCount > 0 {
-					selectFeed(prevIndexPath)
+					selectFeed(prevIndexPath, animated: true)
 					return true
 				}
 				
@@ -1220,7 +1442,7 @@ private extension SceneCoordinator {
 		
 	}
 	
-	func selectNextUnreadFeedFetcher() {
+	func selectNextUnreadFeed(completion: @escaping () -> Void) {
 		
 		let indexPath: IndexPath = {
 			if currentFeedIndexPath == nil {
@@ -1243,15 +1465,19 @@ private extension SceneCoordinator {
 			}
 		}()
 		
-		if selectNextUnreadFeedFetcher(startingWith: nextIndexPath) {
-			return
+		selectNextUnreadFeed(startingWith: nextIndexPath) { found in
+			if !found {
+				self.selectNextUnreadFeed(startingWith: IndexPath(row: 0, section: 0)) { _ in
+					completion()
+				}
+			} else {
+				completion()
+			}
 		}
-		selectNextUnreadFeedFetcher(startingWith: IndexPath(row: 0, section: 0))
 		
 	}
 	
-	@discardableResult
-	func selectNextUnreadFeedFetcher(startingWith indexPath: IndexPath) -> Bool {
+	func selectNextUnreadFeed(startingWith indexPath: IndexPath, completion: @escaping (Bool) -> Void) {
 		
 		for i in indexPath.section..<shadowTable.count {
 			
@@ -1268,23 +1494,27 @@ private extension SceneCoordinator {
 				let nextIndexPath = IndexPath(row: j, section: i)
 				guard let node = nodeFor(nextIndexPath), let unreadCountProvider = node.representedObject as? UnreadCountProvider else {
 					assertionFailure()
-					return true
+					completion(false)
+					return
 				}
 				
-				if node.isExpanded {
+				if isExpanded(node) {
 					continue
 				}
 				
 				if unreadCountProvider.unreadCount > 0 {
-					selectFeed(nextIndexPath)
-					return true
+					selectFeed(nextIndexPath, animated: false, deselectArticle: false) {
+						self.currentArticle = nil
+						completion(true)
+					}
+					return
 				}
 				
 			}
 			
 		}
 		
-		return false
+		completion(false)
 		
 	}
 	
@@ -1308,24 +1538,25 @@ private extension SceneCoordinator {
 	
 	func emptyTheTimeline() {
 		if !articles.isEmpty {
-			replaceArticles(with: Set<Article>(), animate: true)
+			replaceArticles(with: Set<Article>(), animated: false)
 		}
 	}
 	
 	func sortParametersDidChange() {
-		replaceArticles(with: Set(articles), animate: true)
+		replaceArticles(with: Set(articles), animated: true)
 	}
 		
-	func replaceArticles(with unsortedArticles: Set<Article>, animate: Bool) {
+	func replaceArticles(with unsortedArticles: Set<Article>, animated: Bool) {
 		let sortedArticles = Array(unsortedArticles).sortedByDate(sortDirection, groupByFeed: groupByFeed)
-		
+		replaceArticles(with: sortedArticles, animated: animated)
+	}
+	
+	func replaceArticles(with sortedArticles: ArticleArray, animated: Bool) {
 		if articles != sortedArticles {
-			
 			articles = sortedArticles
-			updateShowAvatars()
+			updateShowNamesAndIcons()
 			updateUnreadCount()
-			
-			masterTimelineViewController?.reloadArticles(animate: animate)
+			masterTimelineViewController?.reloadArticles(animated: animated)
 		}
 	}
 	
@@ -1335,11 +1566,11 @@ private extension SceneCoordinator {
 	
 	@objc func fetchAndMergeArticles() {
 		
-		guard let timelineFetcher = timelineFetcher else {
+		guard let timelineFeed = timelineFeed else {
 			return
 		}
 		
-		fetchUnsortedArticlesAsync(for: [timelineFetcher]) { [weak self] (unsortedArticles) in
+		fetchUnsortedArticlesAsync(for: [timelineFeed]) { [weak self] (unsortedArticles) in
 			// Merge articles by articleID. For any unique articleID in current articles, add to unsortedArticles.
 			guard let strongSelf = self else {
 				return
@@ -1352,7 +1583,7 @@ private extension SceneCoordinator {
 				}
 			}
 
-			strongSelf.replaceArticles(with: updatedArticles, animate: true)
+			strongSelf.replaceArticles(with: updatedArticles, animated: true)
 		}
 		
 	}
@@ -1362,46 +1593,28 @@ private extension SceneCoordinator {
 		fetchRequestQueue.cancelAllRequests()
 	}
 
-	func fetchAndReplaceArticlesSync() {
-		// To be called when the user has made a change of selection in the sidebar.
-		// It blocks the main thread, so that there’s no async delay,
-		// so that the entire display refreshes at once.
-		// It’s a better user experience this way.
-		cancelPendingAsyncFetches()
-		guard let timelineFetcher = timelineFetcher else {
-			emptyTheTimeline()
-			return
-		}
-		let fetchedArticles = fetchUnsortedArticlesSync(for: [timelineFetcher])
-		replaceArticles(with: fetchedArticles, animate: false)
-	}
-
-	func fetchAndReplaceArticlesAsync(completion: @escaping () -> Void) {
+	func fetchAndReplaceArticlesAsync(animated: Bool, completion: @escaping () -> Void) {
 		// To be called when we need to do an entire fetch, but an async delay is okay.
 		// Example: we have the Today feed selected, and the calendar day just changed.
 		cancelPendingAsyncFetches()
-		guard let timelineFetcher = timelineFetcher else {
+		guard let timelineFeed = timelineFeed else {
 			emptyTheTimeline()
+			completion()
 			return
 		}
-		fetchUnsortedArticlesAsync(for: [timelineFetcher]) { [weak self] (articles) in
-			self?.replaceArticles(with: articles, animate: true)
+		
+		var fetchers = [ArticleFetcher]()
+		fetchers.append(timelineFeed)
+		if exceptionArticleFetcher != nil {
+			fetchers.append(exceptionArticleFetcher!)
+			exceptionArticleFetcher = nil
+		}
+		
+		fetchUnsortedArticlesAsync(for: fetchers) { [weak self] (articles) in
+			self?.replaceArticles(with: articles, animated: animated)
 			completion()
 		}
-	}
-
-	func fetchUnsortedArticlesSync(for representedObjects: [Any]) -> Set<Article> {
-		cancelPendingAsyncFetches()
-		let articleFetchers = representedObjects.compactMap{ $0 as? ArticleFetcher }
-		if articleFetchers.isEmpty {
-			return Set<Article>()
-		}
-
-		var fetchedArticles = Set<Article>()
-		for articleFetcher in articleFetchers {
-			fetchedArticles.formUnion(articleFetcher.fetchArticles())
-		}
-		return fetchedArticles
+		
 	}
 
 	func fetchUnsortedArticlesAsync(for representedObjects: [Any], callback: @escaping ArticleSetBlock) {
@@ -1409,43 +1622,45 @@ private extension SceneCoordinator {
 		// if it’s been superseded by a newer fetch, or the timeline was emptied, etc., it won’t get called.
 		precondition(Thread.isMainThread)
 		cancelPendingAsyncFetches()
-		let fetchOperation = FetchRequestOperation(id: fetchSerialNumber, representedObjects: representedObjects) { [weak self] (articles, operation) in
+		
+		let fetchOperation = FetchRequestOperation(id: fetchSerialNumber, readFilter: isReadArticlesFiltered, representedObjects: representedObjects) { [weak self] (articles, operation) in
 			precondition(Thread.isMainThread)
 			guard !operation.isCanceled, let strongSelf = self, operation.id == strongSelf.fetchSerialNumber else {
 				return
 			}
 			callback(articles)
 		}
+		
 		fetchRequestQueue.add(fetchOperation)
 	}
 
 	func timelineFetcherContainsAnyPseudoFeed() -> Bool {
-		if timelineFetcher is PseudoFeed {
+		if timelineFeed is PseudoFeed {
 			return true
 		}
 		return false
 	}
 	
 	func timelineFetcherContainsAnyFolder() -> Bool {
-		if timelineFetcher is Folder {
+		if timelineFeed is Folder {
 			return true
 		}
 		return false
 	}
 	
-	func timelineFetcherContainsAnyFeed(_ feeds: Set<Feed>) -> Bool {
+	func timelineFetcherContainsAnyFeed(_ feeds: Set<WebFeed>) -> Bool {
 		
 		// Return true if there’s a match or if a folder contains (recursively) one of feeds
 		
-		if let feed = timelineFetcher as? Feed {
+		if let feed = timelineFeed as? WebFeed {
 			for oneFeed in feeds {
-				if feed.feedID == oneFeed.feedID || feed.url == oneFeed.url {
+				if feed.webFeedID == oneFeed.webFeedID || feed.url == oneFeed.url {
 					return true
 				}
 			}
-		} else if let folder = timelineFetcher as? Folder {
+		} else if let folder = timelineFeed as? Folder {
 			for oneFeed in feeds {
-				if folder.hasFeed(with: oneFeed.feedID) || folder.hasFeed(withURL: oneFeed.url) {
+				if folder.hasWebFeed(with: oneFeed.webFeedID) || folder.hasWebFeed(withURL: oneFeed.url) {
 					return true
 				}
 			}
@@ -1455,42 +1670,60 @@ private extension SceneCoordinator {
 		
 	}
 	
-	// MARK: Double Split
+	// MARK: Three Panel Mode
 	
 	func installTimelineControllerIfNecessary(animated: Bool) {
 		if navControllerForTimeline().viewControllers.filter({ $0 is MasterTimelineViewController }).count < 1 {
+			isTimelineViewControllerPending = true
 			masterTimelineViewController = UIStoryboard.main.instantiateController(ofType: MasterTimelineViewController.self)
 			masterTimelineViewController!.coordinator = self
 			navControllerForTimeline().pushViewController(masterTimelineViewController!, animated: animated)
 		}
 	}
 	
-	func installArticleController(_ articleController: UIViewController, animated: Bool) {
+	@discardableResult
+	func installArticleController(_ recycledArticleController: ArticleViewController? = nil, animated: Bool) -> ArticleViewController {
 
 		isArticleViewControllerPending = true
 
+		let articleController: ArticleViewController = {
+			if let controller = recycledArticleController {
+				return controller
+			} else {
+				let controller = UIStoryboard.main.instantiateController(ofType: ArticleViewController.self)
+				controller.coordinator = self
+				return controller
+			}
+		}()
+				
 		if let subSplit = subSplitViewController {
 			let controller = addNavControllerIfNecessary(articleController, showButton: false)
 			subSplit.showDetailViewController(controller, sender: self)
-		} else if rootSplitViewController.isCollapsed {
-			let controller = addNavControllerIfNecessary(articleController, showButton: false)
-			masterNavigationController.pushViewController(controller, animated: animated)
+		} else if rootSplitViewController.isCollapsed || wasRootSplitViewControllerCollapsed {
+			masterNavigationController.pushViewController(articleController, animated: animated)
 		} else {
 			let controller = addNavControllerIfNecessary(articleController, showButton: true)
 			rootSplitViewController.showDetailViewController(controller, sender: self)
   	 	}
 		
+		// We have to do a full reload when installing an article controller.  We may have changed color contexts
+		// and need to update the article colors.  An example is in dark mode.  Split screen doesn't use true black
+		// like darkmode usually does.
+		articleController.fullReload()
+		return articleController
+		
 	}
 	
 	func addNavControllerIfNecessary(_ controller: UIViewController, showButton: Bool) -> UIViewController {
 		
-		if rootSplitViewController.isCollapsed {
+		// You will sometimes get a compact horizontal size class while in three panel mode.  Dunno why it lies.
+		if rootSplitViewController.traitCollection.horizontalSizeClass == .compact && !isThreePanelMode {
 			
 			return controller
 			
 		} else {
 			
-			let navController = ThemedNavigationController.template(rootViewController: controller)
+			let navController = InteractiveNavigationController.template(rootViewController: controller)
 			navController.isToolbarHidden = false
 			
 			if showButton {
@@ -1507,14 +1740,16 @@ private extension SceneCoordinator {
 		
 	}
 
-	func configureDoubleSplit() {
+	func installSubSplit() {
 		rootSplitViewController.preferredPrimaryColumnWidthFraction = 0.30
 		
-		let subSplit = UISplitViewController.template()
-		subSplit.preferredDisplayMode = .allVisible
-		subSplit.preferredPrimaryColumnWidthFraction = 0.4285
+		subSplitViewController = UISplitViewController()
+		subSplitViewController!.preferredDisplayMode = .allVisible
+		subSplitViewController!.viewControllers = [InteractiveNavigationController.template()]
+		subSplitViewController!.preferredPrimaryColumnWidthFraction = 0.4285
 		
-		rootSplitViewController.showDetailViewController(subSplit, sender: self)
+		rootSplitViewController.showDetailViewController(subSplitViewController!, sender: self)
+		rootSplitViewController.setOverrideTraitCollection(UITraitCollection(horizontalSizeClass: .regular), forChild: subSplitViewController!)
 	}
 	
 	func navControllerForTimeline() -> UINavigationController {
@@ -1525,194 +1760,240 @@ private extension SceneCoordinator {
 		}
 	}
 	
-	@discardableResult
-	func transitionToThreePanelMode() -> UIViewController {
-		
+	func configureThreePanelMode() {
+		let recycledArticleController = articleViewController
 		defer {
 			masterNavigationController.viewControllers = [masterFeedViewController]
 		}
 		
-		let controller: UIViewController = {
-			if let result = articleViewController {
-				return result
-			} else {
-				let articleViewController = UIStoryboard.main.instantiateController(ofType: ArticleViewController.self)
-				articleViewController.coordinator = self
-				return articleViewController
-			}
-		}()
 		
-		configureDoubleSplit()
+		if rootSplitViewController.viewControllers.last is InteractiveNavigationController {
+			_ = rootSplitViewController.viewControllers.popLast()
+		}
+
+		installSubSplit()
 		installTimelineControllerIfNecessary(animated: false)
 		masterTimelineViewController?.navigationItem.leftBarButtonItem = rootSplitViewController.displayModeButtonItem
 		masterTimelineViewController?.navigationItem.leftItemsSupplementBackButton = true
 
-		// Create the new sub split controller and add the timeline in the primary position
-		let masterTimelineNavController = subSplitViewController!.viewControllers.first as! UINavigationController
-		masterTimelineNavController.viewControllers = [masterTimelineViewController!]
-
-		// Put the detail or no selection controller in the secondary (or detail) position of the sub split
-		let navController = addNavControllerIfNecessary(controller, showButton: false)
-		subSplitViewController!.showDetailViewController(navController, sender: self)
+		installArticleController(recycledArticleController, animated: false)
 		
 		masterFeedViewController.restoreSelectionIfNecessary(adjustScroll: true)
-		masterTimelineViewController!.restoreSelectionIfNecessary(adjustScroll: true)
-		
-		// We made sure this was there above when we called configureDoubleSplit
-		return subSplitViewController!
-
+		masterTimelineViewController!.restoreSelectionIfNecessary(adjustScroll: false)
 	}
 	
-	func transitionFromThreePanelMode() {
-
+	func configureStandardPanelMode() {
+		let recycledArticleController = articleViewController
 		rootSplitViewController.preferredPrimaryColumnWidthFraction = UISplitViewController.automaticDimension
 		
-		if let subSplit = rootSplitViewController.viewControllers.last as? UISplitViewController {
+		// Set the is Pending flags early to prevent the navigation controller delegate from thinking that we
+		// swiping around in the user interface
+		isTimelineViewControllerPending = true
+		isArticleViewControllerPending = true
 
-			// Push a new timeline on to the master navigation controller.  For some reason recycling the timeline can freak
-			// the system out and throw it into an infinite loop.
-			if currentFeedIndexPath != nil {
-				masterTimelineViewController = UIStoryboard.main.instantiateController(ofType: MasterTimelineViewController.self)
-				masterTimelineViewController!.coordinator = self
-				masterNavigationController.pushViewController(masterTimelineViewController!, animated: false)
-			}
-
-			// Pull the detail or no selection controller out of the sub split second position and move it to the root split controller
-			// secondary (detail) position.
-			if let detailNav = subSplit.viewControllers.last as? UINavigationController, let topController = detailNav.topViewController {
-				let newNav = addNavControllerIfNecessary(topController, showButton: true)
-				rootSplitViewController.showDetailViewController(newNav, sender: self)
-			}
-
+		masterNavigationController.viewControllers = [masterFeedViewController]
+		if rootSplitViewController.viewControllers.last is UISplitViewController {
+			subSplitViewController = nil
+			_ = rootSplitViewController.viewControllers.popLast()
 		}
-		
+			
+		if currentFeedIndexPath != nil {
+			masterTimelineViewController = UIStoryboard.main.instantiateController(ofType: MasterTimelineViewController.self)
+			masterTimelineViewController!.coordinator = self
+			masterNavigationController.pushViewController(masterTimelineViewController!, animated: false)
+		}
+
+		installArticleController(recycledArticleController, animated: false)
 	}
 	
 	// MARK: NSUserActivity
 	
-	func updateSelectingActivity(with node: Node) {
-		switch true {
-		case node.representedObject === SmartFeedsController.shared.todayFeed:
-			activityManager.selectingToday()
-		case node.representedObject === SmartFeedsController.shared.unreadFeed:
-			activityManager.selectingAllUnread()
-		case node.representedObject === SmartFeedsController.shared.starredFeed:
-			activityManager.selectingStarred()
-		case node.representedObject is Folder:
-			activityManager.selectingFolder(node.representedObject as! Folder)
-		case node.representedObject is Feed:
-			activityManager.selectingFeed(node.representedObject as! Feed)
-		default:
-			break
+	func windowState() -> [AnyHashable: Any] {
+		let containerExpandedWindowState = expandedTable.map( { $0.userInfo })
+		var readArticlesFilterState = [[AnyHashable: AnyHashable]: Bool]()
+		for key in readFilterEnabledTable.keys {
+			readArticlesFilterState[key.userInfo] = readFilterEnabledTable[key]
 		}
-	}
-	
-	func handleSelectToday() {
-		if let indexPath = indexPathFor(SmartFeedsController.shared.todayFeed) {
-			selectFeed(indexPath)
-		}
-	}
-	
-	func handleSelectAllUnread() {
-		if let indexPath = indexPathFor(SmartFeedsController.shared.unreadFeed) {
-			selectFeed(indexPath)
-		}
-	}
-	
-	func handleSelectStarred() {
-		if let indexPath = indexPathFor(SmartFeedsController.shared.starredFeed) {
-			selectFeed(indexPath)
-		}
-	}
-	
-	func handleSelectFolder(_ userInfo: [AnyHashable : Any]?) {
-		guard let accountNode = findAccountNode(userInfo), let folderNode = findFolderNode(userInfo, beginningAt: accountNode) else {
-			return
-		}
-		if let indexPath = indexPathFor(folderNode) {
-			selectFeed(indexPath)
-		}
+		return [
+			UserInfoKey.readFeedsFilterState: isReadFeedsFiltered,
+			UserInfoKey.containerExpandedWindowState: containerExpandedWindowState,
+			UserInfoKey.readArticlesFilterState: readArticlesFilterState
+		]
 	}
 	
 	func handleSelectFeed(_ userInfo: [AnyHashable : Any]?) {
-		guard let accountNode = findAccountNode(userInfo), let feedNode = findFeedNode(userInfo, beginningAt: accountNode) else {
-			return
+		guard let userInfo = userInfo,
+			let feedIdentifierUserInfo = userInfo[UserInfoKey.feedIdentifier] as? [AnyHashable : AnyHashable],
+			let feedIdentifier = FeedIdentifier(userInfo: feedIdentifierUserInfo) else {
+				return
 		}
-		if let feed = feedNode.representedObject as? Feed {
-			discloseFeed(feed)
-		}
-	}
-	
-	func handleReadArticle(_ userInfo: [AnyHashable : Any]?) {
-		guard let accountNode = findAccountNode(userInfo), let feedNode = findFeedNode(userInfo, beginningAt: accountNode) else {
-			return
-		}
+
+		treeControllerDelegate.addFilterException(feedIdentifier)
+		masterFeedViewController.restoreSelection = true
 		
-		discloseFeed(feedNode.representedObject as! Feed) {
+
+		switch feedIdentifier {
 		
-			guard let articleID = userInfo?[DeepLinkKey.articleID.rawValue] as? String else { return }
-			if let article = self.articles.first(where: { $0.articleID == articleID }) {
-				self.selectArticle(article)
+		case .smartFeed:
+			guard let smartFeed = SmartFeedsController.shared.find(by: feedIdentifier) else { return }
+			if let indexPath = indexPathFor(smartFeed) {
+				selectFeed(indexPath, animated: false)
+			}
+		
+		case .script:
+			break
+		
+		case .folder(let accountID, let folderName):
+			guard let accountNode = findAccountNode(accountID: accountID), let folderNode = findFolderNode(folderName: folderName, beginningAt: accountNode) else {
+				return
+			}
+			if let indexPath = indexPathFor(folderNode) {
+				selectFeed(indexPath, animated: false)
+			}
+		
+		case .webFeed(let accountID, let webFeedID):
+			guard let accountNode = findAccountNode(accountID: accountID), let feedNode = findWebFeedNode(webFeedID: webFeedID, beginningAt: accountNode) else {
+				return
+			}
+			if let folder = feedNode.parent?.representedObject as? Folder, let folderFeedID = folder.feedID {
+				treeControllerDelegate.addFilterException(folderFeedID)
+			}
+			if let feed = feedNode.representedObject as? WebFeed {
+				discloseFeed(feed, animated: false)
 			}
 			
 		}
 	}
 	
-	func findAccountNode(_ userInfo: [AnyHashable : Any]?) -> Node? {
-		guard let accountID = userInfo?[DeepLinkKey.accountID.rawValue] as? String else {
-			return nil
+	func handleReadArticle(_ userInfo: [AnyHashable : Any]?) {
+		guard let userInfo = userInfo else { return }
+		
+		guard let articlePathUserInfo = userInfo[UserInfoKey.articlePath] as? [AnyHashable : Any],
+			let accountID = articlePathUserInfo[ArticlePathKey.accountID] as? String,
+			let accountName = articlePathUserInfo[ArticlePathKey.accountName] as? String,
+			let webFeedID = articlePathUserInfo[ArticlePathKey.webFeedID] as? String,
+			let articleID = articlePathUserInfo[ArticlePathKey.articleID] as? String,
+			let accountNode = findAccountNode(accountID: accountID, accountName: accountName),
+			let account = accountNode.representedObject as? Account else {
+				return
 		}
 		
+		exceptionArticleFetcher = SingleArticleFetcher(account: account, articleID: articleID)
+
+		if restoreFeedSelection(userInfo, accountID: accountID, webFeedID: webFeedID, articleID: articleID) {
+			return
+		}
+		
+		guard let webFeedNode = findWebFeedNode(webFeedID: webFeedID, beginningAt: accountNode),
+			let webFeed = webFeedNode.representedObject as? WebFeed,
+			let webFeedFeedID = webFeed.feedID else {
+				return
+		}
+		
+		treeControllerDelegate.addFilterException(webFeedFeedID)
+		addParentFolderToFilterExceptions(webFeedNode)
+		
+		discloseFeed(webFeed, animated: false) {
+			self.selectArticleInCurrentFeed(articleID)
+		}
+	}
+	
+	func restoreFeedSelection(_ userInfo: [AnyHashable : Any], accountID: String, webFeedID: String, articleID: String) -> Bool {
+		guard let feedIdentifierUserInfo = userInfo[UserInfoKey.feedIdentifier] as? [AnyHashable : AnyHashable],
+			let feedIdentifier = FeedIdentifier(userInfo: feedIdentifierUserInfo) else {
+				return false
+		}
+
+		masterFeedViewController.restoreSelection = true
+		
+		switch feedIdentifier {
+
+		case .smartFeed:
+			guard let smartFeed = SmartFeedsController.shared.find(by: feedIdentifier) else { return false }
+			if let indexPath = indexPathFor(smartFeed) {
+				selectFeed(indexPath, animated: false) {
+					self.selectArticleInCurrentFeed(articleID)
+				}
+				treeControllerDelegate.addFilterException(feedIdentifier)
+				return true
+			}
+		
+		case .script:
+			return false
+		
+		case .folder(let accountID, let folderName):
+			guard let accountNode = findAccountNode(accountID: accountID),
+				let folderNode = findFolderNode(folderName: folderName, beginningAt: accountNode) else {
+					return false
+			}
+			let found = selectFeedAndArticle(feedNode: folderNode, articleID: articleID)
+			if found {
+				treeControllerDelegate.addFilterException(feedIdentifier)
+			}
+			return found
+		
+		case .webFeed:
+			guard let accountNode = findAccountNode(accountID: accountID), let webFeedNode = findWebFeedNode(webFeedID: webFeedID, beginningAt: accountNode) else {
+				return false
+			}
+			let found = selectFeedAndArticle(feedNode: webFeedNode, articleID: articleID)
+			if found {
+				treeControllerDelegate.addFilterException(feedIdentifier)
+				addParentFolderToFilterExceptions(webFeedNode)
+			}
+			return found
+			
+		}
+		
+		return false
+	}
+	
+	func findAccountNode(accountID: String, accountName: String? = nil) -> Node? {
 		if let node = treeController.rootNode.descendantNode(where: { ($0.representedObject as? Account)?.accountID == accountID }) {
 			return node
 		}
 
-		guard let accountName = userInfo?[DeepLinkKey.accountName.rawValue] as? String else {
-			return nil
-		}
-
-		if let node = treeController.rootNode.descendantNode(where: { ($0.representedObject as? Account)?.nameForDisplay == accountName }) {
+		if let accountName = accountName, let node = treeController.rootNode.descendantNode(where: { ($0.representedObject as? Account)?.nameForDisplay == accountName }) {
 			return node
 		}
 
 		return nil
 	}
 	
-	func findFolderNode(_ userInfo: [AnyHashable : Any]?, beginningAt startingNode: Node) -> Node? {
-		guard let folderName = userInfo?[DeepLinkKey.folderName.rawValue] as? String else {
-			return nil
-		}
+	func findFolderNode(folderName: String, beginningAt startingNode: Node) -> Node? {
 		if let node = startingNode.descendantNode(where: { ($0.representedObject as? Folder)?.nameForDisplay == folderName }) {
 			return node
 		}
 		return nil
 	}
 
-	func findFeedNode(_ userInfo: [AnyHashable : Any]?, beginningAt startingNode: Node) -> Node? {
-		guard let feedID = userInfo?[DeepLinkKey.feedID.rawValue] as? String else {
-			return nil
-		}
-		if let node = startingNode.descendantNode(where: { ($0.representedObject as? Feed)?.feedID == feedID }) {
+	func findWebFeedNode(webFeedID: String, beginningAt startingNode: Node) -> Node? {
+		if let node = startingNode.descendantNode(where: { ($0.representedObject as? WebFeed)?.webFeedID == webFeedID }) {
 			return node
 		}
 		return nil
 	}
 	
-}
-
-// MARK: SwiftUI
-
-struct SceneCoordinatorHolder {
-	weak var value: SceneCoordinator?
-}
-
-struct SceneCoordinatorKey: EnvironmentKey {
-	static var defaultValue: SceneCoordinatorHolder { return SceneCoordinatorHolder(value: nil ) }
-}
-
-extension EnvironmentValues {
-	var sceneCoordinator: SceneCoordinator? {
-		get { return self[SceneCoordinatorKey.self].value }
-		set { self[SceneCoordinatorKey.self].value = newValue }
+	func selectFeedAndArticle(feedNode: Node, articleID: String) -> Bool {
+		if let feedIndexPath = indexPathFor(feedNode) {
+			selectFeed(feedIndexPath, animated: false) {
+				self.selectArticleInCurrentFeed(articleID)
+			}
+			return true
+		}
+		return false
 	}
+	
+	func selectArticleInCurrentFeed(_ articleID: String) {
+		if let article = self.articles.first(where: { $0.articleID == articleID }) {
+			self.selectArticle(article)
+		}
+	}
+	
+	func addParentFolderToFilterExceptions(_ feedNode: Node) {
+		if let folder = feedNode.parent?.representedObject as? Folder, let folderFeedID = folder.feedID {
+			treeControllerDelegate.addFilterException(folderFeedID)
+		}
+	}
+	
 }
