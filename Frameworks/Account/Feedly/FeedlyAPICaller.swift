@@ -57,10 +57,28 @@ final class FeedlyAPICaller {
 		transport.cancelAll()
 	}
 	
-	func importOpml(_ opmlData: Data, completionHandler: @escaping (Result<Void, Error>) -> ()) {
+	private var isSuspended = false
+	
+	/// Cancels all pending requests rejects any that come in later
+	func suspend() {
+		transport.cancelAll()
+		isSuspended = true
+	}
+	
+	func resume() {
+		isSuspended = false
+	}
+	
+	func importOpml(_ opmlData: Data, completion: @escaping (Result<Void, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 		var components = baseUrlComponents
@@ -81,20 +99,26 @@ final class FeedlyAPICaller {
 			switch result {
 			case .success(let (httpResponse, _)):
 				if httpResponse.statusCode == 200 {
-					completionHandler(.success(()))
+					completion(.success(()))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
 	
-	func createCollection(named label: String, completionHandler: @escaping (Result<FeedlyCollection, Error>) -> ()) {
+	func createCollection(named label: String, completion: @escaping (Result<FeedlyCollection, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 		var components = baseUrlComponents
@@ -119,7 +143,7 @@ final class FeedlyAPICaller {
 			request.httpBody = data
 		} catch {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 		
@@ -127,20 +151,26 @@ final class FeedlyAPICaller {
 			switch result {
 			case .success(let (httpResponse, collections)):
 				if httpResponse.statusCode == 200, let collection = collections?.first {
-					completionHandler(.success(collection))
+					completion(.success(collection))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
 	
-	func renameCollection(with id: String, to name: String, completionHandler: @escaping (Result<FeedlyCollection, Error>) -> ()) {
+	func renameCollection(with id: String, to name: String, completion: @escaping (Result<FeedlyCollection, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 		var components = baseUrlComponents
@@ -166,7 +196,7 @@ final class FeedlyAPICaller {
 			request.httpBody = data
 		} catch {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 		
@@ -174,12 +204,12 @@ final class FeedlyAPICaller {
 			switch result {
 			case .success(let (httpResponse, collections)):
 				if httpResponse.statusCode == 200, let collection = collections?.first {
-					completionHandler(.success(collection))
+					completion(.success(collection))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
@@ -188,15 +218,21 @@ final class FeedlyAPICaller {
 		return pathComponent.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed)
 	}
 	
-	func deleteCollection(with id: String, completionHandler: @escaping (Result<Void, Error>) -> ()) {
+	func deleteCollection(with id: String, completion: @escaping (Result<Void, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 		guard let encodedId = encodeForURLPath(id) else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(FeedlyAccountDelegateError.unexpectedResourceId(id)))
+				completion(.failure(FeedlyAccountDelegateError.unexpectedResourceId(id)))
 			}
 		}
 		var components = baseUrlComponents
@@ -216,26 +252,87 @@ final class FeedlyAPICaller {
 			switch result {
 			case .success(let (httpResponse, _)):
 				if httpResponse.statusCode == 200 {
-					completionHandler(.success(()))
+					completion(.success(()))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
 	
-	func addFeed(with feedId: FeedlyFeedResourceId, title: String? = nil, toCollectionWith collectionId: String, completionHandler: @escaping (Result<[FeedlyFeed], Error>) -> ()) {
+	func removeFeed(_ feedId: String, fromCollectionWith collectionId: String, completion: @escaping (Result<Void, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
+			}
+		}
+
+		guard let encodedCollectionId = encodeForURLPath(collectionId) else {
+			return DispatchQueue.main.async {
+				completion(.failure(FeedlyAccountDelegateError.unexpectedResourceId(collectionId)))
+			}
+		}
+		
+		guard let encodedFeedId = encodeForURLPath(feedId) else {
+			return DispatchQueue.main.async {
+				completion(.failure(FeedlyAccountDelegateError.unexpectedResourceId(feedId)))
+			}
+		}
+		
+		var components = baseUrlComponents
+		components.percentEncodedPath = "/v3/collections/\(encodedCollectionId)/feeds/\(encodedFeedId)"
+		
+		guard let url = components.url else {
+			fatalError("\(components) does not produce a valid URL.")
+		}
+		
+		var request = URLRequest(url: url)
+		request.httpMethod = "DELETE"
+		request.addValue("application/json", forHTTPHeaderField: HTTPRequestHeader.contentType)
+		request.addValue("application/json", forHTTPHeaderField: "Accept-Type")
+		request.addValue("OAuth \(accessToken)", forHTTPHeaderField: HTTPRequestHeader.authorization)
+		
+		transport.send(request: request, resultType: [FeedlyFeed].self, dateDecoding: .millisecondsSince1970, keyDecoding: .convertFromSnakeCase) { result in
+			switch result {
+			case .success(let httpResponse, _):
+				if httpResponse.statusCode == 200 {
+					completion(.success(()))
+				} else {
+					completion(.failure(URLError(.cannotDecodeContentData)))
+				}
+			case .failure(let error):
+				completion(.failure(error))
+			}
+		}
+	}
+}
+
+extension FeedlyAPICaller: FeedlyAddFeedToCollectionService {
+	
+	func addFeed(with feedId: FeedlyFeedResourceId, title: String? = nil, toCollectionWith collectionId: String, completion: @escaping (Result<[FeedlyFeed], Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
+		guard let accessToken = credentials?.secret else {
+			return DispatchQueue.main.async {
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 
 		guard let encodedId = encodeForURLPath(collectionId) else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(FeedlyAccountDelegateError.unexpectedResourceId(collectionId)))
+				completion(.failure(FeedlyAccountDelegateError.unexpectedResourceId(collectionId)))
 			}
 		}
 		var components = baseUrlComponents
@@ -261,7 +358,7 @@ final class FeedlyAPICaller {
 			request.httpBody = data
 		} catch {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 		
@@ -269,58 +366,12 @@ final class FeedlyAPICaller {
 			switch result {
 			case .success(_, let collectionFeeds):
 				if let feeds = collectionFeeds {
-					completionHandler(.success(feeds))
+					completion(.success(feeds))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
-			}
-		}
-	}
-	
-	func removeFeed(_ feedId: String, fromCollectionWith collectionId: String, completionHandler: @escaping (Result<Void, Error>) -> ()) {
-		guard let accessToken = credentials?.secret else {
-			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
-			}
-		}
-
-		guard let encodedCollectionId = encodeForURLPath(collectionId) else {
-			return DispatchQueue.main.async {
-				completionHandler(.failure(FeedlyAccountDelegateError.unexpectedResourceId(collectionId)))
-			}
-		}
-		
-		guard let encodedFeedId = encodeForURLPath(feedId) else {
-			return DispatchQueue.main.async {
-				completionHandler(.failure(FeedlyAccountDelegateError.unexpectedResourceId(feedId)))
-			}
-		}
-		
-		var components = baseUrlComponents
-		components.percentEncodedPath = "/v3/collections/\(encodedCollectionId)/feeds/\(encodedFeedId)"
-		
-		guard let url = components.url else {
-			fatalError("\(components) does not produce a valid URL.")
-		}
-		
-		var request = URLRequest(url: url)
-		request.httpMethod = "DELETE"
-		request.addValue("application/json", forHTTPHeaderField: HTTPRequestHeader.contentType)
-		request.addValue("application/json", forHTTPHeaderField: "Accept-Type")
-		request.addValue("OAuth \(accessToken)", forHTTPHeaderField: HTTPRequestHeader.authorization)
-		
-		transport.send(request: request, resultType: [FeedlyFeed].self, dateDecoding: .millisecondsSince1970, keyDecoding: .convertFromSnakeCase) { result in
-			switch result {
-			case .success(let httpResponse, _):
-				if httpResponse.statusCode == 200 {
-					completionHandler(.success(()))
-				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
-				}
-			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
@@ -347,7 +398,13 @@ extension FeedlyAPICaller: OAuthAuthorizationCodeGrantRequesting {
 	
 	typealias AccessTokenResponse = FeedlyOAuthAccessTokenResponse
 	
-	func requestAccessToken(_ authorizationRequest: OAuthAccessTokenRequest, completionHandler: @escaping (Result<FeedlyOAuthAccessTokenResponse, Error>) -> ()) {
+	func requestAccessToken(_ authorizationRequest: OAuthAccessTokenRequest, completion: @escaping (Result<FeedlyOAuthAccessTokenResponse, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		var components = baseUrlComponents
 		components.path = "/v3/auth/token"
 		
@@ -366,7 +423,7 @@ extension FeedlyAPICaller: OAuthAuthorizationCodeGrantRequesting {
 			request.httpBody = try encoder.encode(authorizationRequest)
 		} catch {
 			DispatchQueue.main.async {
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 			return
 		}
@@ -375,12 +432,12 @@ extension FeedlyAPICaller: OAuthAuthorizationCodeGrantRequesting {
 			switch result {
 			case .success(let (_, tokenResponse)):
 				if let response = tokenResponse {
-					completionHandler(.success(response))
+					completion(.success(response))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
@@ -388,7 +445,13 @@ extension FeedlyAPICaller: OAuthAuthorizationCodeGrantRequesting {
 
 extension FeedlyAPICaller: OAuthAcessTokenRefreshRequesting {
 		
-	func refreshAccessToken(_ refreshRequest: OAuthRefreshAccessTokenRequest, completionHandler: @escaping (Result<FeedlyOAuthAccessTokenResponse, Error>) -> ()) {
+	func refreshAccessToken(_ refreshRequest: OAuthRefreshAccessTokenRequest, completion: @escaping (Result<FeedlyOAuthAccessTokenResponse, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		var components = baseUrlComponents
 		components.path = "/v3/auth/token"
 		
@@ -407,7 +470,7 @@ extension FeedlyAPICaller: OAuthAcessTokenRefreshRequesting {
 			request.httpBody = try encoder.encode(refreshRequest)
 		} catch {
 			DispatchQueue.main.async {
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 			return
 		}
@@ -416,12 +479,12 @@ extension FeedlyAPICaller: OAuthAcessTokenRefreshRequesting {
 			switch result {
 			case .success(let (_, tokenResponse)):
 				if let response = tokenResponse {
-					completionHandler(.success(response))
+					completion(.success(response))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
@@ -429,10 +492,16 @@ extension FeedlyAPICaller: OAuthAcessTokenRefreshRequesting {
 
 extension FeedlyAPICaller: FeedlyGetCollectionsService {
 	
-	func getCollections(completionHandler: @escaping (Result<[FeedlyCollection], Error>) -> ()) {
+	func getCollections(completion: @escaping (Result<[FeedlyCollection], Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 		var components = baseUrlComponents
@@ -451,12 +520,12 @@ extension FeedlyAPICaller: FeedlyGetCollectionsService {
 			switch result {
 			case .success(let (_, collections)):
 				if let response = collections {
-					completionHandler(.success(response))
+					completion(.success(response))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
@@ -464,10 +533,16 @@ extension FeedlyAPICaller: FeedlyGetCollectionsService {
 
 extension FeedlyAPICaller: FeedlyGetStreamContentsService {
 	
-	func getStreamContents(for resource: FeedlyResourceId, continuation: String? = nil, newerThan: Date?, unreadOnly: Bool?, completionHandler: @escaping (Result<FeedlyStream, Error>) -> ()) {
+	func getStreamContents(for resource: FeedlyResourceId, continuation: String? = nil, newerThan: Date?, unreadOnly: Bool?, completion: @escaping (Result<FeedlyStream, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 		
@@ -513,12 +588,12 @@ extension FeedlyAPICaller: FeedlyGetStreamContentsService {
 			switch result {
 			case .success(let (_, collections)):
 				if let response = collections {
-					completionHandler(.success(response))
+					completion(.success(response))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
@@ -526,10 +601,16 @@ extension FeedlyAPICaller: FeedlyGetStreamContentsService {
 
 extension FeedlyAPICaller: FeedlyGetStreamIdsService {
 	
-	func getStreamIds(for resource: FeedlyResourceId, continuation: String? = nil, newerThan: Date?, unreadOnly: Bool?, completionHandler: @escaping (Result<FeedlyStreamIds, Error>) -> ()) {
+	func getStreamIds(for resource: FeedlyResourceId, continuation: String? = nil, newerThan: Date?, unreadOnly: Bool?, completion: @escaping (Result<FeedlyStreamIds, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 		
@@ -575,12 +656,12 @@ extension FeedlyAPICaller: FeedlyGetStreamIdsService {
 			switch result {
 			case .success(let (_, collections)):
 				if let response = collections {
-					completionHandler(.success(response))
+					completion(.success(response))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
@@ -588,10 +669,16 @@ extension FeedlyAPICaller: FeedlyGetStreamIdsService {
 
 extension FeedlyAPICaller: FeedlyGetEntriesService {
 	
-	func getEntries(for ids: Set<String>, completionHandler: @escaping (Result<[FeedlyEntry], Error>) -> ()) {
+	func getEntries(for ids: Set<String>, completion: @escaping (Result<[FeedlyEntry], Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 		
@@ -611,7 +698,7 @@ extension FeedlyAPICaller: FeedlyGetEntriesService {
 			request.httpBody = data
 		} catch {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 		
@@ -624,12 +711,12 @@ extension FeedlyAPICaller: FeedlyGetEntriesService {
 			switch result {
 			case .success(let (_, entries)):
 				if let response = entries {
-					completionHandler(.success(response))
+					completion(.success(response))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}
@@ -643,10 +730,16 @@ extension FeedlyAPICaller: FeedlyMarkArticlesService {
 		var entryIds: [String]
 	}
 	
-	func mark(_ articleIds: Set<String>, as action: FeedlyMarkAction, completionHandler: @escaping (Result<Void, Error>) -> ()) {
+	func mark(_ articleIds: Set<String>, as action: FeedlyMarkAction, completion: @escaping (Result<Void, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 		var components = baseUrlComponents
@@ -669,7 +762,7 @@ extension FeedlyAPICaller: FeedlyMarkArticlesService {
 			request.httpBody = data
 		} catch {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 		
@@ -677,12 +770,56 @@ extension FeedlyAPICaller: FeedlyMarkArticlesService {
 			switch result {
 			case .success(let (httpResponse, _)):
 				if httpResponse.statusCode == 200 {
-					completionHandler(.success(()))
+					completion(.success(()))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
+			}
+		}
+	}
+}
+
+extension FeedlyAPICaller: FeedlySearchService {
+	
+	func getFeeds(for query: String, count: Int, locale: String, completion: @escaping (Result<FeedlyFeedsSearchResponse, Error>) -> ()) {
+		
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
+		var components = baseUrlComponents
+		components.path = "/v3/search/feeds"
+		
+		components.queryItems = [
+			URLQueryItem(name: "query", value: query),
+			URLQueryItem(name: "count", value: String(count)),
+			URLQueryItem(name: "locale", value: locale)
+		]
+		
+		
+		guard let url = components.url else {
+			fatalError("\(components) does not produce a valid URL.")
+		}
+		
+		var request = URLRequest(url: url)
+		request.httpMethod = "GET"
+		request.addValue("application/json", forHTTPHeaderField: HTTPRequestHeader.contentType)
+		request.addValue("application/json", forHTTPHeaderField: "Accept-Type")
+		
+		transport.send(request: request, resultType: FeedlyFeedsSearchResponse.self, dateDecoding: .millisecondsSince1970, keyDecoding: .convertFromSnakeCase) { result in
+			switch result {
+			case .success(let (_, searchResponse)):
+				if let response = searchResponse {
+					completion(.success(response))
+				} else {
+					completion(.failure(URLError(.cannotDecodeContentData)))
+				}
+			case .failure(let error):
+				completion(.failure(error))
 			}
 		}
 	}
@@ -690,10 +827,16 @@ extension FeedlyAPICaller: FeedlyMarkArticlesService {
 
 extension FeedlyAPICaller: FeedlyLogoutService {
 	
-	func logout(completionHandler: @escaping (Result<Void, Error>) -> ()) {
+	func logout(completion: @escaping (Result<Void, Error>) -> ()) {
+		guard !isSuspended else {
+			return DispatchQueue.main.async {
+				completion(.failure(TransportError.suspended))
+			}
+		}
+		
 		guard let accessToken = credentials?.secret else {
 			return DispatchQueue.main.async {
-				completionHandler(.failure(CredentialsError.incompleteCredentials))
+				completion(.failure(CredentialsError.incompleteCredentials))
 			}
 		}
 		var components = baseUrlComponents
@@ -713,12 +856,12 @@ extension FeedlyAPICaller: FeedlyLogoutService {
 			switch result {
 			case .success(let (httpResponse, _)):
 				if httpResponse.statusCode == 200 {
-					completionHandler(.success(()))
+					completion(.success(()))
 				} else {
-					completionHandler(.failure(URLError(.cannotDecodeContentData)))
+					completion(.failure(URLError(.cannotDecodeContentData)))
 				}
 			case .failure(let error):
-				completionHandler(.failure(error))
+				completion(.failure(error))
 			}
 		}
 	}

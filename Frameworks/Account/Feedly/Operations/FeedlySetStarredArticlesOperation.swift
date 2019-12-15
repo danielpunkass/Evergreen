@@ -32,10 +32,17 @@ final class FeedlySetStarredArticlesOperation: FeedlyOperation {
 			return
 		}
 		
-		let group = DispatchGroup()
+		account.fetchStarredArticleIDs(didFetchStarredArticleIDs(_:))
+	}
+	
+	private func didFetchStarredArticleIDs(_ localStarredArticleIDs: Set<String>) {
+		guard !isCancelled else {
+			didFinish()
+			return
+		}
 		
+		let group = DispatchGroup()
 		let remoteStarredArticleIds = allStarredEntryIdsProvider.entryIds
-		let localStarredArticleIDs = account.fetchStarredArticleIDs()
 		
 		// Mark articles as starred
 		let deltaStarredArticleIDs = remoteStarredArticleIds.subtracting(localStarredArticleIDs)
@@ -62,9 +69,7 @@ final class FeedlySetStarredArticlesOperation: FeedlyOperation {
 		account.ensureStatuses(missingUnstarredArticleIDs, true, .starred, false) {
 			group.leave()
 		}
-		
-		group.notify(queue: .main) {
-			self.didFinish()
-		}
+
+		group.notify(queue: .main, execute: didFinish)
 	}
 }

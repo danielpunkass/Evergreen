@@ -124,6 +124,16 @@ class ArticleViewController: UIViewController {
 			
 			self.webView = webView
 			self.webViewContainer.addChildAndPin(webView)
+			
+			webView.translatesAutoresizingMaskIntoConstraints = false
+			self.webViewContainer.addSubview(webView)
+			NSLayoutConstraint.activate([
+				self.webViewContainer.leadingAnchor.constraint(equalTo: webView.leadingAnchor),
+				self.webViewContainer.trailingAnchor.constraint(equalTo: webView.trailingAnchor),
+				self.webViewContainer.topAnchor.constraint(equalTo: webView.topAnchor),
+				self.webViewContainer.bottomAnchor.constraint(equalTo: webView.bottomAnchor)
+			])
+			
 			webView.navigationDelegate = self
 			webView.uiDelegate = self
 			self.configureContextMenuInteraction()
@@ -510,9 +520,17 @@ private extension ArticleViewController {
 		
 		let base64Image = String(clickMessage.imageURL.suffix(from: range.upperBound))
 		if let imageData = Data(base64Encoded: base64Image), let image = UIImage(data: imageData) {
-			let rect = CGRect(x: CGFloat(clickMessage.x), y: CGFloat(clickMessage.y), width: CGFloat(clickMessage.width), height: CGFloat(clickMessage.height))
+			
+			let y = CGFloat(clickMessage.y) + webView.safeAreaInsets.top
+			let rect = CGRect(x: CGFloat(clickMessage.x), y: y, width: CGFloat(clickMessage.width), height: CGFloat(clickMessage.height))
 			transition.originFrame = webView.convert(rect, to: nil)
-			transition.maskFrame = webView.convert(webView.frame, to: nil)
+			
+			if navigationController?.navigationBar.isHidden ?? false {
+				transition.maskFrame = webView.convert(webView.frame, to: nil)
+			} else {
+				transition.maskFrame = webView.convert(webView.safeAreaLayoutGuide.layoutFrame, to: nil)
+			}
+			
 			transition.originImage = image
 			
 			coordinator.showFullScreenImage(image: image, transitioningDelegate: self)

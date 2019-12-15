@@ -121,10 +121,6 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 		}
 	}
 	
-	func cancelAll(for account: Account) {
-		caller.cancelAll()
-	}
-	
 	func refreshCredentials(for account: Account, completion: @escaping (() -> Void)) {
 		os_log(.debug, log: log, "Refreshing credentials...")
 		// MARK: TODO
@@ -441,12 +437,17 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 
 	// MARK: Suspend and Resume (for iOS)
 
-	/// Suspend the sync database so that it can close its SQLite file.
-	func suspend() {
+	/// Suspend all network activity
+	func suspendNetwork() {
+		caller.cancelAll()
+	}
+	
+	/// Suspend the SQLLite databases
+	func suspendDatabase() {
 		database.suspend()
 	}
-
-	/// Resume the sync database — let it reopen its SQLite file.
+	
+	/// Make sure no SQLite databases are open and we are ready to issue network requests.
 	func resume() {
 		database.resume()
 	}
@@ -499,46 +500,46 @@ private extension FeedWranglerAccountDelegate {
 	
 	func syncArticleReadState(_ account: Account, _ unreadFeedItems: [FeedWranglerFeedItem]) {
 		let unreadServerItemIDs = Set(unreadFeedItems.map { String($0.feedItemID) })
-		let unreadLocalItemIDs = account.fetchUnreadArticleIDs()
-		
-		// unread if unread on server
-		let unreadDiffItemIDs = unreadServerItemIDs.subtracting(unreadLocalItemIDs)
-		let unreadFoundArticles = account.fetchArticles(.articleIDs(unreadDiffItemIDs))
-		account.update(unreadFoundArticles, statusKey: .read, flag: false)
-		
-		let unreadFoundItemIDs = Set(unreadFoundArticles.map { $0.articleID })
-		let missingArticleIDs = unreadDiffItemIDs.subtracting(unreadFoundItemIDs)
-		account.ensureStatuses(missingArticleIDs, true, .read, false)
+		account.fetchUnreadArticleIDs { unreadLocalItemIDs in
+			// unread if unread on server
+			let unreadDiffItemIDs = unreadServerItemIDs.subtracting(unreadLocalItemIDs)
+			let unreadFoundArticles = account.fetchArticles(.articleIDs(unreadDiffItemIDs))
+			account.update(unreadFoundArticles, statusKey: .read, flag: false)
 
-		let readItemIDs = unreadLocalItemIDs.subtracting(unreadServerItemIDs)
-		let readArtices = account.fetchArticles(.articleIDs(readItemIDs))
-		account.update(readArtices, statusKey: .read, flag: true)
-		
-		let foundReadArticleIDs = Set(readArtices.map { $0.articleID })
-		let readMissingIDs = readItemIDs.subtracting(foundReadArticleIDs)
-		account.ensureStatuses(readMissingIDs, true, .read, true)
+			let unreadFoundItemIDs = Set(unreadFoundArticles.map { $0.articleID })
+			let missingArticleIDs = unreadDiffItemIDs.subtracting(unreadFoundItemIDs)
+			account.ensureStatuses(missingArticleIDs, true, .read, false)
+
+			let readItemIDs = unreadLocalItemIDs.subtracting(unreadServerItemIDs)
+			let readArtices = account.fetchArticles(.articleIDs(readItemIDs))
+			account.update(readArtices, statusKey: .read, flag: true)
+
+			let foundReadArticleIDs = Set(readArtices.map { $0.articleID })
+			let readMissingIDs = readItemIDs.subtracting(foundReadArticleIDs)
+			account.ensureStatuses(readMissingIDs, true, .read, true)
+		}
 	}
 	
 	func syncArticleStarredState(_ account: Account, _ unreadFeedItems: [FeedWranglerFeedItem]) {
 		let unreadServerItemIDs = Set(unreadFeedItems.map { String($0.feedItemID) })
-		let unreadLocalItemIDs = account.fetchUnreadArticleIDs()
-		
-		// starred if start on server
-		let unreadDiffItemIDs = unreadServerItemIDs.subtracting(unreadLocalItemIDs)
-		let unreadFoundArticles = account.fetchArticles(.articleIDs(unreadDiffItemIDs))
-		account.update(unreadFoundArticles, statusKey: .starred, flag: true)
-		
-		let unreadFoundItemIDs = Set(unreadFoundArticles.map { $0.articleID })
-		let missingArticleIDs = unreadDiffItemIDs.subtracting(unreadFoundItemIDs)
-		account.ensureStatuses(missingArticleIDs, true, .starred, true)
+		account.fetchUnreadArticleIDs { unreadLocalItemIDs in
+			// starred if start on server
+			let unreadDiffItemIDs = unreadServerItemIDs.subtracting(unreadLocalItemIDs)
+			let unreadFoundArticles = account.fetchArticles(.articleIDs(unreadDiffItemIDs))
+			account.update(unreadFoundArticles, statusKey: .starred, flag: true)
 
-		let readItemIDs = unreadLocalItemIDs.subtracting(unreadServerItemIDs)
-		let readArtices = account.fetchArticles(.articleIDs(readItemIDs))
-		account.update(readArtices, statusKey: .starred, flag: false)
-		
-		let foundReadArticleIDs = Set(readArtices.map { $0.articleID })
-		let readMissingIDs = readItemIDs.subtracting(foundReadArticleIDs)
-		account.ensureStatuses(readMissingIDs, true, .starred, false)
+			let unreadFoundItemIDs = Set(unreadFoundArticles.map { $0.articleID })
+			let missingArticleIDs = unreadDiffItemIDs.subtracting(unreadFoundItemIDs)
+			account.ensureStatuses(missingArticleIDs, true, .starred, true)
+
+			let readItemIDs = unreadLocalItemIDs.subtracting(unreadServerItemIDs)
+			let readArtices = account.fetchArticles(.articleIDs(readItemIDs))
+			account.update(readArtices, statusKey: .starred, flag: false)
+
+			let foundReadArticleIDs = Set(readArtices.map { $0.articleID })
+			let readMissingIDs = readItemIDs.subtracting(foundReadArticleIDs)
+			account.ensureStatuses(readMissingIDs, true, .starred, false)
+		}
 	}
 	
 	func syncArticleState(_ account: Account, key: ArticleStatus.Key, flag: Bool, serverFeedItems: [FeedWranglerFeedItem]) {

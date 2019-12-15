@@ -45,6 +45,10 @@ final class ArticleSearchInfo: Hashable {
 		self.searchRowID = searchRowID
 	}
 
+	convenience init(article: Article) {
+		self.init(articleID: article.articleID, title: article.title, contentHTML: article.contentHTML, contentText: article.contentText, summary: article.summary, searchRowID: nil)
+	}
+
 	// MARK: Hashable
 
 	public func hash(into hasher: inout Hasher) {
@@ -70,19 +74,15 @@ final class SearchTable: DatabaseTable {
 	}
 
 	func ensureIndexedArticles(for articleIDs: Set<String>) {
-		if articleIDs.isEmpty {
+		guard !queue.isSuspended && !articleIDs.isEmpty else {
 			return
 		}
 		queue.runInTransaction { (database) in
 			self.ensureIndexedArticles(articleIDs, database)
 		}
 	}
-}
 
-// MARK: - Private
-
-private extension SearchTable {
-
+	/// Add to, or update, the search index for articles with specified IDs.
 	func ensureIndexedArticles(_ articleIDs: Set<String>, _ database: FMDatabase) {
 		guard let articlesTable = articlesTable else {
 			return
@@ -97,6 +97,22 @@ private extension SearchTable {
 		let indexedArticles = articleSearchInfos.filter { $0.searchRowID != nil }
 		updateIndexForArticles(indexedArticles, database)
 	}
+
+	/// Index new articles.
+	func indexNewArticles(_ articles: Set<Article>, _ database: FMDatabase) {
+		let articleSearchInfos = Set(articles.map{ ArticleSearchInfo(article: $0) })
+		performInitialIndexForArticles(articleSearchInfos, database)
+	}
+
+	/// Index updated articles.
+	func indexUpdatedArticles(_ articles: Set<Article>, _ database: FMDatabase) {
+		ensureIndexedArticles(articles.articleIDs(), database)
+	}
+}
+
+// MARK: - Private
+
+private extension SearchTable {
 
 	func performInitialIndexForArticles(_ articles: Set<ArticleSearchInfo>, _ database: FMDatabase) {
 		articles.forEach { performInitialIndex($0, database) }

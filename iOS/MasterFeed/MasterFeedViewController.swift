@@ -211,9 +211,11 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 			headerView.isLastSection = false
 		}
 
+		headerView.gestureRecognizers?.removeAll()
 		let tap = UITapGestureRecognizer(target: self, action:#selector(self.toggleSectionHeader(_:)))
 		headerView.addGestureRecognizer(tap)
 
+		headerView.interactions.removeAll()
 		if section != 0 {
 			headerView.addInteraction(UIContextMenuInteraction(delegate: self))
 		}
@@ -235,25 +237,25 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		
 		// Set up the delete action
 		let deleteTitle = NSLocalizedString("Delete", comment: "Delete")
-		let deleteAction = UIContextualAction(style: .normal, title: deleteTitle) { [weak self] (action, view, completionHandler) in
+		let deleteAction = UIContextualAction(style: .normal, title: deleteTitle) { [weak self] (action, view, completion) in
 			self?.delete(indexPath: indexPath)
-			completionHandler(true)
+			completion(true)
 		}
 		deleteAction.backgroundColor = UIColor.systemRed
 		actions.append(deleteAction)
 		
 		// Set up the rename action
 		let renameTitle = NSLocalizedString("Rename", comment: "Rename")
-		let renameAction = UIContextualAction(style: .normal, title: renameTitle) { [weak self] (action, view, completionHandler) in
+		let renameAction = UIContextualAction(style: .normal, title: renameTitle) { [weak self] (action, view, completion) in
 			self?.rename(indexPath: indexPath)
-			completionHandler(true)
+			completion(true)
 		}
 		renameAction.backgroundColor = UIColor.systemOrange
 		actions.append(renameAction)
 		
 		if let webFeed = dataSource.itemIdentifier(for: indexPath)?.representedObject as? WebFeed {
 			let moreTitle = NSLocalizedString("More", comment: "More")
-			let moreAction = UIContextualAction(style: .normal, title: moreTitle) { [weak self] (action, view, completionHandler) in
+			let moreAction = UIContextualAction(style: .normal, title: moreTitle) { [weak self] (action, view, completion) in
 				
 				if let self = self {
 				
@@ -263,25 +265,25 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 						popoverController.sourceRect = CGRect(x: view.frame.size.width/2, y: view.frame.size.height/2, width: 1, height: 1)
 					}
 					
-					if let action = self.getInfoAlertAction(indexPath: indexPath, completionHandler: completionHandler) {
+					if let action = self.getInfoAlertAction(indexPath: indexPath, completion: completion) {
 						alert.addAction(action)
 					}
 					
-					if let action = self.homePageAlertAction(indexPath: indexPath, completionHandler: completionHandler) {
+					if let action = self.homePageAlertAction(indexPath: indexPath, completion: completion) {
 						alert.addAction(action)
 					}
 						
-					if let action = self.copyFeedPageAlertAction(indexPath: indexPath, completionHandler: completionHandler) {
+					if let action = self.copyFeedPageAlertAction(indexPath: indexPath, completion: completion) {
 						alert.addAction(action)
 					}
 
-					if let action = self.copyHomePageAlertAction(indexPath: indexPath, completionHandler: completionHandler) {
+					if let action = self.copyHomePageAlertAction(indexPath: indexPath, completion: completion) {
 						alert.addAction(action)
 					}
 					
 					let cancelTitle = NSLocalizedString("Cancel", comment: "Cancel")
 					alert.addAction(UIAlertAction(title: cancelTitle, style: .cancel) { _ in
-						completionHandler(true)
+						completion(true)
 					})
 
 					self.present(alert, animated: true)
@@ -762,20 +764,20 @@ private extension MasterFeedViewController {
 		applyToCellsForRepresentedObject(representedObject, configure)
 	}
 
-	func applyToCellsForRepresentedObject(_ representedObject: AnyObject, _ callback: (MasterFeedTableViewCell, Node) -> Void) {
+	func applyToCellsForRepresentedObject(_ representedObject: AnyObject, _ completion: (MasterFeedTableViewCell, Node) -> Void) {
 		applyToAvailableCells { (cell, node) in
 			if node.representedObject === representedObject {
-				callback(cell, node)
+				completion(cell, node)
 			}
 		}
 	}
 	
-	func applyToAvailableCells(_ callback: (MasterFeedTableViewCell, Node) -> Void) {
+	func applyToAvailableCells(_ completion: (MasterFeedTableViewCell, Node) -> Void) {
 		tableView.visibleCells.forEach { cell in
 			guard let indexPath = tableView.indexPath(for: cell), let node = dataSource.itemIdentifier(for: indexPath) else {
 				return
 			}
-			callback(cell as! MasterFeedTableViewCell, node)
+			completion(cell as! MasterFeedTableViewCell, node)
 		}
 	}
 
@@ -885,7 +887,7 @@ private extension MasterFeedViewController {
 		return action
 	}
 	
-	func homePageAlertAction(indexPath: IndexPath, completionHandler: @escaping (Bool) -> Void) -> UIAlertAction? {
+	func homePageAlertAction(indexPath: IndexPath, completion: @escaping (Bool) -> Void) -> UIAlertAction? {
 		guard coordinator.homePageURLForFeed(indexPath) != nil else {
 			return nil
 		}
@@ -893,7 +895,7 @@ private extension MasterFeedViewController {
 		let title = NSLocalizedString("Open Home Page", comment: "Open Home Page")
 		let action = UIAlertAction(title: title, style: .default) { [weak self] action in
 			self?.coordinator.showBrowserForFeed(indexPath)
-			completionHandler(true)
+			completion(true)
 		}
 		return action
 	}
@@ -912,7 +914,7 @@ private extension MasterFeedViewController {
 		return action
 	}
 	
-	func copyFeedPageAlertAction(indexPath: IndexPath, completionHandler: @escaping (Bool) -> Void) -> UIAlertAction? {
+	func copyFeedPageAlertAction(indexPath: IndexPath, completion: @escaping (Bool) -> Void) -> UIAlertAction? {
 		guard let node = dataSource.itemIdentifier(for: indexPath),
 			let feed = node.representedObject as? WebFeed,
 			let url = URL(string: feed.url) else {
@@ -922,7 +924,7 @@ private extension MasterFeedViewController {
 		let title = NSLocalizedString("Copy Feed URL", comment: "Copy Feed URL")
 		let action = UIAlertAction(title: title, style: .default) { action in
 			UIPasteboard.general.url = url
-			completionHandler(true)
+			completion(true)
 		}
 		return action
 	}
@@ -942,7 +944,7 @@ private extension MasterFeedViewController {
 		return action
 	}
 	
-	func copyHomePageAlertAction(indexPath: IndexPath, completionHandler: @escaping (Bool) -> Void) -> UIAlertAction? {
+	func copyHomePageAlertAction(indexPath: IndexPath, completion: @escaping (Bool) -> Void) -> UIAlertAction? {
 		guard let node = dataSource.itemIdentifier(for: indexPath),
 			let feed = node.representedObject as? WebFeed,
 			let homePageURL = feed.homePageURL,
@@ -953,7 +955,7 @@ private extension MasterFeedViewController {
 		let title = NSLocalizedString("Copy Home Page URL", comment: "Copy Home Page URL")
 		let action = UIAlertAction(title: title, style: .default) { action in
 			UIPasteboard.general.url = url
-			completionHandler(true)
+			completion(true)
 		}
 		return action
 	}
@@ -1003,7 +1005,7 @@ private extension MasterFeedViewController {
 		return action
 	}
 
-	func getInfoAlertAction(indexPath: IndexPath, completionHandler: @escaping (Bool) -> Void) -> UIAlertAction? {
+	func getInfoAlertAction(indexPath: IndexPath, completion: @escaping (Bool) -> Void) -> UIAlertAction? {
 		guard let node = dataSource.itemIdentifier(for: indexPath), let feed = node.representedObject as? WebFeed else {
 			return nil
 		}
@@ -1011,7 +1013,7 @@ private extension MasterFeedViewController {
 		let title = NSLocalizedString("Get Info", comment: "Get Info")
 		let action = UIAlertAction(title: title, style: .default) { [weak self] action in
 			self?.coordinator.showFeedInspector(for: feed)
-			completionHandler(true)
+			completion(true)
 		}
 		return action
 	}

@@ -24,6 +24,7 @@ public final class AccountManager: UnreadCountProvider {
 	private let defaultAccountFolderName = "OnMyMac"
 	private let defaultAccountIdentifier = "OnMyMac"
 
+	public var isSuspended = false
 	public var isUnreadCountsInitialized: Bool {
 		for account in activeAccounts {
 			if !account.isUnreadCountsInitialized {
@@ -56,6 +57,18 @@ public final class AccountManager: UnreadCountProvider {
 
 	public var sortedActiveAccounts: [Account] {
 		return sortByName(activeAccounts)
+	}
+	
+	public var lastArticleFetchEndTime: Date? {
+		var lastArticleFetchEndTime: Date? = nil
+		for account in activeAccounts {
+			if let accountLastArticleFetchEndTime = account.metadata.lastArticleFetchEndTime {
+				if lastArticleFetchEndTime == nil || lastArticleFetchEndTime! < accountLastArticleFetchEndTime {
+					lastArticleFetchEndTime = accountLastArticleFetchEndTime
+				}
+			}
+		}
+		return lastArticleFetchEndTime
 	}
 
 	public func findActiveAccount(forDisplayName displayName: String) -> Account? {
@@ -163,11 +176,18 @@ public final class AccountManager: UnreadCountProvider {
 		return accountsDictionary[accountID]
 	}
 	
-	public func suspendAll() {
-		accounts.forEach { $0.suspend() }
+	public func suspendNetworkAll() {
+		isSuspended = true
+		accounts.forEach { $0.suspendNetwork() }
+	}
+
+	public func suspendDatabaseAll() {
+		accounts.forEach { $0.suspendDatabase() }
 	}
 
 	public func resumeAll() {
+		isSuspended = false
+		accounts.forEach { $0.resumeDatabaseAndDelegate() }
 		accounts.forEach { $0.resume() }
 	}
 
@@ -245,7 +265,7 @@ public final class AccountManager: UnreadCountProvider {
 		return articles
 	}
 
-	public func fetchArticlesAsync(_ fetchType: FetchType, _ callback: @escaping ArticleSetBlock) {
+	public func fetchArticlesAsync(_ fetchType: FetchType, _ completion: @escaping ArticleSetBlock) {
 		precondition(Thread.isMainThread)
 		
 		var allFetchedArticles = Set<Article>()
@@ -257,7 +277,7 @@ public final class AccountManager: UnreadCountProvider {
 				allFetchedArticles.formUnion(articles)
 				accountsReporting += 1
 				if accountsReporting == numberOfAccounts {
-					callback(allFetchedArticles)
+					completion(allFetchedArticles)
 				}
 			}
 		}

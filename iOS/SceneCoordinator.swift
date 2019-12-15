@@ -84,6 +84,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 			}
 		}
 	}
+	
 	private(set) var groupByFeed = AppDefaults.timelineGroupByFeed {
 		didSet {
 			if groupByFeed != oldValue {
@@ -266,7 +267,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 
 	var isTimelineUnreadAvailable: Bool {
-		return timelineFeed?.unreadCount ?? 0 > 0
+		return unreadCount > 0
 	}
 	
 	var isAnyUnreadAvailable: Bool {
@@ -301,6 +302,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		NotificationCenter.default.addObserver(self, selector: #selector(userDidDeleteAccount(_:)), name: .UserDidDeleteAccount, object: nil)
 
 		NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(downloadArticlesDidUpdateUnreadCounts(_:)), name: .DownloadArticlesDidUpdateUnreadCounts, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(accountDidDownloadArticles(_:)), name: .AccountDidDownloadArticles, object: nil)
 		
 	}
@@ -436,7 +438,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	
 	@objc func containerChildrenDidChange(_ note: Notification) {
 		if timelineFetcherContainsAnyPseudoFeed() || timelineFetcherContainsAnyFolder() {
-			refreshTimeline()
+			refreshTimeline(resetScroll: false)
 		}
 		rebuildBackingStores()
 	}
@@ -460,7 +462,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 
 		if timelineFetcherContainsAnyPseudoFeed() {
 			fetchAndReplaceArticlesAsync(animated: true) {
-				self.masterTimelineViewController?.reinitializeArticles()
+				self.masterTimelineViewController?.reinitializeArticles(resetScroll: false)
 				self.rebuildBackingStores() {
 					expandNewlyActivatedAccount()
 				}
@@ -483,7 +485,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		
 		if timelineFetcherContainsAnyPseudoFeed() {
 			fetchAndReplaceArticlesAsync(animated: true) {
-				self.masterTimelineViewController?.reinitializeArticles()
+				self.masterTimelineViewController?.reinitializeArticles(resetScroll: false)
 				self.rebuildBackingStores() {
 					expandNewAccount()
 				}
@@ -505,7 +507,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		
 		if timelineFetcherContainsAnyPseudoFeed() {
 			fetchAndReplaceArticlesAsync(animated: true) {
-				self.masterTimelineViewController?.reinitializeArticles()
+				self.masterTimelineViewController?.reinitializeArticles(resetScroll: false)
 				self.rebuildBackingStores() {
 					cleanupAccount()
 				}
@@ -522,6 +524,10 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		self.groupByFeed = AppDefaults.timelineGroupByFeed
 	}
 	
+	@objc func downloadArticlesDidUpdateUnreadCounts(_ note: Notification) {
+		rebuildBackingStores()
+	}
+	
 	@objc func accountDidDownloadArticles(_ note: Notification) {
 		guard let feeds = note.userInfo?[Account.UserInfoKey.webFeeds] as? Set<WebFeed> else {
 			return
@@ -534,6 +540,11 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 
 	// MARK: API
+	
+	func suspend() {
+		fetchAndMergeArticlesQueue.performCallsImmediately()
+		fetchRequestQueue.cancelAllRequests()
+	}
 	
 	func shadowNodesFor(section: Int) -> [Node] {
 		return shadowTable[section]
@@ -557,9 +568,9 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		return 0
 	}
 	
-	func refreshTimeline() {
+	func refreshTimeline(resetScroll: Bool) {
 		fetchAndReplaceArticlesAsync(animated: true) {
-			self.masterTimelineViewController?.reinitializeArticles()
+			self.masterTimelineViewController?.reinitializeArticles(resetScroll: resetScroll)
 		}
 	}
 	
@@ -577,14 +588,14 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		if let feedID = timelineFeed?.feedID {
 			readFilterEnabledTable[feedID] = false
 		}
-		refreshTimeline()
+		refreshTimeline(resetScroll: false)
 	}
 	
 	func hideReadArticles() {
 		if let feedID = timelineFeed?.feedID {
 			readFilterEnabledTable[feedID] = true
 		}
-		refreshTimeline()
+		refreshTimeline(resetScroll: false)
 	}
 	
 	func isExpanded(_ node: Node) -> Bool {
@@ -759,7 +770,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	func endSearching() {
 		if let ip = currentFeedIndexPath, let node = nodeFor(ip), let feed = node.representedObject as? Feed {
 			timelineFeed = feed
-			masterTimelineViewController?.reinitializeArticles()
+			masterTimelineViewController?.reinitializeArticles(resetScroll: true)
 			replaceArticles(with: savedSearchArticles!, animated: true)
 		} else {
 			setTimelineFeed(nil, animated: true)
@@ -771,6 +782,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		savedSearchArticles = nil
 		isSearching = false
 		selectArticle(nil)
+		masterTimelineViewController?.focus()
 	}
 	
 	func searchArticles(_ searchString: String, _ searchScope: SearchScope) {
@@ -1089,11 +1101,12 @@ extension SceneCoordinator: UISplitViewControllerDelegate {
 		}
 		
 		if let articleViewController = (secondaryViewController as? UINavigationController)?.topViewController as? ArticleViewController {
-			masterNavigationController.pushViewController(articleViewController, animated: false)
-			return false
+			if currentArticle != nil {
+				masterNavigationController.pushViewController(articleViewController, animated: false)
+			}
 		}
 		
-		return currentArticle == nil
+		return true
 	}
 	
 	func splitViewController(_ splitViewController: UISplitViewController, separateSecondaryFrom primaryViewController: UIViewController) -> UIViewController? {
@@ -1101,15 +1114,15 @@ extension SceneCoordinator: UISplitViewControllerDelegate {
 			return subSplitViewController
 		}
 		
-		guard currentArticle != nil else {
-			let articleViewController = UIStoryboard.main.instantiateController(ofType: ArticleViewController.self)
-			articleViewController.coordinator = self
+		if let articleViewController = masterNavigationController.viewControllers.last as? ArticleViewController {
+			masterNavigationController.popViewController(animated: false)
 			let controller = addNavControllerIfNecessary(articleViewController, showButton: true)
 			return controller
 		}
 		
-		if let articleViewController = masterNavigationController.viewControllers.last as? ArticleViewController {
-			masterNavigationController.popViewController(animated: false)
+		if currentArticle == nil {
+			let articleViewController = UIStoryboard.main.instantiateController(ofType: ArticleViewController.self)
+			articleViewController.coordinator = self
 			let controller = addNavControllerIfNecessary(articleViewController, showButton: true)
 			return controller
 		}
@@ -1258,7 +1271,7 @@ private extension SceneCoordinator {
 		timelineMiddleIndexPath = nil
 		
 		fetchAndReplaceArticlesAsync(animated: animated) {
-			self.masterTimelineViewController?.reinitializeArticles()
+			self.masterTimelineViewController?.reinitializeArticles(resetScroll: true)
 			completion?()
 		}
 	}
@@ -1617,7 +1630,7 @@ private extension SceneCoordinator {
 		
 	}
 
-	func fetchUnsortedArticlesAsync(for representedObjects: [Any], callback: @escaping ArticleSetBlock) {
+	func fetchUnsortedArticlesAsync(for representedObjects: [Any], completion: @escaping ArticleSetBlock) {
 		// The callback will *not* be called if the fetch is no longer relevant — that is,
 		// if it’s been superseded by a newer fetch, or the timeline was emptied, etc., it won’t get called.
 		precondition(Thread.isMainThread)
@@ -1628,7 +1641,7 @@ private extension SceneCoordinator {
 			guard !operation.isCanceled, let strongSelf = self, operation.id == strongSelf.fetchSerialNumber else {
 				return
 			}
-			callback(articles)
+			completion(articles)
 		}
 		
 		fetchRequestQueue.add(fetchOperation)
@@ -1837,7 +1850,9 @@ private extension SceneCoordinator {
 		case .smartFeed:
 			guard let smartFeed = SmartFeedsController.shared.find(by: feedIdentifier) else { return }
 			if let indexPath = indexPathFor(smartFeed) {
-				selectFeed(indexPath, animated: false)
+				selectFeed(indexPath, animated: false) {
+					self.masterFeedViewController.focus()
+				}
 			}
 		
 		case .script:
@@ -1848,7 +1863,9 @@ private extension SceneCoordinator {
 				return
 			}
 			if let indexPath = indexPathFor(folderNode) {
-				selectFeed(indexPath, animated: false)
+				selectFeed(indexPath, animated: false) {
+					self.masterFeedViewController.focus()
+				}
 			}
 		
 		case .webFeed(let accountID, let webFeedID):
@@ -1859,7 +1876,9 @@ private extension SceneCoordinator {
 				treeControllerDelegate.addFilterException(folderFeedID)
 			}
 			if let feed = feedNode.representedObject as? WebFeed {
-				discloseFeed(feed, animated: false)
+				discloseFeed(feed, animated: false) {
+					self.masterFeedViewController.focus()
+				}
 			}
 			
 		}

@@ -42,7 +42,7 @@ public final class ArticlesDatabase {
 				database.executeStatements("ALTER TABLE articles add column searchRowID INTEGER;")
 			}
 			database.executeStatements("CREATE INDEX if not EXISTS articles_searchRowID on articles(searchRowID);")
-			database.executeStatements("DROP TABLE if EXISTS tags;DROP INDEX if EXISTS tags_tagName_index;DROP INDEX if EXISTS articles_feedID_index;DROP INDEX if EXISTS statuses_read_index;")
+			database.executeStatements("DROP TABLE if EXISTS tags;DROP INDEX if EXISTS tags_tagName_index;DROP INDEX if EXISTS articles_feedID_index;DROP INDEX if EXISTS statuses_read_index;DROP TABLE if EXISTS attachments;DROP TABLE if EXISTS attachmentsLookup;")
 		}
 
 		queue.vacuumIfNeeded(daysBetweenVacuums: 9)
@@ -87,58 +87,58 @@ public final class ArticlesDatabase {
 
 	// MARK: - Fetching Articles Async
 
-	public func fetchArticlesAsync(_ webFeedID: String, _ callback: @escaping ArticleSetBlock) {
-		articlesTable.fetchArticlesAsync(webFeedID, callback)
+	public func fetchArticlesAsync(_ webFeedID: String, _ completion: @escaping ArticleSetBlock) {
+		articlesTable.fetchArticlesAsync(webFeedID, completion)
 	}
 
-	public func fetchArticlesAsync(_ webFeedIDs: Set<String>, _ callback: @escaping ArticleSetBlock) {
-		articlesTable.fetchArticlesAsync(webFeedIDs, callback)
+	public func fetchArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+		articlesTable.fetchArticlesAsync(webFeedIDs, completion)
 	}
 
-	public func fetchArticlesAsync(articleIDs: Set<String>, _ callback: @escaping  ArticleSetBlock) {
-		articlesTable.fetchArticlesAsync(articleIDs: articleIDs, callback)
+	public func fetchArticlesAsync(articleIDs: Set<String>, _ completion: @escaping  ArticleSetBlock) {
+		articlesTable.fetchArticlesAsync(articleIDs: articleIDs, completion)
 	}
 
-	public func fetchUnreadArticlesAsync(_ webFeedIDs: Set<String>, _ callback: @escaping ArticleSetBlock) {
-		articlesTable.fetchUnreadArticlesAsync(webFeedIDs, callback)
+	public func fetchUnreadArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+		articlesTable.fetchUnreadArticlesAsync(webFeedIDs, completion)
 	}
 
-	public func fetchTodayArticlesAsync(_ webFeedIDs: Set<String>, _ callback: @escaping ArticleSetBlock) {
-		articlesTable.fetchArticlesSinceAsync(webFeedIDs, todayCutoffDate(), callback)
+	public func fetchTodayArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+		articlesTable.fetchArticlesSinceAsync(webFeedIDs, todayCutoffDate(), completion)
 	}
 
-	public func fetchedStarredArticlesAsync(_ webFeedIDs: Set<String>, _ callback: @escaping ArticleSetBlock) {
-		articlesTable.fetchStarredArticlesAsync(webFeedIDs, callback)
+	public func fetchedStarredArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+		articlesTable.fetchStarredArticlesAsync(webFeedIDs, completion)
 	}
 
-	public func fetchArticlesMatchingAsync(_ searchString: String, _ webFeedIDs: Set<String>, _ callback: @escaping ArticleSetBlock) {
-		articlesTable.fetchArticlesMatchingAsync(searchString, webFeedIDs, callback)
+	public func fetchArticlesMatchingAsync(_ searchString: String, _ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+		articlesTable.fetchArticlesMatchingAsync(searchString, webFeedIDs, completion)
 	}
 
-	public func fetchArticlesMatchingWithArticleIDsAsync(_ searchString: String, _ articleIDs: Set<String>, _ callback: @escaping ArticleSetBlock) {
-		articlesTable.fetchArticlesMatchingWithArticleIDsAsync(searchString, articleIDs, callback)
+	public func fetchArticlesMatchingWithArticleIDsAsync(_ searchString: String, _ articleIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+		articlesTable.fetchArticlesMatchingWithArticleIDsAsync(searchString, articleIDs, completion)
 	}
 
 	// MARK: - Unread Counts
 	
-	public func fetchUnreadCounts(for webFeedIDs: Set<String>, _ callback: @escaping UnreadCountCompletionBlock) {
-		articlesTable.fetchUnreadCounts(webFeedIDs, callback)
+	public func fetchUnreadCounts(for webFeedIDs: Set<String>, _ completion: @escaping UnreadCountCompletionBlock) {
+		articlesTable.fetchUnreadCounts(webFeedIDs, completion)
 	}
 
-	public func fetchUnreadCountForToday(for webFeedIDs: Set<String>, callback: @escaping (Int) -> Void) {
-		fetchUnreadCount(for: webFeedIDs, since: todayCutoffDate(), callback: callback)
+	public func fetchUnreadCountForToday(for webFeedIDs: Set<String>, completion: @escaping (Int) -> Void) {
+		fetchUnreadCount(for: webFeedIDs, since: todayCutoffDate(), completion: completion)
 	}
 
-	public func fetchUnreadCount(for webFeedIDs: Set<String>, since: Date, callback: @escaping (Int) -> Void) {
-		articlesTable.fetchUnreadCount(webFeedIDs, since, callback)
+	public func fetchUnreadCount(for webFeedIDs: Set<String>, since: Date, completion: @escaping (Int) -> Void) {
+		articlesTable.fetchUnreadCount(webFeedIDs, since, completion)
 	}
 
-	public func fetchStarredAndUnreadCount(for webFeedIDs: Set<String>, callback: @escaping (Int) -> Void) {
-		articlesTable.fetchStarredAndUnreadCount(webFeedIDs, callback)
+	public func fetchStarredAndUnreadCount(for webFeedIDs: Set<String>, completion: @escaping (Int) -> Void) {
+		articlesTable.fetchStarredAndUnreadCount(webFeedIDs, completion)
 	}
 
-	public func fetchAllNonZeroUnreadCounts(_ callback: @escaping UnreadCountCompletionBlock) {
-		articlesTable.fetchAllUnreadCounts(callback)
+	public func fetchAllNonZeroUnreadCounts(_ completion: @escaping UnreadCountCompletionBlock) {
+		articlesTable.fetchAllUnreadCounts(completion)
 	}
 
 	// MARK: - Saving and Updating Articles
@@ -148,26 +148,32 @@ public final class ArticlesDatabase {
 		articlesTable.update(webFeedIDsAndItems, defaultRead, completion)
 	}
 
-	public func ensureStatuses(_ articleIDs: Set<String>, _ defaultRead: Bool, _ statusKey: ArticleStatus.Key, _ flag: Bool, completionHandler: VoidCompletionBlock? = nil) {
-		articlesTable.ensureStatuses(articleIDs, defaultRead, statusKey, flag, completionHandler: completionHandler)
+	public func ensureStatuses(_ articleIDs: Set<String>, _ defaultRead: Bool, _ statusKey: ArticleStatus.Key, _ flag: Bool, completion: VoidCompletionBlock? = nil) {
+		articlesTable.ensureStatuses(articleIDs, defaultRead, statusKey, flag, completion: completion)
 	}
 	
 	// MARK: - Status
-	
-	public func fetchUnreadArticleIDs() -> Set<String> {
-		return articlesTable.fetchUnreadArticleIDs()
+
+	/// Fetch the articleIDs of unread articles in feeds specified by webFeedIDs.
+	public func fetchUnreadArticleIDsAsync(webFeedIDs: Set<String>, completion: @escaping (Set<String>) -> Void) {
+		articlesTable.fetchUnreadArticleIDsAsync(webFeedIDs, completion)
 	}
 	
-	public func fetchStarredArticleIDs() -> Set<String> {
-		return articlesTable.fetchStarredArticleIDs()
+	/// Fetch the articleIDs of starred articles in feeds specified by webFeedIDs.
+	public func fetchStarredArticleIDsAsync(webFeedIDs: Set<String>, completion: @escaping (Set<String>) -> Void) {
+		articlesTable.fetchStarredArticleIDsAsync(webFeedIDs, completion)
 	}
-	
+
 	public func fetchArticleIDsForStatusesWithoutArticles() -> Set<String> {
 		return articlesTable.fetchArticleIDsForStatusesWithoutArticles()
 	}
 	
 	public func mark(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) -> Set<ArticleStatus>? {
 		return articlesTable.mark(articles, statusKey, flag)
+	}
+
+	public func fetchStatuses(articleIDs: Set<String>, createIfNeeded: Bool, completion: @escaping (Set<ArticleStatus>?) -> Void) {
+		articlesTable.fetchStatuses(articleIDs, createIfNeeded, completion)
 	}
 
 	// MARK: - Suspend and Resume (for iOS)
@@ -212,9 +218,6 @@ private extension ArticlesDatabase {
 
 	CREATE TABLE if not EXISTS authors (authorID TEXT NOT NULL PRIMARY KEY, name TEXT, url TEXT, avatarURL TEXT, emailAddress TEXT);
 	CREATE TABLE if not EXISTS authorsLookup (authorID TEXT NOT NULL, articleID TEXT NOT NULL, PRIMARY KEY(authorID, articleID));
-
-	CREATE TABLE if not EXISTS attachments(attachmentID TEXT NOT NULL PRIMARY KEY, url TEXT NOT NULL, mimeType TEXT, title TEXT, sizeInBytes INTEGER, durationInSeconds INTEGER);
-	CREATE TABLE if not EXISTS attachmentsLookup(attachmentID TEXT NOT NULL, articleID TEXT NOT NULL, PRIMARY KEY(attachmentID, articleID));
 
 	CREATE INDEX if not EXISTS articles_feedID_datePublished_articleID on articles (feedID, datePublished, articleID);
 

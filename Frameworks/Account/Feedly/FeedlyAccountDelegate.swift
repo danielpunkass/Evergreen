@@ -97,10 +97,6 @@ final class FeedlyAccountDelegate: AccountDelegate {
 	
 	// MARK: Account API
 	
-	func cancelAll(for account: Account) {
-		operationQueue.cancelAllOperations()
-	}
-	
 	func refreshAll(for account: Account, completion: @escaping (Result<Void, Error>) -> Void) {
 		assert(Thread.isMainThread)
 		
@@ -117,13 +113,14 @@ final class FeedlyAccountDelegate: AccountDelegate {
 		}
 		
 		let log = self.log
-		let operation = FeedlySyncAllOperation(account: account, credentials: credentials, caller: caller, database: database, lastSuccessfulFetchStartDate: accountMetadata?.lastArticleFetch, downloadProgress: refreshProgress, log: log)
+		let operation = FeedlySyncAllOperation(account: account, credentials: credentials, caller: caller, database: database, lastSuccessfulFetchStartDate: accountMetadata?.lastArticleFetchStartTime, downloadProgress: refreshProgress, log: log)
 		
 		operation.downloadProgress = refreshProgress
 		let date = Date()
 		operation.syncCompletionHandler = { [weak self] result in
 			if case .success = result {
-				self?.accountMetadata?.lastArticleFetch = date
+				self?.accountMetadata?.lastArticleFetchStartTime = date
+				self?.accountMetadata?.lastArticleFetchEndTime = Date()
 			}
 			
 			os_log(.debug, log: log, "Sync took %{public}.3f seconds", -date.timeIntervalSinceNow)
@@ -296,12 +293,14 @@ final class FeedlyAccountDelegate: AccountDelegate {
 				throw FeedlyAccountDelegateError.notLoggedIn
 			}
 			
-			let resource = FeedlyFeedResourceId(url: url)
 			let addNewFeed = try FeedlyAddNewFeedOperation(account: account,
 														   credentials: credentials,
-														   resource: resource,
+														   url: url,
 														   feedName: name,
-														   caller: caller,
+														   searchService: caller,
+														   addToCollectionService: caller,
+														   syncUnreadIdsService: caller,
+														   getStreamContentsService: caller,
 														   container: container,
 														   progress: refreshProgress,
 														   log: log)
@@ -357,7 +356,7 @@ final class FeedlyAccountDelegate: AccountDelegate {
 			let addExistingFeed = try FeedlyAddExistingFeedOperation(account: account,
 																	 credentials: credentials,
 																	 resource: resource,
-																	 caller: caller,
+																	 service: caller,
 																	 container: container,
 																	 progress: refreshProgress,
 																	 log: log)
@@ -513,13 +512,20 @@ final class FeedlyAccountDelegate: AccountDelegate {
 
 	// MARK: Suspend and Resume (for iOS)
 
-	/// Suspend the sync database so that it can close its SQLite file.
-	func suspend() {
+	/// Suspend all network activity
+	func suspendNetwork() {
+		caller.suspend()
+		operationQueue.cancelAllOperations()
+	}
+	
+	/// Suspend the SQLLite databases
+	func suspendDatabase() {
 		database.suspend()
 	}
-
-	/// Resume the sync database — let it reopen its SQLite file.
+	
+	/// Make sure no SQLite databases are open and we are ready to issue network requests.
 	func resume() {
 		database.resume()
+		caller.resume()
 	}
 }

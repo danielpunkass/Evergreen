@@ -32,11 +32,17 @@ final class FeedlySetUnreadArticlesOperation: FeedlyOperation {
 			return
 		}
 		
-		let group = DispatchGroup()
+		account.fetchUnreadArticleIDs(didFetchUnreadArticleIDs(_:))
+	}
+	
+	private func didFetchUnreadArticleIDs(_ localUnreadArticleIds: Set<String>) {
+		guard !isCancelled else {
+			didFinish()
+			return
+		}
 		
+		let group = DispatchGroup()
 		let remoteUnreadArticleIds = allUnreadIdsProvider.entryIds
-		//Set(entries.filter { $0.unread }.map { $0.id })
-		let localUnreadArticleIds = account.fetchUnreadArticleIDs()
 		
 		// Mark articles as unread
 		let deltaUnreadArticleIds = remoteUnreadArticleIds.subtracting(localUnreadArticleIds)
@@ -46,7 +52,7 @@ final class FeedlySetUnreadArticlesOperation: FeedlyOperation {
 		// Save any unread statuses for articles we haven't yet received
 		let markUnreadArticleIDs = Set(markUnreadArticles.map { $0.articleID })
 		let missingUnreadArticleIDs = deltaUnreadArticleIds.subtracting(markUnreadArticleIDs)
-		
+
 		group.enter()
 		account.ensureStatuses(missingUnreadArticleIDs, true, .read, false) {
 			group.leave()
@@ -64,9 +70,7 @@ final class FeedlySetUnreadArticlesOperation: FeedlyOperation {
 		account.ensureStatuses(missingReadArticleIDs, true, .read, true) {
 			group.leave()
 		}
-		
-		group.notify(queue: .main) {
-			self.didFinish()
-		}
+
+		group.notify(queue: .main, execute: didFinish)
 	}
 }
