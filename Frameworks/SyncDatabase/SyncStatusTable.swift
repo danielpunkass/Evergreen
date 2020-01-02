@@ -20,92 +20,124 @@ struct SyncStatusTable: DatabaseTable {
 		self.queue = queue
 	}
 
-	func selectForProcessing() -> [SyncStatus] {
-		var statuses: Set<SyncStatus>? = nil
-		
-		guard !queue.isSuspended else {
-			return [SyncStatus]()
-		}
-		
-		queue.runInDatabaseSync { database in
-			let updateSQL = "update syncStatus set selected = true"
-			database.executeUpdate(updateSQL, withArgumentsIn: nil)
-			
-			let selectSQL = "select * from syncStatus where selected == true"
-			if let resultSet = database.executeQuery(selectSQL, withArgumentsIn: nil) {
-				statuses = resultSet.mapToSet(self.statusWithRow)
-			}
-		}
+	func selectForProcessing(_ completion: @escaping SyncStatusesCompletionBlock) {
+		queue.runInTransaction { databaseResult in
+			var statuses = Set<SyncStatus>()
+			var error: DatabaseError?
 
-		return statuses != nil ? Array(statuses!) : [SyncStatus]()
-	}
-	
-	func selectPendingCount() -> Int {
-		var count: Int = 0
-		
-		guard !queue.isSuspended else {
-			return count
-		}
-		
-		queue.runInDatabaseSync { database in
-			let sql = "select count(*) from syncStatus"
-			if let resultSet = database.executeQuery(sql, withArgumentsIn: nil) {
-				count = numberWithCountResultSet(resultSet)
+			func makeDatabaseCall(_ database: FMDatabase) {
+				let updateSQL = "update syncStatus set selected = true"
+				database.executeUpdate(updateSQL, withArgumentsIn: nil)
+
+				let selectSQL = "select * from syncStatus where selected == true"
+				if let resultSet = database.executeQuery(selectSQL, withArgumentsIn: nil) {
+					statuses = resultSet.mapToSet(self.statusWithRow)
+				}
+			}
+
+			switch databaseResult {
+			case .success(let database):
+				makeDatabaseCall(database)
+			case .failure(let databaseError):
+				error = databaseError
+			}
+
+			DispatchQueue.main.async {
+				if let error = error {
+					completion(.failure(error))
+				}
+				else {
+					completion(.success(Array(statuses)))
+				}
 			}
 		}
-		
-		return count
 	}
 	
-	func resetSelectedForProcessing(_ articleIDs: [String], completion: VoidCompletionBlock? = nil) {
-		guard !queue.isSuspended else {
-            if let completion = completion {
-				callVoidCompletionBlock(completion)
-            }
-			return
+	func selectPendingCount(_ completion: @escaping DatabaseIntCompletionBlock) {
+		queue.runInDatabase { databaseResult in
+			var count: Int = 0
+			var error: DatabaseError?
+
+			func makeDatabaseCall(_ database: FMDatabase) {
+				let sql = "select count(*) from syncStatus"
+				if let resultSet = database.executeQuery(sql, withArgumentsIn: nil) {
+					count = self.numberWithCountResultSet(resultSet)
+				}
+			}
+
+			switch databaseResult {
+			case .success(let database):
+				makeDatabaseCall(database)
+			case .failure(let databaseError):
+				error = databaseError
+			}
+
+			DispatchQueue.main.async {
+				if let error = error {
+					completion(.failure(error))
+				}
+				else {
+					completion(.success(count))
+				}
+			}
 		}
-		queue.runInTransaction { database in
-			let parameters = articleIDs.map { $0 as AnyObject }
-			let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(articleIDs.count))!
-			let updateSQL = "update syncStatus set selected = false where articleID in \(placeholders)"
-			database.executeUpdate(updateSQL, withArgumentsIn: parameters)
-            if let completion = completion {
-				callVoidCompletionBlock(completion)
-            }
+	}
+
+	func resetSelectedForProcessing(_ articleIDs: [String], completion: DatabaseCompletionBlock? = nil) {
+		queue.runInTransaction { databaseResult in
+
+			func makeDatabaseCall(_ database: FMDatabase) {
+				let parameters = articleIDs.map { $0 as AnyObject }
+				let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(articleIDs.count))!
+				let updateSQL = "update syncStatus set selected = false where articleID in \(placeholders)"
+				database.executeUpdate(updateSQL, withArgumentsIn: parameters)
+			}
+
+			switch databaseResult {
+			case .success(let database):
+				makeDatabaseCall(database)
+				callCompletion(completion, nil)
+			case .failure(let databaseError):
+				callCompletion(completion, databaseError)
+			}
 		}
 	}
 	
-    func deleteSelectedForProcessing(_ articleIDs: [String], completion: VoidCompletionBlock? = nil) {
-		guard !queue.isSuspended else {
-            if let completion = completion {
-				callVoidCompletionBlock(completion)
-            }
-			return
-		}
-		queue.runInTransaction { database in
-			let parameters = articleIDs.map { $0 as AnyObject }
-			let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(articleIDs.count))!
-			let deleteSQL = "delete from syncStatus where articleID in \(placeholders)"
-			database.executeUpdate(deleteSQL, withArgumentsIn: parameters)
-            if let completion = completion {
- 				callVoidCompletionBlock(completion)
-            }
+    func deleteSelectedForProcessing(_ articleIDs: [String], completion: DatabaseCompletionBlock? = nil) {
+		queue.runInTransaction { databaseResult in
+
+			func makeDatabaseCall(_ database: FMDatabase) {
+				let parameters = articleIDs.map { $0 as AnyObject }
+				let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(articleIDs.count))!
+				let deleteSQL = "delete from syncStatus where articleID in \(placeholders)"
+				database.executeUpdate(deleteSQL, withArgumentsIn: parameters)
+			}
+
+			switch databaseResult {
+			case .success(let database):
+				makeDatabaseCall(database)
+				callCompletion(completion, nil)
+			case .failure(let databaseError):
+				callCompletion(completion, databaseError)
+			}
 		}
 	}
 	
-	func insertStatuses(_ statuses: [SyncStatus], completion: VoidCompletionBlock? = nil) {
-		guard !queue.isSuspended else {
-            if let completion = completion {
-				callVoidCompletionBlock(completion)
-            }
-			return
-		}
-		queue.runInTransaction { database in
-			let statusArray = statuses.map { $0.databaseDictionary() }
-			self.insertRows(statusArray, insertType: .orReplace, in: database)
-            if let completion = completion {
-				callVoidCompletionBlock(completion)
-            }
+	func insertStatuses(_ statuses: [SyncStatus], completion: DatabaseCompletionBlock? = nil) {
+		queue.runInTransaction { databaseResult in
+			
+			func makeDatabaseCall(_ database: FMDatabase) {
+				let statusArray = statuses.map { $0.databaseDictionary() }
+				self.insertRows(statusArray, insertType: .orReplace, in: database)
+			}
+
+			switch databaseResult {
+			case .success(let database):
+				makeDatabaseCall(database)
+				callCompletion(completion, nil)
+			case .failure(let databaseError):
+				callCompletion(completion, databaseError)
+			}
 		}
 	}
 }
@@ -123,5 +155,14 @@ private extension SyncStatusTable {
 		let selected = row.bool(forColumn: DatabaseKey.selected)
 		
 		return SyncStatus(articleID: articleID, key: key, flag: flag, selected: selected)
+	}
+}
+
+private func callCompletion(_ completion: DatabaseCompletionBlock?, _ databaseError: DatabaseError?) {
+	guard let completion = completion else {
+		return
+	}
+	DispatchQueue.main.async {
+		completion(databaseError)
 	}
 }

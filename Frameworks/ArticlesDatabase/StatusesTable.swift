@@ -85,30 +85,71 @@ final class StatusesTable: DatabaseTable {
 		return updatedStatuses
 	}
 
+	func mark(_ articleIDs: Set<String>, _ statusKey: ArticleStatus.Key, _ flag: Bool, _ database: FMDatabase) {
+		let statusesDictionary = ensureStatusesForArticleIDs(articleIDs, flag, database)
+		let statuses = Set(statusesDictionary.values)
+		mark(statuses, statusKey, flag, database)
+	}
+
 	// MARK: - Fetching
 
-	func fetchUnreadArticleIDs() -> Set<String> {
-		return fetchArticleIDs("select articleID from statuses where read=0 and userDeleted=0;")
+	func fetchUnreadArticleIDs() throws -> Set<String> {
+		return try fetchArticleIDs("select articleID from statuses where read=0 and userDeleted=0;")
 	}
 
-	func fetchStarredArticleIDs() -> Set<String> {
-		return fetchArticleIDs("select articleID from statuses where starred=1 and userDeleted=0;")
+	func fetchStarredArticleIDs() throws -> Set<String> {
+		return try fetchArticleIDs("select articleID from statuses where starred=1 and userDeleted=0;")
 	}
 	
-	func fetchArticleIDsForStatusesWithoutArticles() -> Set<String> {
-		return fetchArticleIDs("select articleID from statuses s where (read=0 or starred=1) and userDeleted=0 and not exists (select 1 from articles a where a.articleID = s.articleID);")
-	}
-	
-	func fetchArticleIDs(_ sql: String) -> Set<String> {
-		var articleIDs = Set<String>()
-		guard !queue.isSuspended else {
-			return articleIDs
-		}
-		queue.runInDatabaseSync { (database) in
-			guard let resultSet = database.executeQuery(sql, withArgumentsIn: nil) else {
-				return
+	func fetchArticleIDsForStatusesWithoutArticlesNewerThan(_ cutoffDate: Date, _ completion: @escaping ArticleIDsCompletionBlock) {
+		queue.runInDatabase { databaseResult in
+			
+			var error: DatabaseError?
+			var articleIDs = Set<String>()
+			
+			func makeDatabaseCall(_ database: FMDatabase) {
+				let sql = "select articleID from statuses s where ((starred=1) || (read=0 and dateArrived > ?)) and userDeleted=0 and not exists (select 1 from articles a where a.articleID = s.articleID);"
+				if let resultSet = database.executeQuery(sql, withArgumentsIn: [cutoffDate]) {
+					articleIDs = resultSet.mapToSet(self.articleIDWithRow)
+				}
 			}
-			articleIDs = resultSet.mapToSet(self.articleIDWithRow)
+			
+			switch databaseResult {
+			case .success(let database):
+				makeDatabaseCall(database)
+			case .failure(let databaseError):
+				error = databaseError
+			}
+			
+			if let error = error {
+				DispatchQueue.main.async {
+					completion(.failure(error))
+				}
+			}
+			else {
+				DispatchQueue.main.async {
+					completion(.success(articleIDs))
+				}
+			}
+		}
+	}
+	
+	func fetchArticleIDs(_ sql: String) throws -> Set<String> {
+		var error: DatabaseError?
+		var articleIDs = Set<String>()
+		queue.runInDatabaseSync { databaseResult in
+			switch databaseResult {
+			case .success(let database):
+				if let resultSet = database.executeQuery(sql, withArgumentsIn: nil) {
+					articleIDs = resultSet.mapToSet(self.articleIDWithRow)
+				}
+			case .failure(let databaseError):
+				error = databaseError
+			}
+		}
+
+		if let error = error {
+			throw(error)
 		}
 		return articleIDs
 	}

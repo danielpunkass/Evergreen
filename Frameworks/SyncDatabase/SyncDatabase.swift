@@ -10,19 +10,17 @@ import Foundation
 import RSCore
 import RSDatabase
 
-public struct SyncDatabase {
+public typealias SyncStatusesResult = Result<Array<SyncStatus>, DatabaseError>
+public typealias SyncStatusesCompletionBlock = (SyncStatusesResult) -> Void
 
-	/// When SyncDatabase is suspended, database calls will crash the app.
-	public var isSuspended: Bool {
-		return queue.isSuspended
-	}
+public struct SyncDatabase {
 
 	private let syncStatusTable: SyncStatusTable
 	private let queue: DatabaseQueue
 
 	public init(databaseFilePath: String) {
 		let queue = DatabaseQueue(databasePath: databaseFilePath)
-		queue.runCreateStatements(SyncDatabase.tableCreationStatements)
+		try! queue.runCreateStatements(SyncDatabase.tableCreationStatements)
 		queue.vacuumIfNeeded(daysBetweenVacuums: 11)
 		self.queue = queue
 
@@ -31,23 +29,23 @@ public struct SyncDatabase {
 
 	// MARK: - API
 
-	public func insertStatuses(_ statuses: [SyncStatus], completion: VoidCompletionBlock? = nil) {
+	public func insertStatuses(_ statuses: [SyncStatus], completion: DatabaseCompletionBlock? = nil) {
 		syncStatusTable.insertStatuses(statuses, completion: completion)
 	}
 	
-	public func selectForProcessing() -> [SyncStatus] {
-		return syncStatusTable.selectForProcessing()
+	public func selectForProcessing(completion: @escaping SyncStatusesCompletionBlock) {
+		return syncStatusTable.selectForProcessing(completion)
 	}
-	
-	public func selectPendingCount() -> Int {
-		return syncStatusTable.selectPendingCount()
+
+	public func selectPendingCount(completion: @escaping DatabaseIntCompletionBlock) {
+		syncStatusTable.selectPendingCount(completion)
 	}
-	
-	public func resetSelectedForProcessing(_ articleIDs: [String], completion: VoidCompletionBlock? = nil) {
+
+	public func resetSelectedForProcessing(_ articleIDs: [String], completion: DatabaseCompletionBlock? = nil) {
 		syncStatusTable.resetSelectedForProcessing(articleIDs, completion: completion)
 	}
 	
-    public func deleteSelectedForProcessing(_ articleIDs: [String], completion: VoidCompletionBlock? = nil) {
+    public func deleteSelectedForProcessing(_ articleIDs: [String], completion: DatabaseCompletionBlock? = nil) {
 		syncStatusTable.deleteSelectedForProcessing(articleIDs, completion: completion)
 	}
 

@@ -31,46 +31,62 @@ final class FeedlySetUnreadArticlesOperation: FeedlyOperation {
 			didFinish()
 			return
 		}
-		
-		account.fetchUnreadArticleIDs(didFetchUnreadArticleIDs(_:))
+
+		account.fetchUnreadArticleIDs { result in
+			switch result {
+			case .success(let localUnreadArticleIDs):
+				self.processUnreadArticleIDs(localUnreadArticleIDs)
+				
+			case .failure(let error):
+				self.didFinish(error)
+			}
+		}
 	}
-	
-	private func didFetchUnreadArticleIDs(_ localUnreadArticleIds: Set<String>) {
+}
+
+private extension FeedlySetUnreadArticlesOperation {
+
+	private func processUnreadArticleIDs(_ localUnreadArticleIDs: Set<String>) {
 		guard !isCancelled else {
+			didFinish()
+			return
+		}
+
+		let remoteUnreadArticleIDs = allUnreadIdsProvider.entryIds
+		guard !remoteUnreadArticleIDs.isEmpty else {
 			didFinish()
 			return
 		}
 		
 		let group = DispatchGroup()
-		let remoteUnreadArticleIds = allUnreadIdsProvider.entryIds
 		
-		// Mark articles as unread
-		let deltaUnreadArticleIds = remoteUnreadArticleIds.subtracting(localUnreadArticleIds)
-		let markUnreadArticles = account.fetchArticles(.articleIDs(deltaUnreadArticleIds))
-		account.update(markUnreadArticles, statusKey: .read, flag: false)
-
-		// Save any unread statuses for articles we haven't yet received
-		let markUnreadArticleIDs = Set(markUnreadArticles.map { $0.articleID })
-		let missingUnreadArticleIDs = deltaUnreadArticleIds.subtracting(markUnreadArticleIDs)
-
+		final class ReadStatusResults {
+			var markAsUnreadError: Error?
+			var markAsReadError: Error?
+		}
+		
+		let results = ReadStatusResults()
+		
 		group.enter()
-		account.ensureStatuses(missingUnreadArticleIDs, true, .read, false) {
+		account.markAsUnread(remoteUnreadArticleIDs) { error in
+			results.markAsUnreadError = error
 			group.leave()
 		}
 
-		// Mark articles as read
-		let deltaReadArticleIds = localUnreadArticleIds.subtracting(remoteUnreadArticleIds)
-		let markReadArticles = account.fetchArticles(.articleIDs(deltaReadArticleIds))
-		account.update(markReadArticles, statusKey: .read, flag: true)
-
-		// Save any read statuses for articles we haven't yet received
-		let markReadArticleIDs = Set(markReadArticles.map { $0.articleID })
-		let missingReadArticleIDs = deltaReadArticleIds.subtracting(markReadArticleIDs)
+		let articleIDsToMarkRead = localUnreadArticleIDs.subtracting(remoteUnreadArticleIDs)
 		group.enter()
-		account.ensureStatuses(missingReadArticleIDs, true, .read, true) {
+		account.markAsRead(articleIDsToMarkRead) { error in
+			results.markAsReadError = error
 			group.leave()
 		}
 
-		group.notify(queue: .main, execute: didFinish)
+		group.notify(queue: .main) {
+			let markingError = results.markAsReadError ?? results.markAsUnreadError
+			guard let error = markingError else {
+				self.didFinish()
+				return
+			}
+			self.didFinish(error)
+		}
 	}
 }

@@ -18,15 +18,30 @@ import Articles
 // Main thread only.
 
 public typealias UnreadCountDictionary = [String: Int] // webFeedID: unreadCount
-public typealias UnreadCountCompletionBlock = (UnreadCountDictionary) -> Void
-public typealias UpdateArticlesCompletionBlock = (Set<Article>?, Set<Article>?) -> Void //newArticles, updatedArticles
+public typealias UnreadCountDictionaryCompletionResult = Result<UnreadCountDictionary,DatabaseError>
+public typealias UnreadCountDictionaryCompletionBlock = (UnreadCountDictionaryCompletionResult) -> Void
+
+public typealias SingleUnreadCountResult = Result<Int, DatabaseError>
+public typealias SingleUnreadCountCompletionBlock = (SingleUnreadCountResult) -> Void
+
+public struct NewAndUpdatedArticles {
+	public let newArticles: Set<Article>?
+	public let updatedArticles: Set<Article>?
+}
+
+public typealias UpdateArticlesResult = Result<NewAndUpdatedArticles, DatabaseError>
+public typealias UpdateArticlesCompletionBlock = (UpdateArticlesResult) -> Void
+
+public typealias ArticleSetResult = Result<Set<Article>, DatabaseError>
+public typealias ArticleSetResultBlock = (ArticleSetResult) -> Void
+
+public typealias ArticleIDsResult = Result<Set<String>, DatabaseError>
+public typealias ArticleIDsCompletionBlock = (ArticleIDsResult) -> Void
+
+public typealias ArticleStatusesResult = Result<Set<ArticleStatus>, DatabaseError>
+public typealias ArticleStatusesResultBlock = (ArticleStatusesResult) -> Void
 
 public final class ArticlesDatabase {
-
-	/// When ArticlesDatabase is suspended, database calls will crash the app.
-	public var isSuspended: Bool {
-		return queue.isSuspended
-	}
 
 	private let articlesTable: ArticlesTable
 	private let queue: DatabaseQueue
@@ -36,8 +51,9 @@ public final class ArticlesDatabase {
 		self.queue = queue
 		self.articlesTable = ArticlesTable(name: DatabaseTableName.articles, accountID: accountID, queue: queue)
 
-		queue.runCreateStatements(ArticlesDatabase.tableCreationStatements)
-		queue.runInDatabase { database in
+		try! queue.runCreateStatements(ArticlesDatabase.tableCreationStatements)
+		queue.runInDatabase { databaseResult in
+			let database = databaseResult.database!
 			if !self.articlesTable.containsColumn("searchRowID", in: database) {
 				database.executeStatements("ALTER TABLE articles add column searchRowID INTEGER;")
 			}
@@ -45,7 +61,7 @@ public final class ArticlesDatabase {
 			database.executeStatements("DROP TABLE if EXISTS tags;DROP INDEX if EXISTS tags_tagName_index;DROP INDEX if EXISTS articles_feedID_index;DROP INDEX if EXISTS statuses_read_index;DROP TABLE if EXISTS attachments;DROP TABLE if EXISTS attachmentsLookup;")
 		}
 
-		queue.vacuumIfNeeded(daysBetweenVacuums: 9)
+//		queue.vacuumIfNeeded(daysBetweenVacuums: 9) // TODO: restore this after we do database cleanups.
 		DispatchQueue.main.async {
 			self.articlesTable.indexUnindexedArticles()
 		}
@@ -53,127 +69,124 @@ public final class ArticlesDatabase {
 
 	// MARK: - Fetching Articles
 
-	public func fetchArticles(_ webFeedID: String) -> Set<Article> {
-		return articlesTable.fetchArticles(webFeedID)
+	public func fetchArticles(_ webFeedID: String) throws -> Set<Article> {
+		return try articlesTable.fetchArticles(webFeedID)
 	}
 	
-	public func fetchArticles(_ webFeedIDs: Set<String>) -> Set<Article> {
-		return articlesTable.fetchArticles(webFeedIDs)
+	public func fetchArticles(_ webFeedIDs: Set<String>) throws -> Set<Article> {
+		return try articlesTable.fetchArticles(webFeedIDs)
 	}
 
-	public func fetchArticles(articleIDs: Set<String>) -> Set<Article> {
-		return articlesTable.fetchArticles(articleIDs: articleIDs)
+	public func fetchArticles(articleIDs: Set<String>) throws -> Set<Article> {
+		return try articlesTable.fetchArticles(articleIDs: articleIDs)
 	}
 
-	public func fetchUnreadArticles(_ webFeedIDs: Set<String>) -> Set<Article> {
-		return articlesTable.fetchUnreadArticles(webFeedIDs)
+	public func fetchUnreadArticles(_ webFeedIDs: Set<String>) throws -> Set<Article> {
+		return try articlesTable.fetchUnreadArticles(webFeedIDs)
 	}
 
-	public func fetchTodayArticles(_ webFeedIDs: Set<String>) -> Set<Article> {
-		return articlesTable.fetchArticlesSince(webFeedIDs, todayCutoffDate())
+	public func fetchTodayArticles(_ webFeedIDs: Set<String>) throws -> Set<Article> {
+		return try articlesTable.fetchArticlesSince(webFeedIDs, todayCutoffDate())
 	}
 
-	public func fetchStarredArticles(_ webFeedIDs: Set<String>) -> Set<Article> {
-		return articlesTable.fetchStarredArticles(webFeedIDs)
+	public func fetchStarredArticles(_ webFeedIDs: Set<String>) throws -> Set<Article> {
+		return try articlesTable.fetchStarredArticles(webFeedIDs)
 	}
 
-	public func fetchArticlesMatching(_ searchString: String, _ webFeedIDs: Set<String>) -> Set<Article> {
-		return articlesTable.fetchArticlesMatching(searchString, webFeedIDs)
+	public func fetchArticlesMatching(_ searchString: String, _ webFeedIDs: Set<String>) throws -> Set<Article> {
+		return try articlesTable.fetchArticlesMatching(searchString, webFeedIDs)
 	}
 
-	public func fetchArticlesMatchingWithArticleIDs(_ searchString: String, _ articleIDs: Set<String>) -> Set<Article> {
-		return articlesTable.fetchArticlesMatchingWithArticleIDs(searchString, articleIDs)
+	public func fetchArticlesMatchingWithArticleIDs(_ searchString: String, _ articleIDs: Set<String>) throws -> Set<Article> {
+		return try articlesTable.fetchArticlesMatchingWithArticleIDs(searchString, articleIDs)
 	}
 
 	// MARK: - Fetching Articles Async
 
-	public func fetchArticlesAsync(_ webFeedID: String, _ completion: @escaping ArticleSetBlock) {
+	public func fetchArticlesAsync(_ webFeedID: String, _ completion: @escaping ArticleSetResultBlock) {
 		articlesTable.fetchArticlesAsync(webFeedID, completion)
 	}
 
-	public func fetchArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+	public func fetchArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
 		articlesTable.fetchArticlesAsync(webFeedIDs, completion)
 	}
 
-	public func fetchArticlesAsync(articleIDs: Set<String>, _ completion: @escaping  ArticleSetBlock) {
+	public func fetchArticlesAsync(articleIDs: Set<String>, _ completion: @escaping  ArticleSetResultBlock) {
 		articlesTable.fetchArticlesAsync(articleIDs: articleIDs, completion)
 	}
 
-	public func fetchUnreadArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+	public func fetchUnreadArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
 		articlesTable.fetchUnreadArticlesAsync(webFeedIDs, completion)
 	}
 
-	public func fetchTodayArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+	public func fetchTodayArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
 		articlesTable.fetchArticlesSinceAsync(webFeedIDs, todayCutoffDate(), completion)
 	}
 
-	public func fetchedStarredArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+	public func fetchedStarredArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
 		articlesTable.fetchStarredArticlesAsync(webFeedIDs, completion)
 	}
 
-	public func fetchArticlesMatchingAsync(_ searchString: String, _ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+	public func fetchArticlesMatchingAsync(_ searchString: String, _ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
 		articlesTable.fetchArticlesMatchingAsync(searchString, webFeedIDs, completion)
 	}
 
-	public func fetchArticlesMatchingWithArticleIDsAsync(_ searchString: String, _ articleIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+	public func fetchArticlesMatchingWithArticleIDsAsync(_ searchString: String, _ articleIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
 		articlesTable.fetchArticlesMatchingWithArticleIDsAsync(searchString, articleIDs, completion)
 	}
 
 	// MARK: - Unread Counts
 	
-	public func fetchUnreadCounts(for webFeedIDs: Set<String>, _ completion: @escaping UnreadCountCompletionBlock) {
+	public func fetchUnreadCounts(for webFeedIDs: Set<String>, _ completion: @escaping UnreadCountDictionaryCompletionBlock) {
 		articlesTable.fetchUnreadCounts(webFeedIDs, completion)
 	}
 
-	public func fetchUnreadCountForToday(for webFeedIDs: Set<String>, completion: @escaping (Int) -> Void) {
+	public func fetchAllNonZeroUnreadCounts(_ completion: @escaping UnreadCountDictionaryCompletionBlock) {
+		articlesTable.fetchAllUnreadCounts(completion)
+	}
+
+	public func fetchUnreadCountForToday(for webFeedIDs: Set<String>, completion: @escaping SingleUnreadCountCompletionBlock) {
 		fetchUnreadCount(for: webFeedIDs, since: todayCutoffDate(), completion: completion)
 	}
 
-	public func fetchUnreadCount(for webFeedIDs: Set<String>, since: Date, completion: @escaping (Int) -> Void) {
+	public func fetchUnreadCount(for webFeedIDs: Set<String>, since: Date, completion: @escaping SingleUnreadCountCompletionBlock) {
 		articlesTable.fetchUnreadCount(webFeedIDs, since, completion)
 	}
 
-	public func fetchStarredAndUnreadCount(for webFeedIDs: Set<String>, completion: @escaping (Int) -> Void) {
+	public func fetchStarredAndUnreadCount(for webFeedIDs: Set<String>, completion: @escaping SingleUnreadCountCompletionBlock) {
 		articlesTable.fetchStarredAndUnreadCount(webFeedIDs, completion)
-	}
-
-	public func fetchAllNonZeroUnreadCounts(_ completion: @escaping UnreadCountCompletionBlock) {
-		articlesTable.fetchAllUnreadCounts(completion)
 	}
 
 	// MARK: - Saving and Updating Articles
 
-	/// Update articles and save new ones. The key for ewbFeedIDsAndItems is webFeedID.
-	public func update(webFeedIDsAndItems: [String: Set<ParsedItem>], defaultRead: Bool, completion: @escaping UpdateArticlesCompletionBlock) {
-		articlesTable.update(webFeedIDsAndItems, defaultRead, completion)
+	/// Update articles and save new ones.
+	public func update(webFeedID: String, items: Set<ParsedItem>, defaultRead: Bool, completion: @escaping UpdateArticlesCompletionBlock) {
+		articlesTable.update(webFeedID, items, defaultRead, completion)
 	}
 
-	public func ensureStatuses(_ articleIDs: Set<String>, _ defaultRead: Bool, _ statusKey: ArticleStatus.Key, _ flag: Bool, completion: VoidCompletionBlock? = nil) {
-		articlesTable.ensureStatuses(articleIDs, defaultRead, statusKey, flag, completion: completion)
-	}
-	
 	// MARK: - Status
 
 	/// Fetch the articleIDs of unread articles in feeds specified by webFeedIDs.
-	public func fetchUnreadArticleIDsAsync(webFeedIDs: Set<String>, completion: @escaping (Set<String>) -> Void) {
+	public func fetchUnreadArticleIDsAsync(webFeedIDs: Set<String>, completion: @escaping ArticleIDsCompletionBlock) {
 		articlesTable.fetchUnreadArticleIDsAsync(webFeedIDs, completion)
 	}
 	
 	/// Fetch the articleIDs of starred articles in feeds specified by webFeedIDs.
-	public func fetchStarredArticleIDsAsync(webFeedIDs: Set<String>, completion: @escaping (Set<String>) -> Void) {
+	public func fetchStarredArticleIDsAsync(webFeedIDs: Set<String>, completion: @escaping ArticleIDsCompletionBlock) {
 		articlesTable.fetchStarredArticleIDsAsync(webFeedIDs, completion)
 	}
 
-	public func fetchArticleIDsForStatusesWithoutArticles() -> Set<String> {
-		return articlesTable.fetchArticleIDsForStatusesWithoutArticles()
-	}
-	
-	public func mark(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) -> Set<ArticleStatus>? {
-		return articlesTable.mark(articles, statusKey, flag)
+	/// Fetch articleIDs for articles that we should have, but don’t. These articles are not userDeleted, and they are either (starred) or (unread and newer than the article cutoff date).
+	public func fetchArticleIDsForStatusesWithoutArticlesNewerThanCutoffDate(_ completion: @escaping ArticleIDsCompletionBlock) {
+		articlesTable.fetchArticleIDsForStatusesWithoutArticlesNewerThanCutoffDate(completion)
 	}
 
-	public func fetchStatuses(articleIDs: Set<String>, createIfNeeded: Bool, completion: @escaping (Set<ArticleStatus>?) -> Void) {
-		articlesTable.fetchStatuses(articleIDs, createIfNeeded, completion)
+	public func mark(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) throws -> Set<ArticleStatus>? {
+		return try articlesTable.mark(articles, statusKey, flag)
+	}
+
+	public func mark(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping DatabaseCompletionBlock) {
+		articlesTable.mark(articleIDs, statusKey, flag, completion)
 	}
 
 	// MARK: - Suspend and Resume (for iOS)

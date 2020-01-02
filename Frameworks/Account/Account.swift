@@ -14,6 +14,7 @@ import Foundation
 import RSCore
 import Articles
 import RSParser
+import RSDatabase
 import ArticlesDatabase
 import RSWeb
 import os.log
@@ -63,6 +64,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		public static let updatedArticles = "updatedArticles" // AccountDidDownloadArticles
 		public static let statuses = "statuses" // StatusesDidChange
 		public static let articles = "articles" // StatusesDidChange
+		public static let articleIDs = "articleIDs" // StatusesDidChange
 		public static let webFeeds = "webFeeds" // AccountDidDownloadArticles, StatusesDidChange
 	}
 
@@ -241,11 +243,12 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			self.delegate = FeedlyAccountDelegate(dataFolder: dataFolder, transport: transport, api: FeedlyAccountDelegate.environment)
 		case .feedWrangler:
 			self.delegate = FeedWranglerAccountDelegate(dataFolder: dataFolder, transport: transport)
-
 		default:
 			return nil
 		}
 
+		self.delegate.accountMetadata = metadata
+		
 		self.accountID = accountID
 		self.type = type
 		self.dataFolder = dataFolder
@@ -488,7 +491,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		for feed in flattenedWebFeeds() {
 			feed.metadata = webFeedMetadata(feedURL: feed.url, webFeedID: feed.webFeedID)
 		}
-		precondition(!database.isSuspended)
 		fetchAllUnreadCounts()
 		NotificationCenter.default.post(name: .WebFeedMetadataDidChange, object: self, userInfo: nil)
 	}
@@ -602,47 +604,51 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		structureDidChange()
 	}
 	
-	public func updateUnreadCounts(for webFeeds: Set<WebFeed>, completion: (() -> Void)? = nil) {
+	public func updateUnreadCounts(for webFeeds: Set<WebFeed>, completion: VoidCompletionBlock? = nil) {
 		if webFeeds.isEmpty {
+			completion?()
 			return
 		}
 		
-		database.fetchUnreadCounts(for: webFeeds.webFeedIDs()) { (unreadCountDictionary) in
-			for webFeed in webFeeds {
-				if let unreadCount = unreadCountDictionary[webFeed.webFeedID] {
-					webFeed.unreadCount = unreadCount
+		database.fetchUnreadCounts(for: webFeeds.webFeedIDs()) { unreadCountDictionaryResult in
+			if let unreadCountDictionary = try? unreadCountDictionaryResult.get() {
+				for webFeed in webFeeds {
+					if let unreadCount = unreadCountDictionary[webFeed.webFeedID] {
+						webFeed.unreadCount = unreadCount
+					}
 				}
 			}
+
 			completion?()
 		}
 	}
 
-	public func fetchArticles(_ fetchType: FetchType) -> Set<Article> {
+	public func fetchArticles(_ fetchType: FetchType) throws -> Set<Article> {
 		switch fetchType {
 		case .starred:
-			return fetchStarredArticles()
+			return try fetchStarredArticles()
 		case .unread:
-			return fetchUnreadArticles()
+			return try fetchUnreadArticles()
 		case .today:
-			return fetchTodayArticles()
+			return try fetchTodayArticles()
 		case .folder(let folder, let readFilter):
 			if readFilter {
-				return fetchUnreadArticles(folder: folder)
+				return try fetchUnreadArticles(folder: folder)
 			} else {
-				return fetchArticles(folder: folder)
+				return try fetchArticles(folder: folder)
 			}
 		case .webFeed(let webFeed):
-			return fetchArticles(webFeed: webFeed)
+			return try fetchArticles(webFeed: webFeed)
 		case .articleIDs(let articleIDs):
-			return fetchArticles(articleIDs: articleIDs)
+			return try fetchArticles(articleIDs: articleIDs)
 		case .search(let searchString):
-			return fetchArticlesMatching(searchString)
+			return try fetchArticlesMatching(searchString)
 		case .searchWithArticleIDs(let searchString, let articleIDs):
-			return fetchArticlesMatchingWithArticleIDs(searchString, articleIDs)
+			return try fetchArticlesMatchingWithArticleIDs(searchString, articleIDs)
 		}
 	}
 
-	public func fetchArticlesAsync(_ fetchType: FetchType, _ completion: @escaping ArticleSetBlock) {
+	public func fetchArticlesAsync(_ fetchType: FetchType, _ completion: @escaping ArticleSetResultBlock) {
 		switch fetchType {
 		case .starred:
 			fetchStarredArticlesAsync(completion)
@@ -667,26 +673,27 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		}
 	}
 
-	public func fetchUnreadCountForToday(_ completion: @escaping (Int) -> Void) {
+	public func fetchUnreadCountForToday(_ completion: @escaping SingleUnreadCountCompletionBlock) {
 		database.fetchUnreadCountForToday(for: flattenedWebFeeds().webFeedIDs(), completion: completion)
 	}
 
-	public func fetchUnreadCountForStarredArticles(_ completion: @escaping (Int) -> Void) {
+	public func fetchUnreadCountForStarredArticles(_ completion: @escaping SingleUnreadCountCompletionBlock) {
 		database.fetchStarredAndUnreadCount(for: flattenedWebFeeds().webFeedIDs(), completion: completion)
 	}
 
-	public func fetchUnreadArticleIDs(_ completion: @escaping (Set<String>) -> Void) {
+	public func fetchUnreadArticleIDs(_ completion: @escaping ArticleIDsCompletionBlock) {
 		database.fetchUnreadArticleIDsAsync(webFeedIDs: flattenedWebFeeds().webFeedIDs(), completion: completion)
 	}
 
-	public func fetchStarredArticleIDs(_ completion: @escaping (Set<String>) -> Void) {
+	public func fetchStarredArticleIDs(_ completion: @escaping ArticleIDsCompletionBlock) {
 		database.fetchStarredArticleIDsAsync(webFeedIDs: flattenedWebFeeds().webFeedIDs(), completion: completion)
 	}
 
-	public func fetchArticleIDsForStatusesWithoutArticles() -> Set<String> {
-		return database.fetchArticleIDsForStatusesWithoutArticles()
+	/// Fetch articleIDs for articles that we should have, but don’t. These articles are not userDeleted, and they are either (starred) or (unread and newer than the article cutoff date).
+	public func fetchArticleIDsForStatusesWithoutArticlesNewerThanCutoffDate(_ completion: @escaping ArticleIDsCompletionBlock) {
+		database.fetchArticleIDsForStatusesWithoutArticlesNewerThanCutoffDate(completion)
 	}
-
+	
 	public func unreadCount(for webFeed: WebFeed) -> Int {
 		return unreadCounts[webFeed.webFeedID] ?? 0
 	}
@@ -705,45 +712,75 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		webFeedDictionaryNeedsUpdate = true
 	}
 
-	func update(_ webFeed: WebFeed, with parsedFeed: ParsedFeed, _ completion: @escaping (() -> Void)) {
+	func update(_ webFeed: WebFeed, with parsedFeed: ParsedFeed, _ completion: @escaping DatabaseCompletionBlock) {
 		// Used only by an On My Mac account.
 		webFeed.takeSettings(from: parsedFeed)
 		let webFeedIDsAndItems = [webFeed.webFeedID: parsedFeed.items]
 		update(webFeedIDsAndItems: webFeedIDsAndItems, defaultRead: false, completion: completion)
 	}
 
-	func update(webFeedIDsAndItems: [String: Set<ParsedItem>], defaultRead: Bool, completion: @escaping (() -> Void)) {
-		assert(Thread.isMainThread)
+	func update(webFeedIDsAndItems: [String: Set<ParsedItem>], defaultRead: Bool, completion: @escaping DatabaseCompletionBlock) {
+		precondition(Thread.isMainThread)
 		guard !webFeedIDsAndItems.isEmpty else {
-			completion()
+			completion(nil)
 			return
 		}
-		database.update(webFeedIDsAndItems: webFeedIDsAndItems, defaultRead: defaultRead) { (newArticles, updatedArticles) in
+		
+		let group = DispatchGroup()
+		var possibleError: DatabaseError? = nil
+		var newArticles = Set<Article>()
+		var updatedArticles = Set<Article>()
+		
+		for (webFeedID, items) in webFeedIDsAndItems {
+			
+			group.enter()
+			database.update(webFeedID: webFeedID, items: items, defaultRead: defaultRead) { updateArticlesResult in
+
+				switch updateArticlesResult {
+				case .success(let newAndUpdatedArticles):
+					if let articles = newAndUpdatedArticles.newArticles {
+						newArticles.formUnion(articles)
+					}
+					if let articles = newAndUpdatedArticles.updatedArticles {
+						updatedArticles.formUnion(articles)
+					}
+				case .failure(let databaseError):
+					possibleError = databaseError
+				}
+				
+				group.leave()
+			}
+			
+		}
+		
+		group.notify(queue: DispatchQueue.main) {
 			var userInfo = [String: Any]()
-			let webFeeds = Set(webFeedIDsAndItems.compactMap { (key, _) -> WebFeed? in
-				self.existingWebFeed(withWebFeedID: key)
-			})
-			if let newArticles = newArticles, !newArticles.isEmpty {
+			var webFeeds = Set(newArticles.compactMap { $0.webFeed })
+			webFeeds.formUnion(Set(updatedArticles.compactMap { $0.webFeed }))
+			
+			if !newArticles.isEmpty {
 				self.updateUnreadCounts(for: webFeeds) {
 					NotificationCenter.default.post(name: .DownloadArticlesDidUpdateUnreadCounts, object: self, userInfo: nil)
 				}
 				userInfo[UserInfoKey.newArticles] = newArticles
 			}
-			if let updatedArticles = updatedArticles, !updatedArticles.isEmpty {
+			
+			if !updatedArticles.isEmpty {
 				userInfo[UserInfoKey.updatedArticles] = updatedArticles
 			}
+			
 			userInfo[UserInfoKey.webFeeds] = webFeeds
-
-			completion()
-
 			NotificationCenter.default.post(name: .AccountDidDownloadArticles, object: self, userInfo: userInfo)
+			
+			completion(possibleError)
 		}
+		
 	}
 
 	@discardableResult
-	func update(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) -> Set<Article>? {
+	func update(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) throws -> Set<Article>? {
 		// Returns set of Articles whose statuses did change.
-		guard !articles.isEmpty, let updatedStatuses = database.mark(articles, statusKey: statusKey, flag: flag) else {
+		guard !articles.isEmpty, let updatedStatuses = try database.mark(articles, statusKey: statusKey, flag: flag) else {
 			return nil
 		}
 		
@@ -754,23 +791,41 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		return updatedArticles
 	}
 
-	func ensureStatuses(_ articleIDs: Set<String>, _ defaultRead: Bool, _ statusKey: ArticleStatus.Key, _ flag: Bool, completion: VoidCompletionBlock? = nil) {
+	/// Mark articleIDs statuses based on statusKey and flag.
+	/// Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
+	func mark(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool, completion: DatabaseCompletionBlock? = nil) {
 		guard !articleIDs.isEmpty else {
-			completion?()
+			completion?(nil)
 			return
 		}
-		database.ensureStatuses(articleIDs, defaultRead, statusKey, flag, completion: completion)
+		database.mark(articleIDs: articleIDs, statusKey: statusKey, flag: flag) { error in
+			if let error = error {
+				completion?(error)
+				return
+			}
+			self.noteStatusesForArticleIDsDidChange(articleIDs)
+			completion?(nil)
+		}
 	}
 
-	/// Update statuses — set a key and value. This updates the database, and sends a .StatusesDidChange notification.
-	func update(statuses: Set<ArticleStatus>, statusKey: ArticleStatus.Key, flag: Bool) {
-		// TODO: https://github.com/brentsimmons/NetNewsWire/issues/1420
+	/// Mark articleIDs as read. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
+	func markAsRead(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
+		mark(articleIDs: articleIDs, statusKey: .read, flag: true, completion: completion)
 	}
 
-	/// Fetch statuses for the specified articleIDs. The completion handler will get nil if the app is suspended.
-	/// To update the properties in the database, call the update method that takes Set<ArticleStatus> as first parameter.
-	func fetchStatuses(articleIDs: Set<String>, createIfNeeded: Bool, completion: @escaping (Set<ArticleStatus>?) -> Void) {
-		database.fetchStatuses(articleIDs: articleIDs, createIfNeeded: createIfNeeded, completion: completion)
+	/// Mark articleIDs as unread. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
+	func markAsUnread(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
+		mark(articleIDs: articleIDs, statusKey: .read, flag: false, completion: completion)
+	}
+
+	/// Mark articleIDs as starred. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
+	func markAsStarred(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
+		mark(articleIDs: articleIDs, statusKey: .starred, flag: true, completion: completion)
+	}
+
+	/// Mark articleIDs as unstarred. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
+	func markAsUnstarred(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
+		mark(articleIDs: articleIDs, statusKey: .starred, flag: false, completion: completion)
 	}
 
 	/// Empty caches that can reasonably be emptied. Call when the app goes in the background, for instance.
@@ -832,7 +887,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	public func debugRunSearch() {
 		#if DEBUG
 			let t1 = Date()
-			let articles = fetchArticlesMatching("Brent NetNewsWire")
+			let articles = try! fetchArticlesMatching("Brent NetNewsWire")
 			let t2 = Date()
 			print(t2.timeIntervalSince(t1))
 			print(articles.count)
@@ -919,85 +974,90 @@ extension Account: WebFeedMetadataDelegate {
 
 private extension Account {
 
-	func fetchStarredArticles() -> Set<Article> {
-		return database.fetchStarredArticles(flattenedWebFeeds().webFeedIDs())
+	func fetchStarredArticles() throws -> Set<Article> {
+		return try database.fetchStarredArticles(flattenedWebFeeds().webFeedIDs())
 	}
 
-	func fetchStarredArticlesAsync(_ completion: @escaping ArticleSetBlock) {
+	func fetchStarredArticlesAsync(_ completion: @escaping ArticleSetResultBlock) {
 		database.fetchedStarredArticlesAsync(flattenedWebFeeds().webFeedIDs(), completion)
 	}
 
-	func fetchUnreadArticles() -> Set<Article> {
-		return fetchUnreadArticles(forContainer: self)
+	func fetchUnreadArticles() throws -> Set<Article> {
+		return try fetchUnreadArticles(forContainer: self)
 	}
 
-	func fetchUnreadArticlesAsync(_ completion: @escaping ArticleSetBlock) {
+	func fetchUnreadArticlesAsync(_ completion: @escaping ArticleSetResultBlock) {
 		fetchUnreadArticlesAsync(forContainer: self, completion)
 	}
 
-	func fetchTodayArticles() -> Set<Article> {
-		return database.fetchTodayArticles(flattenedWebFeeds().webFeedIDs())
+	func fetchTodayArticles() throws -> Set<Article> {
+		return try database.fetchTodayArticles(flattenedWebFeeds().webFeedIDs())
 	}
 
-	func fetchTodayArticlesAsync(_ completion: @escaping ArticleSetBlock) {
+	func fetchTodayArticlesAsync(_ completion: @escaping ArticleSetResultBlock) {
 		database.fetchTodayArticlesAsync(flattenedWebFeeds().webFeedIDs(), completion)
 	}
 
-	func fetchArticles(folder: Folder) -> Set<Article> {
-		return fetchArticles(forContainer: folder)
+	func fetchArticles(folder: Folder) throws -> Set<Article> {
+		return try fetchArticles(forContainer: folder)
 	}
 
-	func fetchArticlesAsync(folder: Folder, _ completion: @escaping ArticleSetBlock) {
+	func fetchArticlesAsync(folder: Folder, _ completion: @escaping ArticleSetResultBlock) {
 		fetchArticlesAsync(forContainer: folder, completion)
 	}
 
-	func fetchUnreadArticles(folder: Folder) -> Set<Article> {
-		return fetchUnreadArticles(forContainer: folder)
+	func fetchUnreadArticles(folder: Folder) throws -> Set<Article> {
+		return try fetchUnreadArticles(forContainer: folder)
 	}
 
-	func fetchUnreadArticlesAsync(folder: Folder, _ completion: @escaping ArticleSetBlock) {
+	func fetchUnreadArticlesAsync(folder: Folder, _ completion: @escaping ArticleSetResultBlock) {
 		fetchUnreadArticlesAsync(forContainer: folder, completion)
 	}
 
-	func fetchArticles(webFeed: WebFeed) -> Set<Article> {
-		let articles = database.fetchArticles(webFeed.webFeedID)
+	func fetchArticles(webFeed: WebFeed) throws -> Set<Article> {
+		let articles = try database.fetchArticles(webFeed.webFeedID)
 		validateUnreadCount(webFeed, articles)
 		return articles
 	}
 
-	func fetchArticlesAsync(webFeed: WebFeed, _ completion: @escaping ArticleSetBlock) {
-		database.fetchArticlesAsync(webFeed.webFeedID) { [weak self] (articles) in
-			self?.validateUnreadCount(webFeed, articles)
-			completion(articles)
+	func fetchArticlesAsync(webFeed: WebFeed, _ completion: @escaping ArticleSetResultBlock) {
+		database.fetchArticlesAsync(webFeed.webFeedID) { [weak self] articleSetResult in
+			switch articleSetResult {
+			case .success(let articles):
+				self?.validateUnreadCount(webFeed, articles)
+				completion(.success(articles))
+			case .failure(let databaseError):
+				completion(.failure(databaseError))
+			}
 		}
 	}
 
-	func fetchArticlesMatching(_ searchString: String) -> Set<Article> {
-		return database.fetchArticlesMatching(searchString, flattenedWebFeeds().webFeedIDs())
+	func fetchArticlesMatching(_ searchString: String) throws -> Set<Article> {
+		return try database.fetchArticlesMatching(searchString, flattenedWebFeeds().webFeedIDs())
 	}
 
-	func fetchArticlesMatchingWithArticleIDs(_ searchString: String, _ articleIDs: Set<String>) -> Set<Article> {
-		return database.fetchArticlesMatchingWithArticleIDs(searchString, articleIDs)
+	func fetchArticlesMatchingWithArticleIDs(_ searchString: String, _ articleIDs: Set<String>) throws -> Set<Article> {
+		return try database.fetchArticlesMatchingWithArticleIDs(searchString, articleIDs)
 	}
 	
-	func fetchArticlesMatchingAsync(_ searchString: String, _ completion: @escaping ArticleSetBlock) {
+	func fetchArticlesMatchingAsync(_ searchString: String, _ completion: @escaping ArticleSetResultBlock) {
 		database.fetchArticlesMatchingAsync(searchString, flattenedWebFeeds().webFeedIDs(), completion)
 	}
 
-	func fetchArticlesMatchingWithArticleIDsAsync(_ searchString: String, _ articleIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+	func fetchArticlesMatchingWithArticleIDsAsync(_ searchString: String, _ articleIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
 		database.fetchArticlesMatchingWithArticleIDsAsync(searchString, articleIDs, completion)
 	}
 
-	func fetchArticles(articleIDs: Set<String>) -> Set<Article> {
-		return database.fetchArticles(articleIDs: articleIDs)
+	func fetchArticles(articleIDs: Set<String>) throws -> Set<Article> {
+		return try database.fetchArticles(articleIDs: articleIDs)
 	}
 
-	func fetchArticlesAsync(articleIDs: Set<String>, _ completion: @escaping ArticleSetBlock) {
+	func fetchArticlesAsync(articleIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
 		return database.fetchArticlesAsync(articleIDs: articleIDs, completion)
 	}
 
-	func fetchUnreadArticles(webFeed: WebFeed) -> Set<Article> {
-		let articles = database.fetchUnreadArticles(Set([webFeed.webFeedID]))
+	func fetchUnreadArticles(webFeed: WebFeed) throws -> Set<Article> {
+		let articles = try database.fetchUnreadArticles(Set([webFeed.webFeedID]))
 		validateUnreadCount(webFeed, articles)
 		return articles
 	}
@@ -1010,33 +1070,43 @@ private extension Account {
 	}
 
 
-	func fetchArticles(forContainer container: Container) -> Set<Article> {
+	func fetchArticles(forContainer container: Container) throws -> Set<Article> {
 		let feeds = container.flattenedWebFeeds()
-		let articles = database.fetchArticles(feeds.webFeedIDs())
+		let articles = try database.fetchArticles(feeds.webFeedIDs())
 		validateUnreadCountsAfterFetchingUnreadArticles(feeds, articles)
 		return articles
 	}
 
-	func fetchArticlesAsync(forContainer container: Container, _ completion: @escaping ArticleSetBlock) {
+	func fetchArticlesAsync(forContainer container: Container, _ completion: @escaping ArticleSetResultBlock) {
 		let webFeeds = container.flattenedWebFeeds()
-		database.fetchArticlesAsync(webFeeds.webFeedIDs()) { [weak self] (articles) in
-			self?.validateUnreadCountsAfterFetchingUnreadArticles(webFeeds, articles)
-			completion(articles)
+		database.fetchArticlesAsync(webFeeds.webFeedIDs()) { [weak self] (articleSetResult) in
+			switch articleSetResult {
+			case .success(let articles):
+				self?.validateUnreadCountsAfterFetchingUnreadArticles(webFeeds, articles)
+				completion(.success(articles))
+			case .failure(let databaseError):
+				completion(.failure(databaseError))
+			}
 		}
 	}
 
-	func fetchUnreadArticles(forContainer container: Container) -> Set<Article> {
+	func fetchUnreadArticles(forContainer container: Container) throws -> Set<Article> {
 		let feeds = container.flattenedWebFeeds()
-		let articles = database.fetchUnreadArticles(feeds.webFeedIDs())
+		let articles = try database.fetchUnreadArticles(feeds.webFeedIDs())
 		validateUnreadCountsAfterFetchingUnreadArticles(feeds, articles)
 		return articles
 	}
 
-	func fetchUnreadArticlesAsync(forContainer container: Container, _ completion: @escaping ArticleSetBlock) {
+	func fetchUnreadArticlesAsync(forContainer container: Container, _ completion: @escaping ArticleSetResultBlock) {
 		let webFeeds = container.flattenedWebFeeds()
-		database.fetchUnreadArticlesAsync(webFeeds.webFeedIDs()) { [weak self] (articles) in
-			self?.validateUnreadCountsAfterFetchingUnreadArticles(webFeeds, articles)
-			completion(articles)
+		database.fetchUnreadArticlesAsync(webFeeds.webFeedIDs()) { [weak self] (articleSetResult) in
+			switch articleSetResult {
+			case .success(let articles):
+				self?.validateUnreadCountsAfterFetchingUnreadArticles(webFeeds, articles)
+				completion(.success(articles))
+			case .failure(let databaseError):
+				completion(.failure(databaseError))
+			}
 		}
 	}
 
@@ -1122,41 +1192,40 @@ private extension Account {
     func noteStatusesForArticlesDidChange(_ articles: Set<Article>) {
 		let feeds = Set(articles.compactMap { $0.webFeed })
 		let statuses = Set(articles.map { $0.status })
-        
+		let articleIDs = Set(articles.map { $0.articleID })
+
         // .UnreadCountDidChange notification will get sent to Folder and Account objects,
         // which will update their own unread counts.
         updateUnreadCounts(for: feeds)
         
-        NotificationCenter.default.post(name: .StatusesDidChange, object: self, userInfo: [UserInfoKey.statuses: statuses, UserInfoKey.articles: articles, UserInfoKey.webFeeds: feeds])
+		NotificationCenter.default.post(name: .StatusesDidChange, object: self, userInfo: [UserInfoKey.statuses: statuses, UserInfoKey.articles: articles, UserInfoKey.articleIDs: articleIDs, UserInfoKey.webFeeds: feeds])
     }
+
+	func noteStatusesForArticleIDsDidChange(_ articleIDs: Set<String>) {
+		fetchAllUnreadCounts()
+		NotificationCenter.default.post(name: .StatusesDidChange, object: self, userInfo: [UserInfoKey.articleIDs: articleIDs])
+	}
 
 	func fetchAllUnreadCounts() {
 		fetchingAllUnreadCounts = true
 
-		database.fetchAllNonZeroUnreadCounts { (unreadCountDictionary) in
-			if unreadCountDictionary.isEmpty {
+		database.fetchAllNonZeroUnreadCounts { (unreadCountDictionaryResult) in
+			if let unreadCountDictionary = try? unreadCountDictionaryResult.get() {
+				self.flattenedWebFeeds().forEach{ (feed) in
+					// When the unread count is zero, it won’t appear in unreadCountDictionary.
+					if let unreadCount = unreadCountDictionary[feed.webFeedID] {
+						feed.unreadCount = unreadCount
+					}
+					else {
+						feed.unreadCount = 0
+					}
+				}
+
 				self.fetchingAllUnreadCounts = false
 				self.updateUnreadCount()
 				self.isUnreadCountsInitialized = true
 				self.postUnreadCountDidInitializeNotification()
-				return
 			}
-
-			self.flattenedWebFeeds().forEach{ (feed) in
-				// When the unread count is zero, it won’t appear in unreadCountDictionary.
-
-				if let unreadCount = unreadCountDictionary[feed.webFeedID] {
-					feed.unreadCount = unreadCount
-				}
-				else {
-					feed.unreadCount = 0
-				}
-			}
-			
-			self.fetchingAllUnreadCounts = false
-			self.updateUnreadCount()
-			self.isUnreadCountsInitialized = true
-			self.postUnreadCountDidInitializeNotification()
 		}
 	}
 }
