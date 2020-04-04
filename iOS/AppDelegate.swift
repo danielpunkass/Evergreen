@@ -41,6 +41,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 	var imageDownloader: ImageDownloader!
 	var authorAvatarDownloader: AuthorAvatarDownloader!
 	var webFeedIconDownloader: WebFeedIconDownloader!
+	var extensionContainersFile: ExtensionContainersFile!
+	var extensionFeedAddRequestFile: ExtensionFeedAddRequestFile!
 	
 	var unreadCount = 0 {
 		didSet {
@@ -58,9 +60,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 		super.init()
 		appDelegate = self
 
-		// Force lazy initialization of the web view provider so that it can warm up the queue of prepared web views
-		let _ = ArticleViewControllerWebViewProvider.shared
-		AccountManager.shared = AccountManager()
+		let documentAccountURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+		let documentAccountsFolder = documentAccountURL.appendingPathComponent("Accounts").absoluteString
+		let documentAccountsFolderPath = String(documentAccountsFolder.suffix(from: documentAccountsFolder.index(documentAccountsFolder.startIndex, offsetBy: 7)))
+		AccountManager.shared = AccountManager(accountsFolder: documentAccountsFolderPath)
 		
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(accountRefreshDidFinish(_:)), name: .AccountRefreshDidFinish, object: nil)
@@ -88,17 +91,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 			self.unreadCount = AccountManager.shared.unreadCount
 		}
 		
-		UNUserNotificationCenter.current().requestAuthorization(options:[.badge, .sound, .alert]) { (granted, error) in
-			if granted {
-				DispatchQueue.main.async {
-					UIApplication.shared.registerForRemoteNotifications()
-				}
-			}
-		}
-
 		UNUserNotificationCenter.current().delegate = self
+		UNUserNotificationCenter.current().requestAuthorization(options:[.badge, .sound, .alert]) { _, _ in }
+		UIApplication.shared.registerForRemoteNotifications()
+
 		userNotificationManager = UserNotificationManager()
 
+		extensionContainersFile = ExtensionContainersFile()
+		extensionFeedAddRequestFile = ExtensionFeedAddRequestFile()
+		
 		syncTimer = ArticleStatusSyncTimer()
 		
 		#if DEBUG
@@ -108,6 +109,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 		return true
 		
 	}
+	
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+		DispatchQueue.main.async {
+			self.resumeDatabaseProcessingIfNecessary()
+			AccountManager.shared.receiveRemoteNotification(userInfo: userInfo) {
+				self.suspendApplication()
+				completionHandler(.newData)
+			}
+		}
+    }
 	
 	func applicationWillTerminate(_ application: UIApplication) {
 		shuttingDown = true
@@ -127,7 +138,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 	
 	// MARK: - API
 	
+	func manualRefresh(errorHandler: @escaping (Error) -> ()) {
+		UIApplication.shared.connectedScenes.compactMap( { $0.delegate as? SceneDelegate } ).forEach {
+			$0.cleanUp(conditional: true)
+		}
+		AccountManager.shared.refreshAll(errorHandler: errorHandler)
+	}
+	
+	func resumeDatabaseProcessingIfNecessary() {
+		if AccountManager.shared.isSuspended {
+			AccountManager.shared.resumeAll()
+			os_log("Application processing resumed.", log: self.log, type: .info)
+		}
+	}
+	
 	func prepareAccountsForBackground() {
+		extensionFeedAddRequestFile.suspend()
 		syncTimer?.invalidate()
 		scheduleBackgroundFeedRefresh()
 		syncArticleStatus()
@@ -135,10 +161,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 	}
 	
 	func prepareAccountsForForeground() {
-		if AccountManager.shared.isSuspended {
-			AccountManager.shared.resumeAll()
-			os_log("Application processing resumed.", log: self.log, type: .info)
-		}
+		extensionFeedAddRequestFile.resume()
 		
 		if let lastRefresh = AppDefaults.lastRefresh {
 			if Date() > lastRefresh.addingTimeInterval(15 * 60) {
@@ -296,7 +319,8 @@ private extension AppDelegate {
 		guard UIApplication.shared.applicationState == .background else { return }
 		
 		AccountManager.shared.suspendNetworkAll()
-		
+		AccountManager.shared.suspendDatabaseAll()
+
 		CoalescingQueue.standard.performCallsImmediately()
 		for scene in UIApplication.shared.connectedScenes {
 			if let sceneDelegate = scene.delegate as? SceneDelegate {
@@ -304,7 +328,6 @@ private extension AppDelegate {
 			}
 		}
 		
-		AccountManager.shared.suspendDatabaseAll()
 		os_log("Application processing suspended.", log: self.log, type: .info)
 	}
 	

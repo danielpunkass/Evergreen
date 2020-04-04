@@ -8,6 +8,7 @@
 
 import AppKit
 import Account
+import RSCore
 
 class AccountsAddViewController: NSViewController {
 	
@@ -15,7 +16,11 @@ class AccountsAddViewController: NSViewController {
 	
 	private var accountsAddWindowController: NSWindowController?
 	
-	private let addableAccountTypes: [AccountType] = [.onMyMac, .feedbin, .feedly, .feedWrangler, .freshRSS]
+	#if DEBUG
+	private var addableAccountTypes: [AccountType] = [.onMyMac, .feedbin, .feedly, .feedWrangler, .freshRSS, .cloudKit, .newsBlur]
+	#else
+	private var addableAccountTypes: [AccountType] = [.onMyMac, .feedbin, .feedly]
+	#endif
 	
 	init() {
 		super.init(nibName: "AccountsAdd", bundle: nil)
@@ -26,12 +31,10 @@ class AccountsAddViewController: NSViewController {
 	}
 	
 	override func viewDidLoad() {
-
 		super.viewDidLoad()
-
 		tableView.dataSource = self
 		tableView.delegate = self
-
+		restrictAccounts()
 	}
 	
 }
@@ -62,6 +65,9 @@ extension AccountsAddViewController: NSTableViewDelegate {
 			case .onMyMac:
 				cell.accountNameLabel?.stringValue = Account.defaultLocalAccountName
 				cell.accountImageView?.image = AppAssets.accountLocal
+			case .cloudKit:
+				cell.accountNameLabel?.stringValue = NSLocalizedString("iCloud", comment: "iCloud")
+				cell.accountImageView?.image = AppAssets.accountCloudKit
 			case .feedbin:
 				cell.accountNameLabel?.stringValue = NSLocalizedString("Feedbin", comment: "Feedbin")
 				cell.accountImageView?.image = AppAssets.accountFeedbin
@@ -74,6 +80,9 @@ extension AccountsAddViewController: NSTableViewDelegate {
 			case .feedly:
 				cell.accountNameLabel?.stringValue = NSLocalizedString("Feedly", comment: "Feedly")
 				cell.accountImageView?.image = AppAssets.accountFeedly
+			case .newsBlur:
+				cell.accountNameLabel?.stringValue = NSLocalizedString("NewsBlur", comment: "NewsBlur")
+				cell.accountImageView?.image = AppAssets.accountNewsBlur
 			default:
 				break
 			}
@@ -94,6 +103,15 @@ extension AccountsAddViewController: NSTableViewDelegate {
 			let accountsAddLocalWindowController = AccountsAddLocalWindowController()
 			accountsAddLocalWindowController.runSheetOnWindow(self.view.window!)
 			accountsAddWindowController = accountsAddLocalWindowController
+		case .cloudKit:
+			let accountsAddCloudKitWindowController = AccountsAddCloudKitWindowController()
+			accountsAddCloudKitWindowController.runSheetOnWindow(self.view.window!) { response in
+				if response == NSApplication.ModalResponse.OK {
+					self.restrictAccounts()
+					self.tableView.reloadData()
+				}
+			}
+			accountsAddWindowController = accountsAddCloudKitWindowController
 		case .feedbin:
 			let accountsFeedbinWindowController = AccountsFeedbinWindowController()
 			accountsFeedbinWindowController.runSheetOnWindow(self.view.window!)
@@ -111,7 +129,11 @@ extension AccountsAddViewController: NSTableViewDelegate {
 			let addAccount = OAuthAccountAuthorizationOperation(accountType: .feedly)
 			addAccount.delegate = self
 			addAccount.presentationAnchor = self.view.window!
-			OperationQueue.main.addOperation(addAccount)
+			MainThreadOperationQueue.shared.add(addAccount)
+		case .newsBlur:
+			let accountsNewsBlurWindowController = AccountsNewsBlurWindowController()
+			accountsNewsBlurWindowController.runSheetOnWindow(self.view.window!)
+			accountsAddWindowController = accountsNewsBlurWindowController
 		default:
 			break
 		}
@@ -140,4 +162,29 @@ extension AccountsAddViewController: OAuthAccountAuthorizationOperationDelegate 
 	func oauthAccountAuthorizationOperation(_ operation: OAuthAccountAuthorizationOperation, didFailWith error: Error) {
 		view.window?.presentError(error)
 	}
+}
+
+// MARK: Private
+
+private extension AccountsAddViewController {
+	
+	func restrictAccounts() {
+		func removeAccountType(_ accountType: AccountType) {
+			if let index = addableAccountTypes.firstIndex(of: accountType) {
+				addableAccountTypes.remove(at: index)
+			}
+		}
+		
+		if AppDefaults.isDeveloperBuild {
+			removeAccountType(.cloudKit)
+			removeAccountType(.feedly)
+			removeAccountType(.feedWrangler)
+			return
+		}
+
+		if AccountManager.shared.activeAccounts.firstIndex(where: { $0.type == .cloudKit }) != nil {
+			removeAccountType(.cloudKit)
+		}
+	}
+	
 }

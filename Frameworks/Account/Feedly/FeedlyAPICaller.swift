@@ -302,7 +302,7 @@ final class FeedlyAPICaller {
 		
 		transport.send(request: request, resultType: [FeedlyFeed].self, dateDecoding: .millisecondsSince1970, keyDecoding: .convertFromSnakeCase) { result in
 			switch result {
-			case .success(let httpResponse, _):
+			case .success((let httpResponse, _)):
 				if httpResponse.statusCode == 200 {
 					completion(.success(()))
 				} else {
@@ -364,7 +364,7 @@ extension FeedlyAPICaller: FeedlyAddFeedToCollectionService {
 		
 		transport.send(request: request, resultType: [FeedlyFeed].self, dateDecoding: .millisecondsSince1970, keyDecoding: .convertFromSnakeCase) { result in
 			switch result {
-			case .success(_, let collectionFeeds):
+			case .success((_, let collectionFeeds)):
 				if let feeds = collectionFeeds {
 					completion(.success(feeds))
 				} else {
@@ -637,7 +637,7 @@ extension FeedlyAPICaller: FeedlyGetStreamIdsService {
 		}
 		
 		queryItems.append(contentsOf: [
-			URLQueryItem(name: "count", value: "1000"),
+			URLQueryItem(name: "count", value: "10000"),
 			URLQueryItem(name: "streamId", value: resource.id),
 		])
 		

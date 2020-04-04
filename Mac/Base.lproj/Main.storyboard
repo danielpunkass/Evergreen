@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="15505" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
+<document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="15705" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
     <dependencies>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="15505"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="15705"/>
     </dependencies>
     <scenes>
         <!--Application-->
@@ -79,6 +79,13 @@
                                             </connections>
                                         </menuItem>
                                         <menuItem isSeparatorItem="YES" id="m54-Is-iLE"/>
+                                        <menuItem title="New Window" keyEquivalent="n" id="pGg-Gc-PU2">
+                                            <modifierMask key="keyEquivalentModifierMask" option="YES" command="YES"/>
+                                            <connections>
+                                                <action selector="newMainWindow:" target="Ady-hI-5gd" id="esB-AD-W2m"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem isSeparatorItem="YES" id="MFJ-WG-3fx"/>
                                         <menuItem title="Refresh" keyEquivalent="r" id="Veh-SV-KWy">
                                             <connections>
                                                 <action selector="refreshAll:" target="Ady-hI-5gd" id="gIc-Zj-9tB"/>
@@ -336,12 +343,6 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <menu key="submenu" title="View" id="HyV-fh-RgO">
                                     <items>
-                                        <menuItem title="Hide Read Articles" id="b10-sA-Yzi">
-                                            <modifierMask key="keyEquivalentModifierMask"/>
-                                            <connections>
-                                                <action selector="toggleReadArticlesFilter:" target="Ady-hI-5gd" id="YhV-0F-jrM"/>
-                                            </connections>
-                                        </menuItem>
                                         <menuItem title="Sort Articles By" id="nLP-fa-KUi">
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <menu key="submenu" title="Sort Articles By" id="OlJ-93-6OP">
@@ -368,16 +369,26 @@
                                             </connections>
                                         </menuItem>
                                         <menuItem isSeparatorItem="YES" id="dZt-2W-gxf"/>
-                                        <menuItem title="Hide Read Feeds" id="E9K-zV-nLv">
-                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                        <menuItem title="Clean Up Articles" keyEquivalent="'" id="J5h-uQ-57w">
+                                            <connections>
+                                                <action selector="cleanUp:" target="Ady-hI-5gd" id="eNB-UA-e3a"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Hide Read Articles" keyEquivalent="H" id="b10-sA-Yzi">
+                                            <connections>
+                                                <action selector="toggleReadArticlesFilter:" target="Ady-hI-5gd" id="YhV-0F-jrM"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Hide Read Feeds" keyEquivalent="F" id="E9K-zV-nLv">
                                             <connections>
                                                 <action selector="toggleReadFeedsFilter:" target="Ady-hI-5gd" id="5pI-YT-xai"/>
                                             </connections>
                                         </menuItem>
+                                        <menuItem isSeparatorItem="YES" id="Ocl-6H-m3k"/>
                                         <menuItem title="Show Sidebar" keyEquivalent="s" id="kIP-vf-haE">
                                             <modifierMask key="keyEquivalentModifierMask" control="YES" command="YES"/>
                                             <connections>
-                                                <action selector="toggleSidebar:" target="Ady-hI-5gd" id="dOo-rp-1f6"/>
+                                                <action selector="toggleTheSidebar:" target="Ady-hI-5gd" id="1hl-EZ-ao4"/>
                                             </connections>
                                         </menuItem>
                                         <menuItem isSeparatorItem="YES" id="jKG-b2-ZWf"/>
@@ -445,9 +456,15 @@
                                                 <action selector="markAllAsRead:" target="Ady-hI-5gd" id="154-2D-ONk"/>
                                             </connections>
                                         </menuItem>
-                                        <menuItem title="Mark Older as Read" keyEquivalent="K" id="p1o-EG-Uo8">
+                                        <menuItem title="Mark Above as Read" keyEquivalent="k" id="p1o-EG-Uo8">
+                                            <modifierMask key="keyEquivalentModifierMask" control="YES" command="YES"/>
                                             <connections>
-                                                <action selector="markOlderArticlesAsRead:" target="Ady-hI-5gd" id="gzq-X5-0aC"/>
+                                                <action selector="markAboveArticlesAsRead:" target="Ady-hI-5gd" id="BJY-oR-uvr"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Mark Below as Read" keyEquivalent="K" id="8lZ-XI-I4y">
+                                            <connections>
+                                                <action selector="markBelowArticlesAsRead:" target="Ady-hI-5gd" id="Jnm-LF-mrf"/>
                                             </connections>
                                         </menuItem>
                                         <menuItem title="Mark Everything as Read…" keyEquivalent="K" id="Rrw-jx-qnJ">

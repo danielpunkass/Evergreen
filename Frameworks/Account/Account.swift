@@ -27,16 +27,15 @@ public extension Notification.Name {
 	static let AccountRefreshDidBegin = Notification.Name(rawValue: "AccountRefreshDidBegin")
 	static let AccountRefreshDidFinish = Notification.Name(rawValue: "AccountRefreshDidFinish")
 	static let AccountRefreshProgressDidChange = Notification.Name(rawValue: "AccountRefreshProgressDidChange")
-	static let DownloadArticlesDidUpdateUnreadCounts = Notification.Name(rawValue: "DownloadArticlesDidUpdateUnreadCounts")
 	static let AccountDidDownloadArticles = Notification.Name(rawValue: "AccountDidDownloadArticles")
 	static let AccountStateDidChange = Notification.Name(rawValue: "AccountStateDidChange")
 	static let StatusesDidChange = Notification.Name(rawValue: "StatusesDidChange")
-	static let WebFeedMetadataDidChange = Notification.Name(rawValue: "WebFeedMetadataDidChange")
 }
 
-public enum AccountType: Int {
+public enum AccountType: Int, Codable {
 	// Raw values should not change since they’re stored on disk.
 	case onMyMac = 1
+	case cloudKit = 2
 	case feedly = 16
 	case feedbin = 17
 	case feedWrangler = 18
@@ -136,6 +135,15 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	public var topLevelWebFeeds = Set<WebFeed>()
 	public var folders: Set<Folder>? = Set<Folder>()
 	
+	public var externalID: String? {
+		get {
+			return metadata.externalID
+		}
+		set {
+			metadata.externalID = newValue
+		}
+	}
+	
 	public var sortedFolders: [Folder]? {
 		if let folders = folders {
 			return Array(folders).sorted(by: { $0.nameForDisplay < $1.nameForDisplay })
@@ -143,13 +151,20 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		return nil
 	}
 	
-	private var webFeedDictionaryNeedsUpdate = true
+	private var webFeedDictionariesNeedUpdate = true
 	private var _idToWebFeedDictionary = [String: WebFeed]()
 	var idToWebFeedDictionary: [String: WebFeed] {
-		if webFeedDictionaryNeedsUpdate {
+		if webFeedDictionariesNeedUpdate {
 			rebuildWebFeedDictionaries()
 		}
 		return _idToWebFeedDictionary
+	}
+	private var _externalIDToWebFeedDictionary = [String: WebFeed]()
+	var externalIDToWebFeedDictionary: [String: WebFeed] {
+		if webFeedDictionariesNeedUpdate {
+			rebuildWebFeedDictionaries()
+		}
+		return _externalIDToWebFeedDictionary
 	}
 
 	var username: String? {
@@ -199,8 +214,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	typealias WebFeedMetadataDictionary = [String: WebFeedMetadata]
 	var webFeedMetadata = WebFeedMetadataDictionary()
 
-	var startingUp = true
-
     public var unreadCount = 0 {
         didSet {
             if unreadCount != oldValue {
@@ -230,11 +243,13 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	var refreshProgress: DownloadProgress {
 		return delegate.refreshProgress
 	}
-	
+
 	init?(dataFolder: String, type: AccountType, accountID: String, transport: Transport? = nil) {
 		switch type {
 		case .onMyMac:
 			self.delegate = LocalAccountDelegate()
+		case .cloudKit:
+			self.delegate = CloudKitAccountDelegate(dataFolder: dataFolder)
 		case .feedbin:
 			self.delegate = FeedbinAccountDelegate(dataFolder: dataFolder, transport: transport)
 		case .freshRSS:
@@ -243,8 +258,8 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			self.delegate = FeedlyAccountDelegate(dataFolder: dataFolder, transport: transport, api: FeedlyAccountDelegate.environment)
 		case .feedWrangler:
 			self.delegate = FeedWranglerAccountDelegate(dataFolder: dataFolder, transport: transport)
-		default:
-			return nil
+		case .newsBlur:
+			self.delegate = NewsBlurAccountDelegate(dataFolder: dataFolder, transport: transport)
 		}
 
 		self.delegate.accountMetadata = metadata
@@ -254,11 +269,14 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		self.dataFolder = dataFolder
 
 		let databaseFilePath = (dataFolder as NSString).appendingPathComponent("DB.sqlite3")
-		self.database = ArticlesDatabase(databaseFilePath: databaseFilePath, accountID: accountID)
+		let retentionStyle: ArticlesDatabase.RetentionStyle = (type == .onMyMac || type == .cloudKit) ? .feedBased : .syncSystem
+		self.database = ArticlesDatabase(databaseFilePath: databaseFilePath, accountID: accountID, retentionStyle: retentionStyle)
 
 		switch type {
 		case .onMyMac:
 			defaultName = Account.defaultLocalAccountName
+		case .cloudKit:
+			defaultName = "iCloud"
 		case .feedly:
 			defaultName = "Feedly"
 		case .feedbin:
@@ -287,7 +305,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		}
 
 		self.delegate.accountDidInitialize(self)
-		startingUp = false
 	}
 	
 	// MARK: - API
@@ -324,6 +341,8 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			ReaderAPIAccountDelegate.validateCredentials(transport: transport, credentials: credentials, endpoint: endpoint, completion: completion)
 		case .feedWrangler:
 			FeedWranglerAccountDelegate.validateCredentials(transport: transport, credentials: credentials, completion: completion)
+		case .newsBlur:
+			NewsBlurAccountDelegate.validateCredentials(transport: transport, credentials: credentials, completion: completion)
 		default:
 			break
 		}
@@ -367,8 +386,12 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		grantingType.requestOAuthAccessToken(with: response, transport: transport, completion: completion)
 	}
 
+	public func receiveRemoteNotification(userInfo: [AnyHashable : Any], completion: @escaping () -> Void) {
+		delegate.receiveRemoteNotification(for: self, userInfo: userInfo, completion: completion)
+	}
+	
 	public func refreshAll(completion: @escaping (Result<Void, Error>) -> Void) {
-		self.delegate.refreshAll(for: self, completion: completion)
+		delegate.refreshAll(for: self, completion: completion)
 	}
 
 	public func syncArticleStatus(completion: ((Result<Void, Error>) -> Void)? = nil) {
@@ -414,28 +437,24 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	}
 	
 	public func suspendDatabase() {
-		database.suspend()
+		#if os(iOS)
+		database.cancelAndSuspend()
+		#endif
 		save()
-		metadataFile.suspend()
-		webFeedMetadataFile.suspend()
-		opmlFile.suspend()
 	}
 
 	/// Re-open the SQLite database and allow database calls.
 	/// Call this *before* calling resume.
 	public func resumeDatabaseAndDelegate() {
+		#if os(iOS)
 		database.resume()
+		#endif
 		delegate.resume()
 	}
 
 	/// Reload OPML, etc.
 	public func resume() {
-		metadataFile.resume()
-		webFeedMetadataFile.resume()
-		opmlFile.resume()
-		metadataFile.load()
-		webFeedMetadataFile.load()
-		opmlFile.load()
+		fetchAllUnreadCounts()
 	}
 
 	public func save() {
@@ -447,58 +466,52 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	public func prepareForDeletion() {
 		delegate.accountWillBeDeleted(self)
 	}
-	
-	func loadOPMLItems(_ items: [RSOPMLItem], parentFolder: Folder?) {
-		var feedsToAdd = Set<WebFeed>()
 
-		items.forEach { (item) in
-
+	func addOPMLItems(_ items: [RSOPMLItem]) {
+		for item in items {
 			if let feedSpecifier = item.feedSpecifier {
-				let feed = newWebFeed(with: feedSpecifier)
-				feedsToAdd.insert(feed)
-				return
-			}
-
-			guard let folderName = item.titleFromAttributes else {
-				// Folder doesn’t have a name, so it won’t be created, and its items will go one level up.
-				if let itemChildren = item.children {
-					loadOPMLItems(itemChildren, parentFolder: parentFolder)
-				}
-				return
-			}
-
-			if let folder = ensureFolder(with: folderName) {
-				folder.externalID = item.attributes?["nnw_externalID"] as? String
-				if let itemChildren = item.children {
-					loadOPMLItems(itemChildren, parentFolder: folder)
+				addWebFeed(newWebFeed(with: feedSpecifier))
+			} else {
+				if let title = item.titleFromAttributes, let folder = ensureFolder(with: title) {
+					folder.externalID = item.attributes?["nnw_externalID"] as? String
+					item.children?.forEach { itemChild in
+						if let feedSpecifier = itemChild.feedSpecifier {
+							folder.addWebFeed(newWebFeed(with: feedSpecifier))
+						}
+					}
 				}
 			}
 		}
-
-		if let parentFolder = parentFolder {
-			for feed in feedsToAdd {
-				parentFolder.addWebFeed(feed)
-			}
-		} else {
-			for feed in feedsToAdd {
-				addWebFeed(feed)
-			}
-		}
-		
 	}
 	
-	public func resetWebFeedMetadataAndUnreadCounts() {
-		for feed in flattenedWebFeeds() {
-			feed.metadata = webFeedMetadata(feedURL: feed.url, webFeedID: feed.webFeedID)
-		}
-		fetchAllUnreadCounts()
-		NotificationCenter.default.post(name: .WebFeedMetadataDidChange, object: self, userInfo: nil)
+	func loadOPMLItems(_ items: [RSOPMLItem]) {
+		addOPMLItems(OPMLNormalizer.normalize(items))		
 	}
 	
 	public func markArticles(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) -> Set<Article>? {
 		return delegate.markArticles(for: self, articles: articles, statusKey: statusKey, flag: flag)
 	}
 
+	func existingContainer(withExternalID externalID: String) -> Container? {
+		guard self.externalID != externalID else {
+			return self
+		}
+		return existingFolder(withExternalID: externalID)
+	}
+	
+	func existingContainers(withWebFeed webFeed: WebFeed) -> [Container] {
+		var containers = [Container]()
+		if topLevelWebFeeds.contains(webFeed) {
+			containers.append(self)
+		}
+		folders?.forEach { folder in
+			if folder.topLevelWebFeeds.contains(webFeed) {
+				containers.append(folder)
+			}
+		}
+		return containers
+	}
+	
 	@discardableResult
 	func ensureFolder(with name: String) -> Folder? {
 		// TODO: support subfolders, maybe, some day
@@ -529,8 +542,12 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		return ensureFolder(with: folderName)
 	}
 
-	public func findFolder(withDisplayName displayName: String) -> Folder? {
+	public func existingFolder(withDisplayName displayName: String) -> Folder? {
 		return folders?.first(where: { $0.nameForDisplay == displayName })
+	}
+	
+	public func existingFolder(withExternalID externalID: String) -> Folder? {
+		return folders?.first(where: { $0.externalID == externalID })
 	}
 	
 	func newWebFeed(with opmlFeedSpecifier: RSOPMLFeedSpecifier) -> WebFeed {
@@ -558,7 +575,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		let feed = WebFeed(account: self, url: url, metadata: metadata)
 		feed.name = name
 		feed.homePageURL = homePageURL
-		
 		return feed
 	}
 	
@@ -579,7 +595,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	}
 	
 	public func addFolder(_ name: String, completion: @escaping (Result<Folder, Error>) -> Void) {
-		delegate.addFolder(for: self, name: name, completion: completion)
+		delegate.createFolder(for: self, name: name, completion: completion)
 	}
 	
 	public func removeFolder(_ folder: Folder, completion: @escaping (Result<Void, Error>) -> Void) {
@@ -605,22 +621,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	}
 	
 	public func updateUnreadCounts(for webFeeds: Set<WebFeed>, completion: VoidCompletionBlock? = nil) {
-		if webFeeds.isEmpty {
-			completion?()
-			return
-		}
-		
-		database.fetchUnreadCounts(for: webFeeds.webFeedIDs()) { unreadCountDictionaryResult in
-			if let unreadCountDictionary = try? unreadCountDictionaryResult.get() {
-				for webFeed in webFeeds {
-					if let unreadCount = unreadCountDictionary[webFeed.webFeedID] {
-						webFeed.unreadCount = unreadCount
-					}
-				}
-			}
-
-			completion?()
-		}
+		fetchUnreadCounts(for: webFeeds, completion: completion)
 	}
 
 	public func fetchArticles(_ fetchType: FetchType) throws -> Set<Article> {
@@ -689,7 +690,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		database.fetchStarredArticleIDsAsync(webFeedIDs: flattenedWebFeeds().webFeedIDs(), completion: completion)
 	}
 
-	/// Fetch articleIDs for articles that we should have, but don’t. These articles are not userDeleted, and they are either (starred) or (unread and newer than the article cutoff date).
+	/// Fetch articleIDs for articles that we should have, but don’t. These articles are not userDeleted, and they are either (starred) or (newer than the article cutoff date).
 	public func fetchArticleIDsForStatusesWithoutArticlesNewerThanCutoffDate(_ completion: @escaping ArticleIDsCompletionBlock) {
 		database.fetchArticleIDsForStatusesWithoutArticlesNewerThanCutoffDate(completion)
 	}
@@ -705,76 +706,60 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	public func structureDidChange() {
 		// Feeds were added or deleted. Or folders added or deleted.
 		// Or feeds inside folders were added or deleted.
-		if !startingUp {
-			opmlFile.markAsDirty()
-		}
+		opmlFile.markAsDirty()
 		flattenedWebFeedsNeedUpdate = true
-		webFeedDictionaryNeedsUpdate = true
+		webFeedDictionariesNeedUpdate = true
 	}
 
 	func update(_ webFeed: WebFeed, with parsedFeed: ParsedFeed, _ completion: @escaping DatabaseCompletionBlock) {
-		// Used only by an On My Mac account.
-		webFeed.takeSettings(from: parsedFeed)
-		let webFeedIDsAndItems = [webFeed.webFeedID: parsedFeed.items]
-		update(webFeedIDsAndItems: webFeedIDsAndItems, defaultRead: false, completion: completion)
-	}
-
-	func update(webFeedIDsAndItems: [String: Set<ParsedItem>], defaultRead: Bool, completion: @escaping DatabaseCompletionBlock) {
+		// Used only by an On My Mac or iCloud account.
 		precondition(Thread.isMainThread)
-		guard !webFeedIDsAndItems.isEmpty else {
+		precondition(type == .onMyMac || type == .cloudKit)
+
+		webFeed.takeSettings(from: parsedFeed)
+		let parsedItems = parsedFeed.items
+		guard !parsedItems.isEmpty else {
 			completion(nil)
 			return
 		}
 		
-		let group = DispatchGroup()
-		var possibleError: DatabaseError? = nil
-		var newArticles = Set<Article>()
-		var updatedArticles = Set<Article>()
+		update(webFeed.webFeedID, with: parsedItems, completion: completion)
+	}
+	
+	func update(_ webFeedID: String, with parsedItems: Set<ParsedItem>, completion: @escaping DatabaseCompletionBlock) {
+		// Used only by an On My Mac or iCloud account.
+		precondition(Thread.isMainThread)
+		precondition(type == .onMyMac || type == .cloudKit)
 		
-		for (webFeedID, items) in webFeedIDsAndItems {
-			
-			group.enter()
-			database.update(webFeedID: webFeedID, items: items, defaultRead: defaultRead) { updateArticlesResult in
+		database.update(with: parsedItems, webFeedID: webFeedID) { updateArticlesResult in
+			switch updateArticlesResult {
+			case .success(let newAndUpdatedArticles):
+				self.sendNotificationAbout(newAndUpdatedArticles)
+				completion(nil)
+			case .failure(let databaseError):
+				completion(databaseError)
+			}
+		}
+	}
 
-				switch updateArticlesResult {
-				case .success(let newAndUpdatedArticles):
-					if let articles = newAndUpdatedArticles.newArticles {
-						newArticles.formUnion(articles)
-					}
-					if let articles = newAndUpdatedArticles.updatedArticles {
-						updatedArticles.formUnion(articles)
-					}
-				case .failure(let databaseError):
-					possibleError = databaseError
-				}
-				
-				group.leave()
-			}
-			
+	func update(webFeedIDsAndItems: [String: Set<ParsedItem>], defaultRead: Bool, completion: @escaping DatabaseCompletionBlock) {
+		// Used only by syncing systems.
+		precondition(Thread.isMainThread)
+		precondition(type != .onMyMac && type != .cloudKit)
+		guard !webFeedIDsAndItems.isEmpty else {
+			completion(nil)
+			return
 		}
-		
-		group.notify(queue: DispatchQueue.main) {
-			var userInfo = [String: Any]()
-			var webFeeds = Set(newArticles.compactMap { $0.webFeed })
-			webFeeds.formUnion(Set(updatedArticles.compactMap { $0.webFeed }))
-			
-			if !newArticles.isEmpty {
-				self.updateUnreadCounts(for: webFeeds) {
-					NotificationCenter.default.post(name: .DownloadArticlesDidUpdateUnreadCounts, object: self, userInfo: nil)
-				}
-				userInfo[UserInfoKey.newArticles] = newArticles
+
+		database.update(webFeedIDsAndItems: webFeedIDsAndItems, defaultRead: defaultRead) { updateArticlesResult in
+			switch updateArticlesResult {
+			case .success(let newAndUpdatedArticles):
+				self.sendNotificationAbout(newAndUpdatedArticles)
+				completion(nil)
+			case .failure(let databaseError):
+				completion(databaseError)
 			}
-			
-			if !updatedArticles.isEmpty {
-				userInfo[UserInfoKey.updatedArticles] = updatedArticles
-			}
-			
-			userInfo[UserInfoKey.webFeeds] = webFeeds
-			NotificationCenter.default.post(name: .AccountDidDownloadArticles, object: self, userInfo: userInfo)
-			
-			completion(possibleError)
 		}
-		
 	}
 
 	@discardableResult
@@ -789,6 +774,24 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		
 		noteStatusesForArticlesDidChange(updatedArticles)
 		return updatedArticles
+	}
+
+	/// Make sure statuses exist. Any existing statuses won’t be touched.
+	/// All created statuses will be marked as read and not starred.
+	/// Sends a .StatusesDidChange notification.
+	func createStatusesIfNeeded(articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
+		guard !articleIDs.isEmpty else {
+			completion?(nil)
+			return
+		}
+		database.createStatusesIfNeeded(articleIDs: articleIDs) { error in
+			if let error = error {
+				completion?(error)
+				return
+			}
+			self.noteStatusesForArticleIDsDidChange(articleIDs)
+			completion?(nil)
+		}
 	}
 
 	/// Mark articleIDs statuses based on statusKey and flag.
@@ -1169,13 +1172,18 @@ private extension Account {
 
 	func rebuildWebFeedDictionaries() {
 		var idDictionary = [String: WebFeed]()
-
+		var externalIDDictionary = [String: WebFeed]()
+		
 		flattenedWebFeeds().forEach { (feed) in
 			idDictionary[feed.webFeedID] = feed
+			if let externalID = feed.externalID {
+				externalIDDictionary[externalID] = feed
+			}
 		}
 
 		_idToWebFeedDictionary = idDictionary
-		webFeedDictionaryNeedsUpdate = false
+		_externalIDToWebFeedDictionary = externalIDDictionary
+		webFeedDictionariesNeedUpdate = false
 	}
     
     func updateUnreadCount() {
@@ -1206,26 +1214,99 @@ private extension Account {
 		NotificationCenter.default.post(name: .StatusesDidChange, object: self, userInfo: [UserInfoKey.articleIDs: articleIDs])
 	}
 
-	func fetchAllUnreadCounts() {
+	/// Fetch unread counts for zero or more feeds.
+	///
+	/// Uses the most efficient method based on how many feeds were passed in.
+	func fetchUnreadCounts(for feeds: Set<WebFeed>, completion: VoidCompletionBlock?) {
+		if feeds.isEmpty {
+			completion?()
+			return
+		}
+		if feeds.count == 1, let feed = feeds.first {
+			fetchUnreadCount(feed, completion)
+		}
+		else if feeds.count < 10 {
+			fetchUnreadCounts(feeds, completion)
+		}
+		else {
+			fetchAllUnreadCounts(completion)
+		}
+	}
+
+	func fetchUnreadCount(_ feed: WebFeed, _ completion: VoidCompletionBlock?) {
+		database.fetchUnreadCount(feed.webFeedID) { result in
+			if let unreadCount = try? result.get() {
+				feed.unreadCount = unreadCount
+			}
+			completion?()
+		}
+	}
+
+	func fetchUnreadCounts(_ feeds: Set<WebFeed>, _ completion: VoidCompletionBlock?) {
+		let webFeedIDs = Set(feeds.map { $0.webFeedID })
+		database.fetchUnreadCounts(for: webFeedIDs) { result in
+			if let unreadCountDictionary = try? result.get() {
+				self.processUnreadCounts(unreadCountDictionary: unreadCountDictionary, feeds: feeds)
+			}
+			completion?()
+		}
+	}
+
+	func fetchAllUnreadCounts(_ completion: VoidCompletionBlock? = nil) {
 		fetchingAllUnreadCounts = true
+		database.fetchAllUnreadCounts { result in
+			guard let unreadCountDictionary = try? result.get() else {
+				completion?()
+				return
+			}
+			self.processUnreadCounts(unreadCountDictionary: unreadCountDictionary, feeds: self.flattenedWebFeeds())
 
-		database.fetchAllNonZeroUnreadCounts { (unreadCountDictionaryResult) in
-			if let unreadCountDictionary = try? unreadCountDictionaryResult.get() {
-				self.flattenedWebFeeds().forEach{ (feed) in
-					// When the unread count is zero, it won’t appear in unreadCountDictionary.
-					if let unreadCount = unreadCountDictionary[feed.webFeedID] {
-						feed.unreadCount = unreadCount
-					}
-					else {
-						feed.unreadCount = 0
-					}
-				}
+			self.fetchingAllUnreadCounts = false
+			self.updateUnreadCount()
 
-				self.fetchingAllUnreadCounts = false
-				self.updateUnreadCount()
+			if !self.isUnreadCountsInitialized {
 				self.isUnreadCountsInitialized = true
 				self.postUnreadCountDidInitializeNotification()
 			}
+			completion?()
+		}
+	}
+
+	func processUnreadCounts(unreadCountDictionary: UnreadCountDictionary, feeds: Set<WebFeed>) {
+		for feed in feeds {
+			// When the unread count is zero, it won’t appear in unreadCountDictionary.
+			let unreadCount = unreadCountDictionary[feed.webFeedID] ?? 0
+			feed.unreadCount = unreadCount
+		}
+	}
+
+	func sendNotificationAbout(_ newAndUpdatedArticles: NewAndUpdatedArticles) {
+		var webFeeds = Set<WebFeed>()
+
+		if let newArticles = newAndUpdatedArticles.newArticles {
+			webFeeds.formUnion(Set(newArticles.compactMap { $0.webFeed }))
+		}
+		if let updatedArticles = newAndUpdatedArticles.updatedArticles {
+			webFeeds.formUnion(Set(updatedArticles.compactMap { $0.webFeed }))
+		}
+
+		var shouldSendNotification = false
+		var userInfo = [String: Any]()
+
+		if let newArticles = newAndUpdatedArticles.newArticles, !newArticles.isEmpty {
+			shouldSendNotification = true
+			userInfo[UserInfoKey.newArticles] = newArticles
+			self.updateUnreadCounts(for: webFeeds)
+		}
+
+		if let updatedArticles = newAndUpdatedArticles.updatedArticles, !updatedArticles.isEmpty {
+			shouldSendNotification = true
+			userInfo[UserInfoKey.updatedArticles] = updatedArticles
+		}
+
+		if shouldSendNotification {
+			userInfo[UserInfoKey.webFeeds] = webFeeds
+			NotificationCenter.default.post(name: .AccountDidDownloadArticles, object: self, userInfo: userInfo)
 		}
 	}
 }
@@ -1237,19 +1318,24 @@ extension Account {
 	public func existingWebFeed(withWebFeedID webFeedID: String) -> WebFeed? {
 		return idToWebFeedDictionary[webFeedID]
 	}
+
+	public func existingWebFeed(withExternalID externalID: String) -> WebFeed? {
+		return externalIDToWebFeedDictionary[externalID]
+	}
+	
 }
 
 // MARK: - OPMLRepresentable
 
 extension Account: OPMLRepresentable {
 
-	public func OPMLString(indentLevel: Int, strictConformance: Bool) -> String {
+	public func OPMLString(indentLevel: Int, allowCustomAttributes: Bool) -> String {
 		var s = ""
-		for feed in topLevelWebFeeds.sorted(by: { $0.nameForDisplay < $1.nameForDisplay }) {
-			s += feed.OPMLString(indentLevel: indentLevel + 1, strictConformance: strictConformance)
+		for feed in topLevelWebFeeds.sorted() {
+			s += feed.OPMLString(indentLevel: indentLevel + 1, allowCustomAttributes: allowCustomAttributes)
 		}
-		for folder in folders!.sorted(by: { $0.nameForDisplay < $1.nameForDisplay }) {
-			s += folder.OPMLString(indentLevel: indentLevel + 1, strictConformance: strictConformance)
+		for folder in folders!.sorted() {
+			s += folder.OPMLString(indentLevel: indentLevel + 1, allowCustomAttributes: allowCustomAttributes)
 		}
 		return s
 	}

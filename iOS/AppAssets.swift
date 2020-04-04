@@ -19,6 +19,10 @@ struct AppAssets {
 		return UIImage(named: "accountLocalPhone")!
 	}()
 
+	static var accountCloudKitImage: UIImage = {
+		return UIImage(named: "accountCloudKit")!
+	}()
+
 	static var accountFeedbinImage: UIImage = {
 		return UIImage(named: "accountFeedbin")!
 	}()
@@ -35,6 +39,10 @@ struct AppAssets {
 		return UIImage(named: "accountFreshRSS")!
 	}()
 
+	static var accountNewsBlurImage: UIImage = {
+		return UIImage(named: "accountNewsBlur")!
+	}()
+
 	static var articleExtractorError: UIImage = {
 		return UIImage(named: "articleExtractorError")!
 	}()
@@ -49,7 +57,7 @@ struct AppAssets {
 
 	static var articleExtractorOffTinted: UIImage = {
 		let image = UIImage(named: "articleExtractorOff")!
-		return image.maskWithColor(color: AppAssets.primaryAccentColor.cgColor)!
+		return image.tinted(color: AppAssets.primaryAccentColor)!
 	}()
 
 	static var articleExtractorOn: UIImage = {
@@ -62,7 +70,7 @@ struct AppAssets {
 
 	static var articleExtractorOnTinted: UIImage = {
 		let image = UIImage(named: "articleExtractorOn")!
-		return image.maskWithColor(color: AppAssets.primaryAccentColor.cgColor)!
+		return image.tinted(color: AppAssets.primaryAccentColor)!
 	}()
 
 	static var iconBackgroundColor: UIColor = {
@@ -113,15 +121,15 @@ struct AppAssets {
 		UIImage(systemName: "info.circle")!
 	}()
 	
-	static var markAllInFeedAsReadImage: UIImage = {
-		return UIImage(systemName: "asterisk.circle")!
+	static var markAllAsReadImage: UIImage = {
+		return UIImage(named: "markAllAsRead")!
 	}()
 	
-	static var markOlderAsReadDownImage: UIImage = {
+	static var markBelowAsReadImage: UIImage = {
 		return UIImage(systemName: "arrowtriangle.down.circle")!
 	}()
 	
-	static var markOlderAsReadUpImage: UIImage = {
+	static var markAboveAsReadImage: UIImage = {
 		return UIImage(systemName: "arrowtriangle.up.circle")!
 	}()
 	
@@ -230,6 +238,8 @@ struct AppAssets {
 			} else {
 				return AppAssets.accountLocalPhoneImage
 			}
+		case .cloudKit:
+			return AppAssets.accountCloudKitImage
 		case .feedbin:
 			return AppAssets.accountFeedbinImage
 		case .feedly:
@@ -238,8 +248,8 @@ struct AppAssets {
 			return AppAssets.accountFeedWranglerImage
 		case .freshRSS:
 			return AppAssets.accountFreshRSSImage
-		default:
-			return nil
+		case .newsBlur:
+			return AppAssets.accountNewsBlurImage
 		}
 	}
 	

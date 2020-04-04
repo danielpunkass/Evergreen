@@ -25,7 +25,6 @@ class ImageViewer {
 			this.loadingInterval = setInterval(callback, 100);
 		}
 	}
-
 	cancel() {
 		clearInterval(this.loadingInterval);
 		this.hideLoadingIndicator();
@@ -45,6 +44,7 @@ class ImageViewer {
 			y: rect.y,
 			width: rect.width,
 			height: rect.height,
+			imageTitle: this.img.title,
 			imageURL: canvas.toDataURL(),
 		};
 
@@ -58,7 +58,6 @@ class ImageViewer {
 
 	showImage() {
 		this.img.style.opacity = 1
-		window.webkit.messageHandlers.imageWasShown.postMessage("");
 	}
 
 	showLoadingIndicator() {
@@ -128,18 +127,13 @@ function showClickedImage() {
 	if (activeImageViewer) {
 		activeImageViewer.showImage();
 	}
-}
-
-// Add the playsinline attribute to any HTML5 videos that don"t have it.
-// Without this attribute videos may autoplay and take over the whole screen
-// on an iphone when viewing an article.
-function inlineVideos() {
-	document.querySelectorAll("video").forEach(element => {
-		element.setAttribute("playsinline", true)
-	});
+	window.webkit.messageHandlers.imageWasShown.postMessage("");
 }
 
 function postRenderProcessing() {
 	ImageViewer.init();
-	inlineVideos();
 }
+
+window.addEventListener('DOMContentLoaded', (event) => {
+    window.webkit.messageHandlers.domContentLoaded.postMessage("");
+});

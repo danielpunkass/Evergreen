@@ -8,6 +8,24 @@
 
 import UIKit
 
+enum UserInterfaceColorPalette: Int, CustomStringConvertible, CaseIterable {
+	case automatic = 0
+	case light = 1
+	case dark = 2
+
+	var description: String {
+		switch self {
+		case .automatic:
+			return NSLocalizedString("Automatic", comment: "Automatic")
+		case .light:
+			return NSLocalizedString("Light", comment: "Light")
+		case .dark:
+			return NSLocalizedString("Dark", comment: "Dark")
+		}
+	}
+	
+}
+
 struct AppDefaults {
 
 	static var shared: UserDefaults = {
@@ -17,19 +35,29 @@ struct AppDefaults {
 	}()
 	
 	struct Key {
+		static let userInterfaceColorPalette = "userInterfaceColorPalette"
 		static let lastImageCacheFlushDate = "lastImageCacheFlushDate"
 		static let firstRunDate = "firstRunDate"
 		static let timelineGroupByFeed = "timelineGroupByFeed"
+		static let refreshClearsReadArticles = "refreshClearsReadArticles"
 		static let timelineNumberOfLines = "timelineNumberOfLines"
 		static let timelineIconSize = "timelineIconSize"
 		static let timelineSortDirection = "timelineSortDirection"
+		static let articleFullscreenAvailable = "articleFullscreenAvailable"
 		static let articleFullscreenEnabled = "articleFullscreenEnabled"
-		static let displayUndoAvailableTip = "displayUndoAvailableTip"
+		static let confirmMarkAllAsRead = "confirmMarkAllAsRead"
 		static let lastRefresh = "lastRefresh"
 		static let addWebFeedAccountID = "addWebFeedAccountID"
 		static let addWebFeedFolderName = "addWebFeedFolderName"
 		static let addFolderAccountID = "addFolderAccountID"
 	}
+
+	static let isDeveloperBuild: Bool = {
+		if let dev = Bundle.main.object(forInfoDictionaryKey: "DeveloperEntitlements") as? String, dev == "-dev" {
+			return true
+		}
+		return false
+	}()
 
 	static let isFirstRun: Bool = {
 		if let _ = AppDefaults.shared.object(forKey: Key.firstRunDate) as? Date {
@@ -38,6 +66,18 @@ struct AppDefaults {
 		firstRunDate = Date()
 		return true
 	}()
+	
+	static var userInterfaceColorPalette: UserInterfaceColorPalette {
+		get {
+			if let result = UserInterfaceColorPalette(rawValue: int(for: Key.userInterfaceColorPalette)) {
+				return result
+			}
+			return .automatic
+		}
+		set {
+			setInt(for: Key.userInterfaceColorPalette, newValue.rawValue)
+		}
+	}
 
 	static var addWebFeedAccountID: String? {
 		get {
@@ -84,12 +124,30 @@ struct AppDefaults {
 		}
 	}
 
+	static var refreshClearsReadArticles: Bool {
+		get {
+			return bool(for: Key.refreshClearsReadArticles)
+		}
+		set {
+			setBool(for: Key.refreshClearsReadArticles, newValue)
+		}
+	}
+
 	static var timelineSortDirection: ComparisonResult {
 		get {
 			return sortDirection(for: Key.timelineSortDirection)
 		}
 		set {
 			setSortDirection(for: Key.timelineSortDirection, newValue)
+		}
+	}
+
+	static var articleFullscreenAvailable: Bool {
+		get {
+			return bool(for: Key.articleFullscreenAvailable)
+		}
+		set {
+			setBool(for: Key.articleFullscreenAvailable, newValue)
 		}
 	}
 
@@ -102,12 +160,12 @@ struct AppDefaults {
 		}
 	}
 
-	static var displayUndoAvailableTip: Bool {
+	static var confirmMarkAllAsRead: Bool {
 		get {
-			return bool(for: Key.displayUndoAvailableTip)
+			return bool(for: Key.confirmMarkAllAsRead)
 		}
 		set {
-			setBool(for: Key.displayUndoAvailableTip, newValue)
+			setBool(for: Key.confirmMarkAllAsRead, newValue)
 		}
 	}
 	
@@ -140,13 +198,15 @@ struct AppDefaults {
 	}
 	
 	static func registerDefaults() {
-		let defaults: [String : Any] = [Key.lastImageCacheFlushDate: Date(),
+		let defaults: [String : Any] = [Key.userInterfaceColorPalette: UserInterfaceColorPalette.automatic.rawValue,
 										Key.timelineGroupByFeed: false,
+										Key.refreshClearsReadArticles: false,
 										Key.timelineNumberOfLines: 2,
 										Key.timelineIconSize: IconSize.medium.rawValue,
 										Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue,
+										Key.articleFullscreenAvailable: false,
 										Key.articleFullscreenEnabled: false,
-										Key.displayUndoAvailableTip: true]
+										Key.confirmMarkAllAsRead: true]
 		AppDefaults.shared.register(defaults: defaults)
 	}
 

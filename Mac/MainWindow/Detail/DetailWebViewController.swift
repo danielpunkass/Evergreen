@@ -8,6 +8,7 @@
 
 import AppKit
 import WebKit
+import RSCore
 import RSWeb
 import Articles
 
@@ -27,6 +28,17 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 			}
 		}
 	}
+	
+	var article: Article? {
+		switch state {
+		case .article(let article):
+			return article
+		case .extracted(let article, _):
+			return article
+		default:
+			return nil
+		}
+	}
 
 	#if !MAC_APP_STORE
 		private var webInspectorEnabled: Bool {
@@ -39,7 +51,7 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 		}
 	#endif
 	
-	private let articleIconSchemeHandler = ArticleIconSchemeHandler()
+	private let detailIconSchemeHandler = DetailIconSchemeHandler()
 	private var waitingForFirstReload = false
 	private let keyboardDelegate = DetailKeyboardDelegate()
 	
@@ -66,7 +78,7 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 
 		let configuration = WKWebViewConfiguration()
 		configuration.preferences = preferences
-		configuration.setURLSchemeHandler(articleIconSchemeHandler, forURLScheme: ArticleRenderer.imageIconScheme)
+		configuration.setURLSchemeHandler(detailIconSchemeHandler, forURLScheme: ArticleRenderer.imageIconScheme)
 
 		let userContentController = WKUserContentController()
 		userContentController.add(self, name: MessageName.mouseDidEnter)
@@ -107,8 +119,7 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 		NotificationCenter.default.addObserver(self, selector: #selector(avatarDidBecomeAvailable(_:)), name: .AvatarDidBecomeAvailable, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
 
-		webView.loadHTMLString(ArticleRenderer.page.html, baseURL: ArticleRenderer.page.baseURL)
-		
+		webView.loadFileURL(ArticleRenderer.blank.url, allowingReadAccessTo: ArticleRenderer.blank.baseURL)
 	}
 
 	// MARK: Notifications
@@ -123,6 +134,12 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 
 	@objc func faviconDidBecomeAvailable(_ note: Notification) {
 		reloadArticleImage()
+	}
+	
+	// MARK: Media Functions
+	
+	func stopMediaPlayback() {
+		webView.evaluateJavaScript("stopMediaPlayback();")
 	}
 	
 	// MARK: Scrolling
@@ -185,15 +202,19 @@ extension DetailWebViewController: WKNavigationDelegate {
 }
 
 // MARK: - Private
-struct TemplateData: Codable {
-	let style: String
-	let body: String
-}
 
 private extension DetailWebViewController {
 
 	func reloadArticleImage() {
-		webView.evaluateJavaScript("reloadArticleImage()")
+		guard let article = article else { return }
+		
+		var components = URLComponents()
+		components.scheme = ArticleRenderer.imageIconScheme
+		components.path = article.articleID
+		
+		if let imageSrc = components.string {
+			webView?.evaluateJavaScript("reloadArticleImage(\"\(imageSrc)\")")
+		}
 	}
 
 	func reloadHTML() {
@@ -208,23 +229,22 @@ private extension DetailWebViewController {
 		case .loading:
 			rendering = ArticleRenderer.loadingHTML(style: style)
 		case .article(let article):
-			articleIconSchemeHandler.currentArticle = article
+			detailIconSchemeHandler.currentArticle = article
 			rendering = ArticleRenderer.articleHTML(article: article, style: style)
 		case .extracted(let article, let extractedArticle):
-			articleIconSchemeHandler.currentArticle = article
+			detailIconSchemeHandler.currentArticle = article
 			rendering = ArticleRenderer.articleHTML(article: article, extractedArticle: extractedArticle, style: style)
 		}
 		
-		let templateData = TemplateData(style: rendering.style, body: rendering.html)
+		let substitutions = [
+			"title": rendering.title,
+			"baseURL": rendering.baseURL,
+			"style": rendering.style,
+			"body": rendering.html
+		]
 		
-		let encoder = JSONEncoder()
-		var render = "error();"
-		if let data = try? encoder.encode(templateData) {
-			let json = String(data: data, encoding: .utf8)!
-			render = "render(\(json), 0);"
-		}
-
-		webView.evaluateJavaScript(render)
+		let html = try! MacroProcessor.renderedText(withTemplate: ArticleRenderer.page.html, substitutions: substitutions)
+		webView.loadHTMLString(html, baseURL: ArticleRenderer.page.baseURL)
 	}
 
 	func fetchScrollInfo(_ completion: @escaping (ScrollInfo?) -> Void) {

@@ -139,10 +139,19 @@ private extension KeyboardManager {
 		keys.append(KeyboardManager.createKeyCommand(title: goToStarredTitle, action: "goToStarred:", input: "3", modifiers: [.command]))
 
 		let articleSearchTitle = NSLocalizedString("Article Search", comment: "Article Search")
-		keys.append(KeyboardManager.createKeyCommand(title: articleSearchTitle, action: "articleSearch:", input: "f", modifiers: [.command, .shift]))
+		keys.append(KeyboardManager.createKeyCommand(title: articleSearchTitle, action: "articleSearch:", input: "f", modifiers: [.command, .alternate]))
 
 		let markAllAsReadTitle = NSLocalizedString("Mark All as Read", comment: "Mark All as Read")
 		keys.append(KeyboardManager.createKeyCommand(title: markAllAsReadTitle, action: "markAllAsRead:", input: "k", modifiers: [.command]))
+
+		let cleanUp = NSLocalizedString("Clean Up", comment: "Clean Up")
+		keys.append(KeyboardManager.createKeyCommand(title: cleanUp, action: "cleanUp:", input: "'", modifiers: [.command]))
+
+		let toggleReadFeedsFilter = NSLocalizedString("Toggle Read Feeds Filter", comment: "Toggle Read Feeds Filter")
+		keys.append(KeyboardManager.createKeyCommand(title: toggleReadFeedsFilter, action: "toggleReadFeedsFilter:", input: "f", modifiers: [.command, .shift]))
+
+		let toggleReadArticlesFilter = NSLocalizedString("Toggle Read Articles Filter", comment: "Toggle Read Articles Filter")
+		keys.append(KeyboardManager.createKeyCommand(title: toggleReadArticlesFilter, action: "toggleReadArticlesFilter:", input: "h", modifiers: [.command, .shift]))
 
 		return keys
 	}
@@ -168,8 +177,11 @@ private extension KeyboardManager {
 		let toggleReadTitle = NSLocalizedString("Toggle Read Status", comment: "Toggle Read Status")
 		keys.append(KeyboardManager.createKeyCommand(title: toggleReadTitle, action: "toggleRead:", input: "u", modifiers: [.command, .shift]))
 
-		let markOlderAsReadTitle = NSLocalizedString("Mark Older as Read", comment: "Mark Older as Read")
-		keys.append(KeyboardManager.createKeyCommand(title: markOlderAsReadTitle, action: "markOlderArticlesAsRead:", input: "k", modifiers: [.command, .shift]))
+		let markAboveAsReadTitle = NSLocalizedString("Mark Above as Read", comment: "Mark Above as Read")
+		keys.append(KeyboardManager.createKeyCommand(title: markAboveAsReadTitle, action: "markAboveAsRead:", input: "k", modifiers: [.command, .control]))
+
+		let markBelowAsReadTitle = NSLocalizedString("Mark Below as Read", comment: "Mark Below as Read")
+		keys.append(KeyboardManager.createKeyCommand(title: markBelowAsReadTitle, action: "markBelowAsRead:", input: "k", modifiers: [.command, .shift]))
 
 		let toggleStarredTitle = NSLocalizedString("Toggle Starred Status", comment: "Toggle Starred Status")
 		keys.append(KeyboardManager.createKeyCommand(title: toggleStarredTitle, action: "toggleStarred:", input: "l", modifiers: [.command, .shift]))

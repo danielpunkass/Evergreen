@@ -15,14 +15,17 @@ import RSCore
 protocol SidebarDelegate: class {
 	func sidebarSelectionDidChange(_: SidebarViewController, selectedObjects: [AnyObject]?)
 	func unreadCount(for: AnyObject) -> Int
+	func sidebarInvalidatedRestorationState(_: SidebarViewController)
 }
 
-@objc class SidebarViewController: NSViewController, NSOutlineViewDelegate, NSOutlineViewDataSource, NSMenuDelegate, UndoableCommandRunner {
+@objc class SidebarViewController: NSViewController, NSOutlineViewDelegate, NSMenuDelegate, UndoableCommandRunner {
     
+	@IBOutlet weak var readFilteredButton: NSButton!
 	@IBOutlet var outlineView: SidebarOutlineView!
 
 	weak var delegate: SidebarDelegate?
 
+	private let rebuildTreeAndRestoreSelectionQueue = CoalescingQueue(name: "Rebuild Tree Queue", interval: 1.0)
 	let treeControllerDelegate = WebFeedTreeControllerDelegate()
 	lazy var treeController: TreeController = {
 		return TreeController(delegate: treeControllerDelegate)
@@ -30,9 +33,16 @@ protocol SidebarDelegate: class {
 	lazy var dataSource: SidebarOutlineDataSource = {
 		return SidebarOutlineDataSource(treeController: treeController)
 	}()
+	
 	var isReadFiltered: Bool {
-		return treeControllerDelegate.isReadFiltered
+		get {
+			return treeControllerDelegate.isReadFiltered
+		}
+		set {
+			treeControllerDelegate.isReadFiltered = newValue
+		}
 	}
+	var expandedTable = Set<ContainerIdentifier>()
 
     var undoableCommands = [UndoableCommand]()
 	private var animatingChanges = false
@@ -54,6 +64,7 @@ protocol SidebarDelegate: class {
 		outlineView.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
 		outlineView.registerForDraggedTypes([WebFeedPasteboardWriter.webFeedUTIInternalType, WebFeedPasteboardWriter.webFeedUTIType, .URL, .string])
 
+		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidInitialize(_:)), name: .UnreadCountDidInitialize, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(containerChildrenDidChange(_:)), name: .ChildrenDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(accountsDidChange(_:)), name: .UserDidAddAccount, object: nil)
@@ -64,36 +75,92 @@ protocol SidebarDelegate: class {
 		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(webFeedSettingDidChange(_:)), name: .WebFeedSettingDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange(_:)), name: .DisplayNameDidChange, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(userDidRequestSidebarSelection(_:)), name: .UserDidRequestSidebarSelection, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(downloadArticlesDidUpdateUnreadCounts(_:)), name: .DownloadArticlesDidUpdateUnreadCounts, object: nil)
 
 		outlineView.reloadData()
 
-		// Always expand all group items on initial display.
-		var row = 0
-		while(true) {
-			guard let item = outlineView.item(atRow: row) else {
-				break
+		// Expand top level items by default.  If there is state to restore, overlay this.
+		for topLevelNode in treeController.rootNode.childNodes {
+			if let containerID = (topLevelNode.representedObject as? ContainerIdentifiable)?.containerID {
+				expandedTable.insert(containerID)
 			}
-			let node = item as! Node
-			if node.isGroupItem {
-				outlineView.expandItem(item)
-			}
-			row += 1
 		}
+		expandNodes()
+		
 	}
 
+	// MARK: State Restoration
+	
+	func saveState(to state: inout [AnyHashable : Any]) {
+		state[UserInfoKey.readFeedsFilterState] = isReadFiltered
+		state[UserInfoKey.containerExpandedWindowState] = expandedTable.map { $0.userInfo }
+		state[UserInfoKey.selectedFeedsState] = selectedFeeds.compactMap { $0.feedID?.userInfo }
+	}
+	
+	func restoreState(from state: [AnyHashable : Any]) {
+		
+		if let containerExpandedWindowState = state[UserInfoKey.containerExpandedWindowState] as? [[AnyHashable: AnyHashable]] {
+			let containerIdentifers = containerExpandedWindowState.compactMap( { ContainerIdentifier(userInfo: $0) })
+			expandedTable = Set(containerIdentifers)
+		}
+
+		guard let selectedFeedsState = state[UserInfoKey.selectedFeedsState] as? [[AnyHashable: AnyHashable]] else {
+			return
+		}
+
+		let selectedFeedIdentifers = Set(selectedFeedsState.compactMap( { FeedIdentifier(userInfo: $0) }))
+		selectedFeedIdentifers.forEach { treeControllerDelegate.addFilterException($0) }
+		
+		rebuildTreeAndReloadDataIfNeeded()
+		
+		var selectIndexes = IndexSet()
+
+		func selectFeedsVisitor(node: Node) {
+			if let feedID = (node.representedObject as? FeedIdentifiable)?.feedID {
+				if selectedFeedIdentifers.contains(feedID) {
+					selectIndexes.insert(outlineView.row(forItem: node) )
+				}
+			}
+		}
+
+		treeController.visitNodes(selectFeedsVisitor(node:))
+		outlineView.selectRowIndexes(selectIndexes, byExtendingSelection: false)
+		focus()
+		
+		if let readFeedsFilterState = state[UserInfoKey.readFeedsFilterState] as? Bool {
+			isReadFiltered = readFeedsFilterState
+		}
+		
+		updateReadFilterButton()
+	}
+	
 	// MARK: - Notifications
+
+	@objc func unreadCountDidInitialize(_ notification: Notification) {
+		guard notification.object is AccountManager else {
+			return
+		}
+		if isReadFiltered {
+			rebuildTreeAndRestoreSelection()
+		}
+	}
 
 	@objc func unreadCountDidChange(_ note: Notification) {
 		guard let representedObject = note.object else {
 			return
 		}
+		
 		if let timelineViewController = representedObject as? TimelineViewController {
 			configureUnreadCountForCellsForRepresentedObjects(timelineViewController.representedObjects)
-		}
-		else {
+		} else {
 			configureUnreadCountForCellsForRepresentedObjects([representedObject as AnyObject])
+		}
+
+		guard AccountManager.shared.isUnreadCountsInitialized else {
+			return
+		}
+
+		if isReadFiltered {
+			queueRebuildTreeAndRestoreSelection()
 		}
 	}
 
@@ -150,10 +217,6 @@ protocol SidebarDelegate: class {
 		revealAndSelectRepresentedObject(feed as AnyObject)
 	}
 	
-	@objc func downloadArticlesDidUpdateUnreadCounts(_ note: Notification) {
-		rebuildTreeAndRestoreSelection()
-	}
-	
 	// MARK: - Actions
 
 	@IBAction func delete(_ sender: AnyObject?) {
@@ -171,22 +234,25 @@ protocol SidebarDelegate: class {
 	}
 
 	@IBAction func openInBrowser(_ sender: Any?) {
-		guard let feed = singleSelectedFeed, let homePageURL = feed.homePageURL else {
+		guard let feed = singleSelectedWebFeed, let homePageURL = feed.homePageURL else {
 			return
 		}
 		Browser.open(homePageURL)
 	}
 
 	@IBAction func gotoToday(_ sender: Any?) {
-		outlineView.revealAndSelectRepresentedObject(SmartFeedsController.shared.todayFeed, treeController)
+		selectFeed(SmartFeedsController.shared.todayFeed)
+		focus()
 	}
 
 	@IBAction func gotoAllUnread(_ sender: Any?) {
-		outlineView.revealAndSelectRepresentedObject(SmartFeedsController.shared.unreadFeed, treeController)
+		selectFeed(SmartFeedsController.shared.unreadFeed)
+		focus()
 	}
 
 	@IBAction func gotoStarred(_ sender: Any?) {
-		outlineView.revealAndSelectRepresentedObject(SmartFeedsController.shared.starredFeed, treeController)
+		selectFeed(SmartFeedsController.shared.starredFeed)
+		focus()
 	}
 
 	@IBAction func copy(_ sender: Any?) {
@@ -292,13 +358,35 @@ protocol SidebarDelegate: class {
     func outlineViewSelectionDidChange(_ notification: Notification) {
 		selectionDidChange(selectedObjects.isEmpty ? nil : selectedObjects)
     }
-
+	
+	func outlineViewItemDidExpand(_ notification: Notification) {
+ 		guard let node = notification.userInfo?["NSObject"] as? Node,
+			let containerID = (node.representedObject as? ContainerIdentifiable)?.containerID else {
+			return
+		}
+		if !expandedTable.contains(containerID) {
+			expandedTable.insert(containerID)
+			delegate?.sidebarInvalidatedRestorationState(self)
+		}
+ 	}
+	
+	func outlineViewItemDidCollapse(_ notification: Notification) {
+ 		guard let node = notification.userInfo?["NSObject"] as? Node,
+			let containerID = (node.representedObject as? ContainerIdentifiable)?.containerID else {
+			return
+		}
+		if expandedTable.contains(containerID) {
+			expandedTable.remove(containerID)
+			delegate?.sidebarInvalidatedRestorationState(self)
+		}
+	}
+	
 	//MARK: - Node Manipulation
 	
 	func deleteNodes(_ nodes: [Node]) {
 		let nodesToDelete = treeController.normalizedSelectedNodes(nodes)
 		
-		guard let undoManager = undoManager, let deleteCommand = DeleteCommand(nodesToDelete: nodesToDelete, undoManager: undoManager, errorHandler: ErrorHandler.present) else {
+		guard let undoManager = undoManager, let deleteCommand = DeleteCommand(nodesToDelete: nodesToDelete, treeController: treeController, undoManager: undoManager, errorHandler: ErrorHandler.present) else {
 			return
 		}
 		
@@ -317,40 +405,45 @@ protocol SidebarDelegate: class {
 	}
 
 	// MARK: - API
-
-	func rebuildTreeAndRestoreSelection() {
-		let savedAccounts = accountNodes
-		let savedSelection = selectedNodes
-		
-		rebuildTreeAndReloadDataIfNeeded()
-		restoreSelection(to: savedSelection, sendNotificationIfChanged: true)
-		
-		// Automatically expand any new or newly active accounts
-		AccountManager.shared.activeAccounts.forEach { account in
-			if !savedAccounts.contains(account) {
-				let accountNode = treeController.nodeInTreeRepresentingObject(account)
-				outlineView.expandItem(accountNode)
-			}
-		}
-		
-	}
 	
+	func selectFeed(_ feed: Feed) {
+		if isReadFiltered, let feedID = feed.feedID {
+			self.treeControllerDelegate.addFilterException(feedID)
+			
+			if let webFeed = feed as? WebFeed, let account = webFeed.account {
+				let parentFolder = account.sortedFolders?.first(where: { $0.objectIsChild(webFeed) })
+				if let parentFolderFeedID = parentFolder?.feedID {
+					self.treeControllerDelegate.addFilterException(parentFolderFeedID)
+				}
+			}
+			
+			addTreeControllerToFilterExceptions()
+			rebuildTreeAndRestoreSelection()
+		}
+
+		revealAndSelectRepresentedObject(feed as AnyObject)
+	}
+
 	func deepLinkRevealAndSelect(for userInfo: [AnyHashable : Any]) {
-		guard let accountNode = findAccountNode(userInfo), let feedNode = findFeedNode(userInfo, beginningAt: accountNode) else {
+		guard let accountNode = findAccountNode(userInfo),
+			let feedNode = findFeedNode(userInfo, beginningAt: accountNode),
+			let feed = feedNode.representedObject as? Feed else {
 			return
 		}
-		revealAndSelectRepresentedObject(feedNode.representedObject)
+		selectFeed(feed)
 	}
 
 	func toggleReadFilter() {
 		if treeControllerDelegate.isReadFiltered {
-			treeControllerDelegate.isReadFiltered = false
+			isReadFiltered = false
 		} else {
-			treeControllerDelegate.isReadFiltered = true
+			isReadFiltered = true
 		}
+		delegate?.sidebarInvalidatedRestorationState(self)
 		rebuildTreeAndRestoreSelection()
+		updateReadFilterButton()
 	}
-
+	
 }
 
 // MARK: - NSUserInterfaceValidations
@@ -379,6 +472,10 @@ private extension SidebarViewController {
 		}
 		return [Node]()
 	}
+	
+	var selectedFeeds: [Feed] {
+		selectedNodes.compactMap { $0.representedObject as? Feed }
+	}
 
 	var singleSelectedNode: Node? {
 		guard selectedNodes.count == 1 else {
@@ -387,17 +484,97 @@ private extension SidebarViewController {
 		return selectedNodes.first!
 	}
 
-	var singleSelectedFeed: WebFeed? {
+	var singleSelectedWebFeed: WebFeed? {
 		guard let node = singleSelectedNode else {
 			return nil
 		}
 		return node.representedObject as? WebFeed
 	}
+	
+	func addAllSelectedToFilterExceptions() {
+		selectedFeeds.forEach { addToFilterExeptionsIfNecessary($0) }
+	}
+	
+	func addToFilterExeptionsIfNecessary(_ feed: Feed?) {
+		if isReadFiltered, let feedID = feed?.feedID {
+			if feed is SmartFeed {
+				treeControllerDelegate.addFilterException(feedID)
+			} else if let folderFeed = feed as? Folder {
+				if folderFeed.account?.existingFolder(withID: folderFeed.folderID) != nil {
+					treeControllerDelegate.addFilterException(feedID)
+				}
+			} else if let webFeed = feed as? WebFeed {
+				if webFeed.account?.existingWebFeed(withWebFeedID: webFeed.webFeedID) != nil {
+					treeControllerDelegate.addFilterException(feedID)
+					addParentFolderToFilterExceptions(webFeed)
+				}
+			}
+		}
+	}
+	
+	func addParentFolderToFilterExceptions(_ feed: Feed) {
+		guard let node = treeController.rootNode.descendantNodeRepresentingObject(feed as AnyObject),
+			let folder = node.parent?.representedObject as? Folder,
+			let folderFeedID = folder.feedID else {
+				return
+		}
+		
+		treeControllerDelegate.addFilterException(folderFeedID)
+	}
+	
 
+	func queueRebuildTreeAndRestoreSelection() {
+		rebuildTreeAndRestoreSelectionQueue.add(self, #selector(rebuildTreeAndRestoreSelection))
+	}
+	
+	@objc func rebuildTreeAndRestoreSelection() {
+		let savedAccounts = accountNodes
+		let savedSelection = selectedNodes
+		
+		rebuildTreeAndReloadDataIfNeeded()
+		restoreSelection(to: savedSelection, sendNotificationIfChanged: true)
+		
+		// Automatically expand any new or newly active accounts
+		AccountManager.shared.activeAccounts.forEach { account in
+			if !savedAccounts.contains(account) {
+				let accountNode = treeController.nodeInTreeRepresentingObject(account)
+				outlineView.expandItem(accountNode)
+			}
+		}
+		
+	}
+	
 	func rebuildTreeAndReloadDataIfNeeded() {
 		if !animatingChanges && !BatchUpdate.shared.isPerforming {
+			addAllSelectedToFilterExceptions()
 			treeController.rebuild()
+			treeControllerDelegate.resetFilterExceptions()
 			outlineView.reloadData()
+			expandNodes()
+		}
+	}
+	
+	func expandNodes() {
+		treeController.visitNodes(expandNodesVisitor(node:))
+	}
+	
+	func expandNodesVisitor(node: Node) {
+		if let containerID = (node.representedObject as? ContainerIdentifiable)?.containerID {
+			if expandedTable.contains(containerID) {
+				outlineView.expandItem(node)
+			} else {
+				outlineView.collapseItem(node)
+			}
+		}
+	}
+	
+	func addTreeControllerToFilterExceptions() {
+		treeController.visitNodes(addTreeControllerToFilterExceptionsVisitor(node:))
+	}
+
+	func addTreeControllerToFilterExceptionsVisitor(node: Node) {
+		if let feed = node.representedObject as? Feed, let feedID = feed.feedID {
+			treeControllerDelegate.addFilterException(feedID)
 		}
 	}
 
@@ -423,6 +600,7 @@ private extension SidebarViewController {
 
 	func selectionDidChange(_ selectedObjects: [AnyObject]?) {
 		delegate?.sidebarSelectionDidChange(self, selectedObjects: selectedObjects)
+		delegate?.sidebarInvalidatedRestorationState(self)
 	}
 
 	func updateUnreadCounts(for objects: [AnyObject]) {
@@ -628,6 +806,14 @@ private extension SidebarViewController {
 	@discardableResult
 	func revealAndSelectRepresentedObject(_ representedObject: AnyObject) -> Bool {
 		return outlineView.revealAndSelectRepresentedObject(representedObject, treeController)
+	}
+	
+	func updateReadFilterButton() {
+		if isReadFiltered {
+			readFilteredButton.image = AppAssets.filterActive
+		} else {
+			readFilteredButton.image = AppAssets.filterInactive
+		}
 	}
 }
 

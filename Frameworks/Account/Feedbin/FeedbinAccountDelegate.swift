@@ -41,6 +41,8 @@ final class FeedbinAccountDelegate: AccountDelegate {
 			caller.accountMetadata = accountMetadata
 		}
 	}
+	
+	var refreshProgress = DownloadProgress(numberOfTasks: 0)
 
 	init(dataFolder: String, transport: Transport?) {
 		
@@ -71,9 +73,11 @@ final class FeedbinAccountDelegate: AccountDelegate {
 		}
 		
 	}
-	
-	var refreshProgress = DownloadProgress(numberOfTasks: 0)
-	
+		
+	func receiveRemoteNotification(for account: Account, userInfo: [AnyHashable : Any], completion: @escaping () -> Void) {
+		completion()
+	}
+
 	func refreshAll(for account: Account, completion: @escaping (Result<Void, Error>) -> Void) {
 		
 		refreshProgress.addToNumberOfTasksAndRemaining(5)
@@ -265,7 +269,7 @@ final class FeedbinAccountDelegate: AccountDelegate {
 		
 	}
 	
-	func addFolder(for account: Account, name: String, completion: @escaping (Result<Folder, Error>) -> Void) {
+	func createFolder(for account: Account, name: String, completion: @escaping (Result<Folder, Error>) -> Void) {
 		if let folder = account.ensureFolder(with: name) {
 			completion(.success(folder))
 		} else {
@@ -334,7 +338,7 @@ final class FeedbinAccountDelegate: AccountDelegate {
 				
 			} else {
 				
-				if let subscriptionID = feed.subscriptionID {
+				if let subscriptionID = feed.externalID {
 					group.enter()
 					refreshProgress.addToNumberOfTasksAndRemaining(1)
 					caller.deleteSubscription(subscriptionID: subscriptionID) { result in
@@ -398,7 +402,7 @@ final class FeedbinAccountDelegate: AccountDelegate {
 	func renameWebFeed(for account: Account, with feed: WebFeed, to name: String, completion: @escaping (Result<Void, Error>) -> Void) {
 
 		// This error should never happen
-		guard let subscriptionID = feed.subscriptionID else {
+		guard let subscriptionID = feed.externalID else {
 			completion(.failure(FeedbinAccountDelegateError.invalidParameter))
 			return
 		}
@@ -812,7 +816,7 @@ private extension FeedbinAccountDelegate {
 				// If the name has been changed on the server remove the locally edited name
 				feed.editedName = nil
 				feed.homePageURL = subscription.homePageURL
-				feed.subscriptionID = String(subscription.subscriptionID)
+				feed.externalID = String(subscription.subscriptionID)
 				feed.faviconURL = subscription.jsonFeed?.favicon
 				feed.iconURL = subscription.jsonFeed?.icon
 			}
@@ -824,7 +828,7 @@ private extension FeedbinAccountDelegate {
 		// Actually add subscriptions all in one go, so we don’t trigger various rebuilding things that Account does.
 		subscriptionsToAdd.forEach { subscription in
 			let feed = account.createWebFeed(with: subscription.name, url: subscription.url, webFeedID: String(subscription.feedID), homePageURL: subscription.homePageURL)
-			feed.subscriptionID = String(subscription.subscriptionID)
+			feed.externalID = String(subscription.subscriptionID)
 			account.addWebFeed(feed)
 		}
 	}
@@ -837,14 +841,7 @@ private extension FeedbinAccountDelegate {
 		os_log(.debug, log: log, "Syncing taggings with %ld taggings.", taggings.count)
 		
 		// Set up some structures to make syncing easier
-		let folderDict: [String: Folder] = {
-			if let folders = account.folders {
-				return Dictionary(uniqueKeysWithValues: folders.map { ($0.name ?? "", $0) } )
-			} else {
-				return [String: Folder]()
-			}
-		}()
-
+		let folderDict = nameToFolderDictionary(with: account.folders)
 		let taggingsDict = taggings.reduce([String: [FeedbinTagging]]()) { (dict, tagging) in
 			var taggedFeeds = dict
 			if var taggedFeed = taggedFeeds[tagging.name] {
@@ -897,7 +894,22 @@ private extension FeedbinAccountDelegate {
 			}
 		}
 	}
-	
+
+	func nameToFolderDictionary(with folders: Set<Folder>?) -> [String: Folder] {
+		guard let folders = folders else {
+			return [String: Folder]()
+		}
+
+		var d = [String: Folder]()
+		for folder in folders {
+			let name = folder.name ?? ""
+			if d[name] == nil {
+				d[name] = folder
+			}
+		}
+		return d
+	}
+
 	func sendArticleStatuses(_ statuses: [SyncStatus],
 							 apiCall: ([Int], @escaping (Result<Void, Error>) -> Void) -> Void,
 							 completion: @escaping ((Result<Void, Error>) -> Void)) {
@@ -996,7 +1008,7 @@ private extension FeedbinAccountDelegate {
 		DispatchQueue.main.async {
 			
 			let feed = account.createWebFeed(with: sub.name, url: sub.url, webFeedID: String(sub.feedID), homePageURL: sub.homePageURL)
-			feed.subscriptionID = String(sub.subscriptionID)
+			feed.externalID = String(sub.subscriptionID)
 			feed.iconURL = sub.jsonFeed?.icon
 			feed.faviconURL = sub.jsonFeed?.favicon
 		
@@ -1225,7 +1237,7 @@ private extension FeedbinAccountDelegate {
 		
 		let parsedItems: [ParsedItem] = entries.map { entry in
 			let authors = Set([ParsedAuthor(name: entry.authorName, url: entry.jsonFeed?.jsonFeedAuthor?.url, avatarURL: entry.jsonFeed?.jsonFeedAuthor?.avatarURL, emailAddress: nil)])
-			return ParsedItem(syncServiceID: String(entry.articleID), uniqueID: String(entry.articleID), feedURL: String(entry.feedID), url: nil, externalURL: entry.url, title: entry.title, contentHTML: entry.contentHTML, contentText: nil, summary: entry.summary, imageURL: nil, bannerImageURL: nil, datePublished: entry.parsedDatePublished, dateModified: nil, authors: authors, tags: nil, attachments: nil)
+			return ParsedItem(syncServiceID: String(entry.articleID), uniqueID: String(entry.articleID), feedURL: String(entry.feedID), url: entry.url, externalURL: nil, title: entry.title, language: nil, contentHTML: entry.contentHTML, contentText: nil, summary: entry.summary, imageURL: nil, bannerImageURL: nil, datePublished: entry.parsedDatePublished, dateModified: nil, authors: authors, tags: nil, attachments: nil)
 		}
 		
 		return Set(parsedItems)
@@ -1237,20 +1249,38 @@ private extension FeedbinAccountDelegate {
 			return
 		}
 
-		let feedbinUnreadArticleIDs = Set(articleIDs.map { String($0) } )
-		account.fetchUnreadArticleIDs { articleIDsResult in
-			guard let currentUnreadArticleIDs = try? articleIDsResult.get() else {
-				return
+		database.selectPendingReadStatusArticleIDs() { result in
+
+			func process(_ pendingArticleIDs: Set<String>) {
+				
+				let feedbinUnreadArticleIDs = Set(articleIDs.map { String($0) } )
+				let updatableFeedbinUnreadArticleIDs = feedbinUnreadArticleIDs.subtracting(pendingArticleIDs)
+				
+				account.fetchUnreadArticleIDs { articleIDsResult in
+					guard let currentUnreadArticleIDs = try? articleIDsResult.get() else {
+						return
+					}
+
+					// Mark articles as unread
+					let deltaUnreadArticleIDs = updatableFeedbinUnreadArticleIDs.subtracting(currentUnreadArticleIDs)
+					account.markAsUnread(deltaUnreadArticleIDs)
+
+					// Mark articles as read
+					let deltaReadArticleIDs = currentUnreadArticleIDs.subtracting(updatableFeedbinUnreadArticleIDs)
+					account.markAsRead(deltaReadArticleIDs)
+				}
+
 			}
-
-			// Mark articles as unread
-			let deltaUnreadArticleIDs = feedbinUnreadArticleIDs.subtracting(currentUnreadArticleIDs)
-			account.markAsUnread(deltaUnreadArticleIDs)
-
-			// Mark articles as read
-			let deltaReadArticleIDs = currentUnreadArticleIDs.subtracting(feedbinUnreadArticleIDs)
-			account.markAsRead(deltaReadArticleIDs)
+			
+			switch result {
+			case .success(let pendingArticleIDs):
+				process(pendingArticleIDs)
+			case .failure(let error):
+				os_log(.error, log: self.log, "Sync Article Read Status failed: %@.", error.localizedDescription)
+			}
+			
 		}
+		
 	}
 	
 	func syncArticleStarredState(account: Account, articleIDs: [Int]?) {
@@ -1258,20 +1288,38 @@ private extension FeedbinAccountDelegate {
 			return
 		}
 
-		let feedbinStarredArticleIDs = Set(articleIDs.map { String($0) } )
-		account.fetchStarredArticleIDs { articleIDsResult in
-			guard let currentStarredArticleIDs = try? articleIDsResult.get() else {
-				return
+		database.selectPendingStarredStatusArticleIDs() { result in
+
+			func process(_ pendingArticleIDs: Set<String>) {
+				
+				let feedbinStarredArticleIDs = Set(articleIDs.map { String($0) } )
+				let updatableFeedbinUnreadArticleIDs = feedbinStarredArticleIDs.subtracting(pendingArticleIDs)
+
+				account.fetchStarredArticleIDs { articleIDsResult in
+					guard let currentStarredArticleIDs = try? articleIDsResult.get() else {
+						return
+					}
+
+					// Mark articles as starred
+					let deltaStarredArticleIDs = updatableFeedbinUnreadArticleIDs.subtracting(currentStarredArticleIDs)
+					account.markAsStarred(deltaStarredArticleIDs)
+
+					// Mark articles as unstarred
+					let deltaUnstarredArticleIDs = currentStarredArticleIDs.subtracting(updatableFeedbinUnreadArticleIDs)
+					account.markAsUnstarred(deltaUnstarredArticleIDs)
+				}
+								
+			}
+			
+			switch result {
+			case .success(let pendingArticleIDs):
+				process(pendingArticleIDs)
+			case .failure(let error):
+				os_log(.error, log: self.log, "Sync Article Starred Status failed: %@.", error.localizedDescription)
 			}
 
-			// Mark articles as starred
-			let deltaStarredArticleIDs = feedbinStarredArticleIDs.subtracting(currentStarredArticleIDs)
-			account.markAsStarred(deltaStarredArticleIDs)
-
-			// Mark articles as unstarred
-			let deltaUnstarredArticleIDs = currentStarredArticleIDs.subtracting(feedbinStarredArticleIDs)
-			account.markAsUnstarred(deltaUnstarredArticleIDs)
 		}
+		
 	}
 
 	func deleteTagging(for account: Account, with feed: WebFeed, from container: Container?, completion: @escaping (Result<Void, Error>) -> Void) {
@@ -1307,7 +1355,7 @@ private extension FeedbinAccountDelegate {
 	func deleteSubscription(for account: Account, with feed: WebFeed, from container: Container?, completion: @escaping (Result<Void, Error>) -> Void) {
 		
 		// This error should never happen
-		guard let subscriptionID = feed.subscriptionID else {
+		guard let subscriptionID = feed.externalID else {
 			completion(.failure(FeedbinAccountDelegateError.invalidParameter))
 			return
 		}

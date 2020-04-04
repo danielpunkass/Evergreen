@@ -60,6 +60,10 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 		caller.logout() { _ in }
 	}
 	
+	func receiveRemoteNotification(for account: Account, userInfo: [AnyHashable : Any], completion: @escaping () -> Void) {
+		completion()
+	}
+	
 	func refreshAll(for account: Account, completion: @escaping (Result<Void, Error>) -> Void) {
 		refreshProgress.addToNumberOfTasksAndRemaining(6)
 		
@@ -279,7 +283,7 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 		fatalError()
 	}
 	
-	func addFolder(for account: Account, name: String, completion: @escaping (Result<Folder, Error>) -> Void) {
+	func createFolder(for account: Account, name: String, completion: @escaping (Result<Folder, Error>) -> Void) {
 		fatalError()
 	}
 	
@@ -493,7 +497,7 @@ private extension FeedWranglerAccountDelegate {
 				feed.name = subscription.title
 				feed.editedName = nil
 				feed.homePageURL = subscription.siteURL
-				feed.subscriptionID = nil // MARK: TODO What should this be?
+				feed.externalID = nil // MARK: TODO What should this be?
 			} else {
 				subscriptionsToAdd.insert(subscription)
 			}
@@ -502,7 +506,7 @@ private extension FeedWranglerAccountDelegate {
 		subscriptionsToAdd.forEach { subscription in
 			let feedId = String(subscription.feedID)
 			let feed = account.createWebFeed(with: subscription.title, url: subscription.feedURL, webFeedID: feedId, homePageURL: subscription.siteURL)
-			feed.subscriptionID = nil
+			feed.externalID = nil
 			account.addWebFeed(feed)
 		}
 	}
@@ -511,7 +515,7 @@ private extension FeedWranglerAccountDelegate {
 		let parsedItems = feedItems.map { (item: FeedWranglerFeedItem) -> ParsedItem in
 			let itemID = String(item.feedItemID)
 			// let authors = ...
-			let parsedItem = ParsedItem(syncServiceID: itemID, uniqueID: itemID, feedURL: String(item.feedID), url: nil, externalURL: item.url, title: item.title, contentHTML: item.body, contentText: nil, summary: nil, imageURL: nil, bannerImageURL: nil, datePublished: item.publishedDate, dateModified: item.updatedDate, authors: nil, tags: nil, attachments: nil)
+			let parsedItem = ParsedItem(syncServiceID: itemID, uniqueID: itemID, feedURL: String(item.feedID), url: nil, externalURL: item.url, title: item.title, language: nil, contentHTML: item.body, contentText: nil, summary: nil, imageURL: nil, bannerImageURL: nil, datePublished: item.publishedDate, dateModified: item.updatedDate, authors: nil, tags: nil, attachments: nil)
 			
 			return parsedItem
 		}

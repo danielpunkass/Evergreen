@@ -72,7 +72,7 @@ public final class AccountManager: UnreadCountProvider {
 		return lastArticleFetchEndTime
 	}
 
-	public func findActiveAccount(forDisplayName displayName: String) -> Account? {
+	public func existingActiveAccount(forDisplayName displayName: String) -> Account? {
 		return AccountManager.shared.activeAccounts.first(where: { $0.nameForDisplay == displayName })
 	}
 	
@@ -88,14 +88,6 @@ public final class AccountManager: UnreadCountProvider {
 	public var combinedRefreshProgress: CombinedRefreshProgress {
 		let downloadProgressArray = activeAccounts.map { $0.refreshProgress }
 		return CombinedRefreshProgress(downloadProgressArray: downloadProgressArray)
-	}
-	
-	public convenience init() {
-		let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as! String
-		let accountsURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
-		let accountsFolder = accountsURL!.appendingPathComponent("Accounts").absoluteString
-		let accountsFolderPath = accountsFolder.suffix(from: accountsFolder.index(accountsFolder.startIndex, offsetBy: 7))
-		self.init(accountsFolder: String(accountsFolderPath))
 	}
 	
 	public init(accountsFolder: String) {
@@ -128,7 +120,7 @@ public final class AccountManager: UnreadCountProvider {
 	// MARK: - API
 	
 	public func createAccount(type: AccountType) -> Account {
-		let accountID = UUID().uuidString
+		let accountID = type == .cloudKit ? "iCloud" : UUID().uuidString
 		let accountFolder = (accountsFolder as NSString).appendingPathComponent("\(type.rawValue)_\(accountID)")
 
 		do {
@@ -192,7 +184,22 @@ public final class AccountManager: UnreadCountProvider {
 		accounts.forEach { $0.resume() }
 	}
 
-	public func refreshAll(errorHandler: @escaping (Error) -> Void, completion: (() ->Void)? = nil) {
+	public func receiveRemoteNotification(userInfo: [AnyHashable : Any], completion: (() -> Void)? = nil) {
+		let group = DispatchGroup()
+		
+		activeAccounts.forEach { account in
+			group.enter()
+			account.receiveRemoteNotification(userInfo: userInfo) { 
+				group.leave()
+			}
+		}
+		
+		group.notify(queue: DispatchQueue.main) {
+			completion?()
+		}
+	}
+
+	public func refreshAll(errorHandler: @escaping (Error) -> Void, completion: (() -> Void)? = nil) {
 		let group = DispatchGroup()
 		
 		activeAccounts.forEach { account in
@@ -211,7 +218,6 @@ public final class AccountManager: UnreadCountProvider {
 		group.notify(queue: DispatchQueue.main) {
 			completion?()
 		}
-		
 	}
 
 	public func syncArticleStatusAll(completion: (() -> Void)? = nil) {
@@ -272,6 +278,11 @@ public final class AccountManager: UnreadCountProvider {
 		var allFetchedArticles = Set<Article>()
 		let numberOfAccounts = activeAccounts.count
 		var accountsReporting = 0
+		
+		guard numberOfAccounts > 0 else {
+			completion(.success(allFetchedArticles))
+			return
+		}
 
 		for account in activeAccounts {
 			account.fetchArticlesAsync(fetchType) { (articleSetResult) in
@@ -389,7 +400,7 @@ private struct AccountSpecifier {
 
 
 	init?(folderPath: String) {
-		if !FileManager.default.rs_fileIsFolder(folderPath) {
+		if !FileManager.default.isFolder(atPath: folderPath) {
 			return nil
 		}
 		

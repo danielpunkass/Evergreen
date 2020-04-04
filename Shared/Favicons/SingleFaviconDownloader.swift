@@ -34,7 +34,7 @@ final class SingleFaviconDownloader {
 	private let queue: DispatchQueue
 
 	private var diskKey: String {
-		return (faviconURL as NSString).rs_md5Hash()
+		return faviconURL.md5String
 	}
 
 	init(faviconURL: String, homePageURL: String?, diskCache: BinaryDiskCache, queue: DispatchQueue) {
@@ -48,21 +48,23 @@ final class SingleFaviconDownloader {
 		findFavicon()
 	}
 
-	func downloadFaviconIfNeeded() {
+	func downloadFaviconIfNeeded() -> Bool {
 
 		// If we don’t have an image, and lastDownloadAttemptDate is a while ago, try again.
 
 		if let _ = iconImage {
-			return
+			return false
 		}
 
 		let retryInterval: TimeInterval = 30 * 60 // 30 minutes
 		if Date().timeIntervalSince(lastDownloadAttemptDate) < retryInterval {
-			return
+			return false
 		}
 
 		lastDownloadAttemptDate = Date()
 		findFavicon()
+		
+		return true
 	}
 }
 
@@ -103,7 +105,7 @@ private extension SingleFaviconDownloader {
 		queue.async {
 
 			if let data = self.diskCache[self.diskKey], !data.isEmpty {
-				RSImage.rs_image(with: data, imageResultBlock: completion)
+				RSImage.image(with: data, imageResultBlock: completion)
 				return
 			}
 
@@ -138,7 +140,7 @@ private extension SingleFaviconDownloader {
 
 			if let data = data, !data.isEmpty, let response = response, response.statusIsOK, error == nil {
 				self.saveToDisk(data)
-				RSImage.rs_image(with: data, imageResultBlock: completion)
+				RSImage.image(with: data, imageResultBlock: completion)
 				return
 			}
 

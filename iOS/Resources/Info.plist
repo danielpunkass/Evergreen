@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>OrganizationIdentifier</key>
+	<string>$(ORGANIZATION_IDENTIFIER)</string>
+	<key>DeveloperEntitlements</key>
+	<string>$(DEVELOPER_ENTITLEMENTS)</string>
 	<key>AppGroup</key>
 	<string>group.$(ORGANIZATION_IDENTIFIER).NetNewsWire.iOS</string>
 	<key>AppIdentifierPrefix</key>
@@ -60,10 +64,10 @@
 	<string>Grant permission to save images from the article.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
-		<string>Restoration</string>
 		<string>AddWebFeedIntent</string>
 		<string>NextUnread</string>
 		<string>ReadArticle</string>
+		<string>Restoration</string>
 		<string>SelectFeed</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
@@ -88,6 +92,8 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
+		<string>processing</string>
+		<string>remote-notification</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreenPhone</string>
@@ -142,5 +148,29 @@
 			</dict>
 		</dict>
 	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.xml</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>OPML</string>
+			<key>UTTypeIconFiles</key>
+			<array/>
+			<key>UTTypeIdentifier</key>
+			<string>org.opml.opml</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>opml</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>UserAgent</key>
+	<string>NetNewsWire (RSS Reader; https://ranchero.com/netnewswire/)</string>
 </dict>
 </plist>

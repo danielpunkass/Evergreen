@@ -31,10 +31,11 @@ class FeedbinAccountViewController: UITableViewController {
 		
 		if let account = account, let credentials = try? account.retrieveCredentials(type: .basic) {
 			actionButton.setTitle(NSLocalizedString("Update Credentials", comment: "Update Credentials"), for: .normal)
+			actionButton.isEnabled = true
 			emailTextField.text = credentials.username
 			passwordTextField.text = credentials.secret
 		} else {
-			actionButton.setTitle(NSLocalizedString("Add Account", comment: "Update Credentials"), for: .normal)
+			actionButton.setTitle(NSLocalizedString("Add Account", comment: "Add Account"), for: .normal)
 		}
 
 		NotificationCenter.default.addObserver(self, selector: #selector(textDidChange(_:)), name: UITextField.textDidChangeNotification, object: emailTextField)
@@ -78,17 +79,16 @@ class FeedbinAccountViewController: UITableViewController {
 			showError(NSLocalizedString("Username & password required.", comment: "Credentials Error"))
 			return
 		}
-	
-		startAnimatingActivityIndicator()
-		disableNavigation()
+		resignFirstResponder()
+		toggleActivityIndicatorAnimation(visible: true)
+		setNavigationEnabled(to: false)
 		
 		// When you fill in the email address via auto-complete it adds extra whitespace
 		let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
 		let credentials = Credentials(type: .basic, username: trimmedEmail, secret: password)
 		Account.validateCredentials(type: .feedbin, credentials: credentials) { result in
-			
-			self.stopAnimtatingActivityIndicator()
-			self.enableNavigation()
+			self.toggleActivityIndicatorAnimation(visible: false)
+			self.setNavigationEnabled(to: true)
 			
 			switch result {
 			case .success(let credentials):
@@ -137,27 +137,21 @@ class FeedbinAccountViewController: UITableViewController {
 	}
 	
 	private func showError(_ message: String) {
-		presentError(title: "Error", message: message)
+		presentError(title: NSLocalizedString("Error", comment: "Credentials Error"), message: message)
 	}
 	
-	private func enableNavigation() {
-		self.cancelBarButtonItem.isEnabled = true
-		self.actionButton.isEnabled = true
+	private func setNavigationEnabled(to value:Bool){
+		cancelBarButtonItem.isEnabled = value
+		actionButton.isEnabled = value
 	}
 	
-	private func disableNavigation() {
-		cancelBarButtonItem.isEnabled = false
-		actionButton.isEnabled = false
-	}
-	
-	private func startAnimatingActivityIndicator() {
-		activityIndicator.isHidden = false
-		activityIndicator.startAnimating()
-	}
-	
-	private func stopAnimtatingActivityIndicator() {
-		self.activityIndicator.isHidden = true
-		self.activityIndicator.stopAnimating()
+	private func toggleActivityIndicatorAnimation(visible value: Bool){
+		activityIndicator.isHidden = !value
+		if value {
+			activityIndicator.startAnimating()
+		} else {
+			activityIndicator.stopAnimating()
+		}
 	}
 		
 }
@@ -165,7 +159,12 @@ class FeedbinAccountViewController: UITableViewController {
 extension FeedbinAccountViewController: UITextFieldDelegate {
 	
 	func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-		textField.resignFirstResponder()
+		if textField == emailTextField {
+			passwordTextField.becomeFirstResponder()
+		} else {
+			textField.resignFirstResponder()
+			action(self)
+		}
 		return true
 	}
 	

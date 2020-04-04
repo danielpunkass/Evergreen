@@ -53,9 +53,13 @@ class RootSplitViewController: UISplitViewController {
 		coordinator.markAllAsReadInTimeline()
 		coordinator.selectNextUnread()
 	}
+
+	@objc func markAboveAsRead(_ sender: Any?) {
+		coordinator.markAboveAsRead()
+	}
 	
-	@objc func markOlderArticlesAsRead(_ sender: Any?) {
-		coordinator.markAsReadOlderArticlesInTimeline()
+	@objc func markBelowAsRead(_ sender: Any?) {
+		coordinator.markBelowAsRead()
 	}
 	
 	@objc func markUnread(_ sender: Any?) {
@@ -86,8 +90,20 @@ class RootSplitViewController: UISplitViewController {
 		coordinator.showAdd(.folder)
 	}
 
+	@objc func cleanUp(_ sender: Any?) {
+		coordinator.cleanUp(conditional: false)
+	}
+	
+	@objc func toggleReadFeedsFilter(_ sender: Any?) {
+		coordinator.toggleReadFeedsFilter()
+	}
+	
+	@objc func toggleReadArticlesFilter(_ sender: Any?) {
+		coordinator.toggleReadArticlesFilter()
+	}
+	
 	@objc func refresh(_ sender: Any?) {
-		AccountManager.shared.refreshAll(errorHandler: ErrorHandler.present(self))
+		appDelegate.manualRefresh(errorHandler: ErrorHandler.present(self))
 	}
 	
 	@objc func goToToday(_ sender: Any?) {

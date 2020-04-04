@@ -25,7 +25,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 	private var sharingServicePickerDelegate: NSSharingServicePickerDelegate?
 
 	private let windowAutosaveName = NSWindow.FrameAutosaveName("MainWindow")
-	static var didPositionWindowOnFirstRun = false
+	private static let mainWindowWidthsStateKey = "mainWindowWidthsStateKey"
 
 	private var currentFeedOrFolder: AnyObject? {
 		// Nil for none or multiple selection.
@@ -57,7 +57,6 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 	// MARK: - NSWindowController
 
 	override func windowDidLoad() {
-
 		super.windowDidLoad()
 
 		sharingServicePickerDelegate = SharingServicePickerDelegate(self.window)
@@ -65,23 +64,15 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		if !AppDefaults.showTitleOnMainWindow {
 			window?.titleVisibility = .hidden
 		}
-
-		window?.setFrameUsingName(windowAutosaveName, force: true)
-		if AppDefaults.isFirstRun && !MainWindowController.didPositionWindowOnFirstRun {
-
-			if let window = window {
-				let point = NSPoint(x: 128, y: 64)
-				let size = NSSize(width: 1000, height: 700)
-				let minSize = NSSize(width: 600, height: 600)
-				window.setPointAndSizeAdjustingForScreen(point: point, size: size, minimumSize: minSize)
-				MainWindowController.didPositionWindowOnFirstRun = true
-			}
+		
+		if let window = window {
+			let point = NSPoint(x: 128, y: 64)
+			let size = NSSize(width: 1000, height: 700)
+			let minSize = NSSize(width: 600, height: 600)
+			window.setPointAndSizeAdjustingForScreen(point: point, size: size, minimumSize: minSize)
 		}
 
 		detailSplitViewItem?.minimumThickness = CGFloat(MainWindowController.detailViewMinimumThickness)
-		restoreSplitViewState()
-
-		NotificationCenter.default.addObserver(self, selector: #selector(applicationWillTerminate(_:)), name: NSApplication.willTerminateNotification, object: nil)
 
 		sidebarViewController = splitViewController?.splitViewItems[0].viewController as? SidebarViewController
 		sidebarViewController!.delegate = self
@@ -105,13 +96,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 	// MARK: - API
 
-	func saveState() {
-
-		saveSplitViewState()
-	}
-
 	func selectedObjectsInSidebar() -> [AnyObject]? {
-
 		return sidebarViewController?.selectedObjects
 	}
 
@@ -129,29 +114,21 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		currentTimelineViewController?.goToDeepLink(for: articlePathUserInfo)
 	}
 
-	// MARK: - Notifications
-
-//	func window(_ window: NSWindow, willEncodeRestorableState state: NSCoder) {
-//
-//		saveSplitViewState(to: state)
-//	}
-//
-//	func window(_ window: NSWindow, didDecodeRestorableState state: NSCoder) {
-//
-//		restoreSplitViewState(from: state)
-//
-//		// Make sure the timeline view is first responder if possible, to start out viewing
-//		// whatever preserved selection might have been restored
-//		makeTimelineViewFirstResponder()
-//	}
-
-	@objc func applicationWillTerminate(_ note: Notification) {
-		saveState()
+	func saveStateToUserDefaults() {
+		AppDefaults.windowState = savableState()
 		window?.saveFrame(usingName: windowAutosaveName)
 	}
+	
+	func restoreStateFromUserDefaults() {
+		if let state = AppDefaults.windowState {
+			restoreState(from: state)
+			window?.setFrameUsingName(windowAutosaveName, force: true)
+		}
+	}
+	
+	// MARK: - Notifications
 
 	@objc func refreshProgressDidChange(_ note: Notification) {
-
 		CoalescingQueue.standard.add(self, #selector(makeToolbarValidate))
 	}
 
@@ -221,8 +198,12 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 			return validateToggleStarred(item)
 		}
 
-		if item.action == #selector(markOlderArticlesAsRead(_:)) {
-			return canMarkOlderArticlesAsRead()
+		if item.action == #selector(markAboveArticlesAsRead(_:)) {
+			return canMarkAboveArticlesAsRead()
+		}
+
+		if item.action == #selector(markBelowArticlesAsRead(_:)) {
+			return canMarkBelowArticlesAsRead()
 		}
 
 		if item.action == #selector(toggleArticleExtractor(_:)) {
@@ -237,6 +218,10 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 			return currentSearchField != nil
 		}
 
+		if item.action == #selector(cleanUp(_:)) {
+			return validateCleanUp(item)
+		}
+
 		if item.action == #selector(toggleReadFeedsFilter(_:)) {
 			return validateToggleReadFeeds(item)
 		}
@@ -245,7 +230,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 			return validateToggleReadArticles(item)
 		}
 
-		if item.action == #selector(toggleSidebar(_:)) {
+		if item.action == #selector(toggleTheSidebar(_:)) {
 			guard let splitViewItem = sidebarSplitViewItem else {
 				return false
 			}
@@ -379,12 +364,22 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		nextUnread(sender)
 	}
 
-	@IBAction func toggleSidebar(_ sender: Any?) {
+	@IBAction func toggleTheSidebar(_ sender: Any?) {
 		splitViewController!.toggleSidebar(sender)
+		guard let splitViewItem = sidebarSplitViewItem else { return }
+		if splitViewItem.isCollapsed {
+			currentTimelineViewController?.focus()
+		} else {
+			sidebarViewController?.focus()
+		}
 	}
 
-	@IBAction func markOlderArticlesAsRead(_ sender: Any?) {
-		currentTimelineViewController?.markOlderArticlesRead()
+	@IBAction func markAboveArticlesAsRead(_ sender: Any?) {
+		currentTimelineViewController?.markAboveArticlesRead()
+	}
+
+	@IBAction func markBelowArticlesAsRead(_ sender: Any?) {
+		currentTimelineViewController?.markBelowArticlesRead()
 	}
 
 	@IBAction func navigateToTimeline(_ sender: Any?) {
@@ -447,12 +442,36 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		window?.makeFirstResponder(searchField)
 	}
 
+	@IBAction func cleanUp(_ sender: Any?) {
+		timelineContainerViewController?.cleanUp()
+	}
+	
 	@IBAction func toggleReadFeedsFilter(_ sender: Any?) {
 		sidebarViewController?.toggleReadFilter()
 	}
 	
 	@IBAction func toggleReadArticlesFilter(_ sender: Any?) {
 		timelineContainerViewController?.toggleReadFilter()
+	}
+	
+}
+
+// MARK: NSWindowDelegate
+
+extension MainWindowController: NSWindowDelegate {
+	
+	func window(_ window: NSWindow, willEncodeRestorableState coder: NSCoder) {
+		coder.encode(savableState(), forKey: UserInfoKey.windowState)
+	}
+
+	func window(_ window: NSWindow, didDecodeRestorableState coder: NSCoder) {
+		guard let state = try? coder.decodeTopLevelObject(forKey: UserInfoKey.windowState) as? [AnyHashable : Any] else { return }
+		restoreState(from: state)
+	}
+
+	func windowWillClose(_ notification: Notification) {
+		detailViewController?.stopMediaPlayback()
+		appDelegate.removeMainWindow(self)
 	}
 	
 }
@@ -481,6 +500,11 @@ extension MainWindowController: SidebarDelegate {
 		}
 		return timelineViewController.unreadCount
 	}
+	
+	func sidebarInvalidatedRestorationState(_: SidebarViewController) {
+		invalidateRestorableState()
+	}
+	
 }
 
 // MARK: - TimelineContainerViewControllerDelegate
@@ -514,6 +538,15 @@ extension MainWindowController: TimelineContainerViewControllerDelegate {
 
 		detailViewController?.setState(detailState, mode: mode)
 	}
+
+	func timelineRequestedWebFeedSelection(_: TimelineContainerViewController, webFeed: WebFeed) {
+		sidebarViewController?.selectFeed(webFeed)
+	}
+	
+	func timelineInvalidatedRestorationState(_: TimelineContainerViewController) {
+		invalidateRestorableState()
+	}
+	
 }
 
 // MARK: - NSSearchFieldDelegate
@@ -702,6 +735,22 @@ private extension MainWindowController {
 		return oneSelectedArticle?.preferredLink
 	}
 
+	// MARK: - State Restoration
+	
+	func savableState() -> [AnyHashable : Any] {
+		var state = [AnyHashable : Any]()
+		saveSplitViewState(to: &state)
+		sidebarViewController?.saveState(to: &state)
+		timelineContainerViewController?.saveState(to: &state)
+		return state
+	}
+
+	func restoreState(from state: [AnyHashable : Any]) {
+		restoreSplitViewState(from: state)
+		sidebarViewController?.restoreState(from: state)
+		timelineContainerViewController?.restoreState(from: state)
+	}
+
 	// MARK: - Command Validation
 
 	func canGoToNextUnread() -> Bool {
@@ -750,6 +799,10 @@ private extension MainWindowController {
 	}
 
 	func validateToggleArticleExtractor(_ item: NSValidatedUserInterfaceItem) -> Bool {
+		guard !AppDefaults.isDeveloperBuild else {
+			return false
+		}
+		
 		guard let toolbarItem = item as? NSToolbarItem, let toolbarButton = toolbarItem.view as? ArticleExtractorButton else {
 			if let menuItem = item as? NSMenuItem {
 				menuItem.state = isShowingExtractedArticle ? .on : .off
@@ -781,11 +834,14 @@ private extension MainWindowController {
 		return true
 	}
 
-	func canMarkOlderArticlesAsRead() -> Bool {
-
-		return currentTimelineViewController?.canMarkOlderArticlesAsRead() ?? false
+	func canMarkAboveArticlesAsRead() -> Bool {
+		return currentTimelineViewController?.canMarkAboveArticlesAsRead() ?? false
 	}
 
+	func canMarkBelowArticlesAsRead() -> Bool {
+		return currentTimelineViewController?.canMarkBelowArticlesAsRead() ?? false
+	}
+	
 	func canShowShareMenu() -> Bool {
 
 		guard let selectedArticles = selectedArticles else {
@@ -828,6 +884,12 @@ private extension MainWindowController {
 		return result
 	}
 	
+	func validateCleanUp(_ item: NSValidatedUserInterfaceItem) -> Bool {
+		let isSidebarFiltered = sidebarViewController?.isReadFiltered ?? false
+		let isTimelineFiltered = timelineContainerViewController?.isReadFiltered ?? false
+		return isSidebarFiltered || isTimelineFiltered
+	}
+
 	func validateToggleReadFeeds(_ item: NSValidatedUserInterfaceItem) -> Bool {
 		guard let menuItem = item as? NSMenuItem else { return false }
 
@@ -847,7 +909,7 @@ private extension MainWindowController {
 			menuItem.title = isReadFiltered ? showCommand : hideCommand
 			return true
 		} else {
-			menuItem.title = hideCommand
+			menuItem.title = showCommand
 			return false
 		}
 	}
@@ -910,24 +972,23 @@ private extension MainWindowController {
 		}
 	}
 
-	func saveSplitViewState() {
-		// TODO: Update this for multiple windows.
-		// Also: use standard state restoration mechanism.
+	func saveSplitViewState(to state: inout [AnyHashable : Any]) {
 		guard let splitView = splitViewController?.splitView else {
 			return
-			}
-		let widths = splitView.arrangedSubviews.map{ Int(floor($0.frame.width)) }
-		if AppDefaults.mainWindowWidths != widths {
-			AppDefaults.mainWindowWidths = widths
 		}
+
+		let widths = splitView.arrangedSubviews.map{ Int(floor($0.frame.width)) }
+		state[MainWindowController.mainWindowWidthsStateKey] = widths
 	}
 
-	func restoreSplitViewState() {
-		// TODO: Update this for multiple windows.
-		// Also: use standard state restoration mechanism.
-		guard let splitView = splitViewController?.splitView, let widths = AppDefaults.mainWindowWidths, widths.count == 3, let window = window else {
-			return
+	func restoreSplitViewState(from state: [AnyHashable : Any]) {
+		guard let splitView = splitViewController?.splitView,
+			let widths = state[MainWindowController.mainWindowWidthsStateKey] as? [Int],
+			widths.count == 3,
+			let window = window else {
+				return
 		}
+
 		let windowWidth = Int(floor(window.frame.width))
 		let dividerThickness: Int = Int(splitView.dividerThickness)
 		let sidebarWidth: Int = widths[0]
@@ -941,50 +1002,5 @@ private extension MainWindowController {
 		splitView.setPosition(CGFloat(sidebarWidth), ofDividerAt: 0)
 		splitView.setPosition(CGFloat(sidebarWidth + dividerThickness + timelineWidth), ofDividerAt: 1)
 	}
-
-//	func saveSplitViewState(to coder: NSCoder) {
-//
-//		// TODO: Update this for multiple windows.
-//
-//		guard let splitView = splitViewController?.splitView else {
-//			return
-//		}
-//
-//		let widths = splitView.arrangedSubviews.map{ Int(floor($0.frame.width)) }
-//		coder.encode(widths, forKey: MainWindowController.mainWindowWidthsStateKey)
-//
-//	}
-
-//	func arrayOfIntFromCoder(_ coder: NSCoder, withKey: String) -> [Int]? {
-//		let decodedFloats: [Int]?
-//		do {
-//			decodedFloats = try coder.decodeTopLevelObject(forKey: MainWindowController.mainWindowWidthsStateKey) as? [Int]? ?? nil
-//		}
-//		catch {
-//			decodedFloats = nil
-//		}
-//		return decodedFloats
-//	}
-
-//	func restoreSplitViewState(from coder: NSCoder) {
-//
-//		// TODO: Update this for multiple windows.
-//		guard let splitView = splitViewController?.splitView, let widths = arrayOfIntFromCoder(coder, withKey: MainWindowController.mainWindowWidthsStateKey), widths.count == 3, let window = window else {
-//			return
-//		}
-//
-//		let windowWidth = Int(floor(window.frame.width))
-//		let dividerThickness: Int = Int(splitView.dividerThickness)
-//		let sidebarWidth: Int = widths[0]
-//		let timelineWidth: Int = widths[1]
-//
-//		// Make sure the detail view has its mimimum thickness, at least.
-//		if windowWidth < sidebarWidth + dividerThickness + timelineWidth + dividerThickness + MainWindowController.detailViewMinimumThickness {
-//			return
-//		}
-//
-//		splitView.setPosition(CGFloat(sidebarWidth), ofDividerAt: 0)
-//		splitView.setPosition(CGFloat(sidebarWidth + dividerThickness + timelineWidth), ofDividerAt: 1)
-//	}
 }
 

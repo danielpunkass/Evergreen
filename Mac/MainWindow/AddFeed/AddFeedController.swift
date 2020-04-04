@@ -58,16 +58,12 @@ class AddFeedController: AddFeedWindowControllerDelegate {
 			return
 		}
 
-		BatchUpdate.shared.start()
-		
 		account.createWebFeed(url: url.absoluteString, name: title, container: container) { result in
 			
 			DispatchQueue.main.async {
 				self.endShowingProgress()
 			}
 			
-			BatchUpdate.shared.end()
-
 			switch result {
 			case .success(let feed):
 				NotificationCenter.default.post(name: .UserDidAddFeed, object: self, userInfo: [UserInfoKey.webFeed: feed])
@@ -98,8 +94,8 @@ class AddFeedController: AddFeedWindowControllerDelegate {
 private extension AddFeedController {
 
 	var urlStringFromPasteboard: String? {
-		if let urlString = NSPasteboard.rs_urlString(from: NSPasteboard.general) {
-			return urlString.rs_normalizedURL()
+		if let urlString = NSPasteboard.urlString(from: NSPasteboard.general) {
+			return urlString.normalizedURL
 		}
 		return nil
 	}

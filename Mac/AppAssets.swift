@@ -17,8 +17,8 @@ extension NSImage.Name {
 
 struct AppAssets {
 
-	static var timelineStar: RSImage! = {
-		return RSImage(named: .timelineStar)
+	static var accountCloudKit: RSImage! = {
+		return RSImage(named: "accountCloudKit")
 	}()
 
 	static var accountLocal: RSImage! = {
@@ -39,6 +39,10 @@ struct AppAssets {
 	
 	static var accountFreshRSS: RSImage! = {
 		return RSImage(named: "accountFreshRSS")
+	}()
+
+	static var accountNewsBlur: RSImage! = {
+		return RSImage(named: "accountNewsBlur")
 	}()
 	
 	static var articleExtractor: RSImage! = {
@@ -77,6 +81,14 @@ struct AppAssets {
 		return RSImage(named: "faviconTemplateImage")!
 	}()
 
+	static var filterActive: RSImage = {
+		return RSImage(named: "filterActive")!
+	}()
+
+	static var filterInactive: RSImage = {
+		return RSImage(named: "filterInactive")!
+	}()
+
 	static var iconLightBackgroundColor: NSColor = {
 		return NSColor(named: NSColor.Name("iconLightBackgroundColor"))!
 	}()
@@ -95,6 +107,10 @@ struct AppAssets {
 
 	static var starredFeedImage: IconImage = {
 		return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!)
+	}()
+
+	static var timelineStar: RSImage! = {
+		return RSImage(named: .timelineStar)
 	}()
 
 	static var todayFeedImage: IconImage = {
@@ -121,10 +137,16 @@ struct AppAssets {
 		return RSImage(named: "swipeMarkUnstarred")!
 	}()
 	
+	static var swipeMarkUnstarredColor: NSColor = {
+		return NSColor(named: NSColor.Name("swipeMarkUnstarredColor"))!
+	}()
+	
 	static func image(for accountType: AccountType) -> NSImage? {
 		switch accountType {
 		case .onMyMac:
 			return AppAssets.accountLocal
+		case .cloudKit:
+			return AppAssets.accountCloudKit
 		case .feedbin:
 			return AppAssets.accountFeedbin
 		case .feedly:
@@ -133,6 +155,8 @@ struct AppAssets {
 			return AppAssets.accountFeedWrangler
 		case .freshRSS:
 			return AppAssets.accountFreshRSS
+		case .newsBlur:
+			return AppAssets.accountNewsBlur
 		default:
 			return nil
 		}

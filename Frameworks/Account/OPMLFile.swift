@@ -17,94 +17,66 @@ final class OPMLFile {
 
 	private let fileURL: URL
 	private let account: Account
-	private lazy var managedFile = ManagedResourceFile(fileURL: fileURL, load: loadCallback, save: saveCallback)
-	
+
+	private var isDirty = false {
+		didSet {
+			queueSaveToDiskIfNeeded()
+		}
+	}
+	private let saveQueue = CoalescingQueue(name: "Save Queue", interval: 0.5)
+
 	init(filename: String, account: Account) {
 		self.fileURL = URL(fileURLWithPath: filename)
 		self.account = account
 	}
 	
 	func markAsDirty() {
-		managedFile.markAsDirty()
+		isDirty = true
 	}
 	
 	func load() {
-		managedFile.load()
+		guard let fileData = opmlFileData(), let opmlItems = parsedOPMLItems(fileData: fileData) else {
+			return
+		}
+		
+		BatchUpdate.shared.perform {
+			account.loadOPMLItems(opmlItems)
+		}
 	}
 	
 	func save() {
-		managedFile.saveIfNecessary()
-	}
-	
-	func suspend() {
-		managedFile.suspend()
-	}
-	
-	func resume() {
-		managedFile.resume()
+		guard !account.isDeleted else { return }
+		let opmlDocumentString = opmlDocument()
+		
+		do {
+			try opmlDocumentString.write(to: fileURL, atomically: true, encoding: .utf8)
+		} catch let error as NSError {
+			os_log(.error, log: log, "OPML save to disk failed: %@.", error.localizedDescription)
+		}
 	}
 	
 }
 
 private extension OPMLFile {
 
-	func loadCallback() {
-		guard let fileData = opmlFileData() else {
-			return
-		}
-		
-		// Don't rebuild the account if the OPML hasn't changed since the last save
-		guard let opml = String(data: fileData, encoding: .utf8), opml != opmlDocument() else {
-			return
-		}
-		
-		guard let opmlItems = parsedOPMLItems(fileData: fileData) else { return }
-		
-		BatchUpdate.shared.perform {
-			account.topLevelWebFeeds.removeAll()
-			account.loadOPMLItems(opmlItems, parentFolder: nil)
+	func queueSaveToDiskIfNeeded() {
+		saveQueue.add(self, #selector(saveToDiskIfNeeded))
+	}
+
+	@objc func saveToDiskIfNeeded() {
+		if isDirty {
+			isDirty = false
+			save()
 		}
 	}
-	
-	func saveCallback() {
-		guard !account.isDeleted else { return }
-		
-		let opmlDocumentString = opmlDocument()
-		
-		let errorPointer: NSErrorPointer = nil
-		let fileCoordinator = NSFileCoordinator(filePresenter: managedFile)
-		
-		fileCoordinator.coordinate(writingItemAt: fileURL, options: [], error: errorPointer, byAccessor: { writeURL in
-			do {
-				try opmlDocumentString.write(to: writeURL, atomically: true, encoding: .utf8)
-			} catch let error as NSError {
-				os_log(.error, log: log, "OPML save to disk failed: %@.", error.localizedDescription)
-			}
-		})
-		
-		if let error = errorPointer?.pointee {
-			os_log(.error, log: log, "OPML save to disk coordination failed: %@.", error.localizedDescription)
-		}
-	}
-	
+
 	func opmlFileData() -> Data? {
 		var fileData: Data? = nil
-		let errorPointer: NSErrorPointer = nil
-		let fileCoordinator = NSFileCoordinator(filePresenter: managedFile)
 		
-		fileCoordinator.coordinate(readingItemAt: fileURL, options: [], error: errorPointer, byAccessor: { readURL in
-			do {
-				fileData = try Data(contentsOf: readURL)
-			} catch {
-				// Commented out because it’s not an error on first run.
-				// TODO: make it so we know if it’s first run or not.
-				//NSApplication.shared.presentError(error)
-				os_log(.error, log: log, "OPML read from disk failed: %@.", error.localizedDescription)
-			}
-		})
-		
-		if let error = errorPointer?.pointee {
-			os_log(.error, log: log, "OPML read from disk coordination failed: %@.", error.localizedDescription)
+		do {
+			fileData = try Data(contentsOf: fileURL)
+		} catch {
+			os_log(.error, log: log, "OPML read from disk failed: %@.", error.localizedDescription)
 		}
 
 		return fileData
@@ -125,7 +97,7 @@ private extension OPMLFile {
 	}
 	
 	func opmlDocument() -> String {
-		let escapedTitle = account.nameForDisplay.rs_stringByEscapingSpecialXMLCharacters()
+		let escapedTitle = account.nameForDisplay.escapingSpecialXMLCharacters
 		let openingText =
 		"""
 		<?xml version="1.0" encoding="UTF-8"?>
@@ -138,7 +110,7 @@ private extension OPMLFile {
 
 		"""
 
-		let middleText = account.OPMLString(indentLevel: 0, strictConformance: false)
+		let middleText = account.OPMLString(indentLevel: 0, allowCustomAttributes: true)
 
 		let closingText =
 		"""

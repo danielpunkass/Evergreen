@@ -18,6 +18,7 @@ struct AppDefaults {
 
 	struct Key {
 		static let firstRunDate = "firstRunDate"
+		static let windowState = "windowState"
 		static let lastImageCacheFlushDate = "lastImageCacheFlushDate"
 		static let sidebarFontSize = "sidebarFontSize"
 		static let timelineFontSize = "timelineFontSize"
@@ -25,7 +26,6 @@ struct AppDefaults {
 		static let timelineGroupByFeed = "timelineGroupByFeed"
 		static let detailFontSize = "detailFontSize"
 		static let openInBrowserInBackground = "openInBrowserInBackground"
-		static let mainWindowWidths = "mainWindowWidths"
 		static let refreshInterval = "refreshInterval"
 		static let addWebFeedAccountID = "addWebFeedAccountID"
 		static let addWebFeedFolderName = "addWebFeedFolderName"
@@ -48,6 +48,13 @@ struct AppDefaults {
 	private static let smallestFontSizeRawValue = FontSize.small.rawValue
 	private static let largestFontSizeRawValue = FontSize.veryLarge.rawValue
 
+	static let isDeveloperBuild: Bool = {
+		if let dev = Bundle.main.object(forInfoDictionaryKey: "DeveloperEntitlements") as? String, dev == "-dev" {
+			return true
+		}
+		return false
+	}()
+	
 	static let isFirstRun: Bool = {
 		if let _ = UserDefaults.standard.object(forKey: Key.firstRunDate) as? Date {
 			return false
@@ -55,6 +62,15 @@ struct AppDefaults {
 		firstRunDate = Date()
 		return true
 	}()
+	
+	static var windowState: [AnyHashable : Any]? {
+		get {
+			return UserDefaults.standard.object(forKey: Key.windowState) as? [AnyHashable : Any]
+		}
+		set {
+			UserDefaults.standard.set(newValue, forKey: Key.windowState)
+		}
+	}
 	
 	static var lastImageCacheFlushDate: Date? {
 		get {
@@ -200,15 +216,6 @@ struct AppDefaults {
 		return bool(for: Key.timelineShowsSeparators)
 	}
 
-	static var mainWindowWidths: [Int]? {
-		get {
-			return UserDefaults.standard.object(forKey: Key.mainWindowWidths) as? [Int]
-		}
-		set {
-			UserDefaults.standard.set(newValue, forKey: Key.mainWindowWidths)
-		}
-	}
-
 	static var refreshInterval: RefreshInterval {
 		get {
 			let rawValue = UserDefaults.standard.integer(forKey: Key.refreshInterval)
@@ -226,8 +233,7 @@ struct AppDefaults {
  		let showDebugMenu = false
  		#endif
 
-		let defaults: [String : Any] = [Key.lastImageCacheFlushDate: Date(),
-										Key.sidebarFontSize: FontSize.medium.rawValue,
+		let defaults: [String : Any] = [Key.sidebarFontSize: FontSize.medium.rawValue,
 										Key.timelineFontSize: FontSize.medium.rawValue,
 										Key.detailFontSize: FontSize.medium.rawValue,
 										Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue,

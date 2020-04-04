@@ -51,7 +51,6 @@ struct MasterTimelineDefaultCellLayout: MasterTimelineCellLayout {
 	let summaryRect: CGRect
 	let feedNameRect: CGRect
 	let dateRect: CGRect
-	let separatorInsets: UIEdgeInsets
 
 	init(width: CGFloat, insets: UIEdgeInsets, cellData: MasterTimelineCellData) {
 
@@ -66,9 +65,6 @@ struct MasterTimelineDefaultCellLayout: MasterTimelineCellLayout {
 		// Start the point at the beginning position of the main block
 		currentPoint.x += MasterTimelineDefaultCellLayout.unreadCircleDimension + MasterTimelineDefaultCellLayout.unreadCircleMarginRight
 		
-		// Separator Insets
-		self.separatorInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-
 		// Icon Image
 		if cellData.showIcon {
 			self.iconImageRect = MasterTimelineDefaultCellLayout.rectForIconView(currentPoint, iconSize: cellData.iconSize)
@@ -89,7 +85,14 @@ struct MasterTimelineDefaultCellLayout: MasterTimelineCellLayout {
 		}
 		self.summaryRect = MasterTimelineDefaultCellLayout.rectForSummary(cellData, currentPoint, textAreaWidth, numberOfLinesForTitle)
 		
-		currentPoint.y = [self.titleRect, self.summaryRect].maxY()
+		var y = [self.titleRect, self.summaryRect].maxY()
+		if y == 0 {
+			y = iconImageRect.origin.y + iconImageRect.height
+			// Necessary calculation of either feed name or date since we are working with dynamic font-sizes
+			let tmp = MasterTimelineDefaultCellLayout.rectForDate(cellData, currentPoint, textAreaWidth)
+			y -= tmp.height
+		}
+		currentPoint.y = y
 		
 		// Feed Name and Pub Date
 		self.dateRect = MasterTimelineDefaultCellLayout.rectForDate(cellData, currentPoint, textAreaWidth)

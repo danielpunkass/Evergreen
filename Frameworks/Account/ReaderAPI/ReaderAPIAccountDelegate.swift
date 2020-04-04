@@ -47,6 +47,8 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 		}
 	}
 
+	var refreshProgress = DownloadProgress(numberOfTasks: 0)
+	
 	init(dataFolder: String, transport: Transport?) {
 		
 		let databaseFilePath = (dataFolder as NSString).appendingPathComponent("Sync.sqlite3")
@@ -77,7 +79,9 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 		
 	}
 	
-	var refreshProgress = DownloadProgress(numberOfTasks: 0)
+	func receiveRemoteNotification(for account: Account, userInfo: [AnyHashable : Any], completion: @escaping () -> Void) {
+		completion()
+	}
 	
 	func refreshAll(for account: Account, completion: @escaping (Result<Void, Error>) -> Void) {
 		
@@ -202,7 +206,7 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 	func importOPML(for account:Account, opmlFile: URL, completion: @escaping (Result<Void, Error>) -> Void) {
 	}
 	
-	func addFolder(for account: Account, name: String, completion: @escaping (Result<Folder, Error>) -> Void) {
+	func createFolder(for account: Account, name: String, completion: @escaping (Result<Folder, Error>) -> Void) {
 		if let folder = account.ensureFolder(with: name) {
 			completion(.success(folder))
 		} else {
@@ -292,7 +296,7 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 	func renameWebFeed(for account: Account, with feed: WebFeed, to name: String, completion: @escaping (Result<Void, Error>) -> Void) {
 		
 		// This error should never happen
-		guard let subscriptionID = feed.subscriptionID else {
+		guard let subscriptionID = feed.externalID else {
 			completion(.failure(FeedbinAccountDelegateError.invalidParameter))
 			return
 		}
@@ -340,12 +344,12 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 	
 	func addWebFeed(for account: Account, with feed: WebFeed, to container: Container, completion: @escaping (Result<Void, Error>) -> Void) {
 		
-		if let folder = container as? Folder, let feedName = feed.subscriptionID {
+		if let folder = container as? Folder, let feedName = feed.externalID {
 			caller.createTagging(subscriptionID: feedName, tagName: folder.name ?? "") { result in
 				switch result {
 				case .success:
 					DispatchQueue.main.async {
-						self.saveFolderRelationship(for: feed, withFolderName: folder.name ?? "", id: feed.subscriptionID!)
+						self.saveFolderRelationship(for: feed, withFolderName: folder.name ?? "", id: feed.externalID!)
 						account.removeWebFeed(feed)
 						folder.addWebFeed(feed)
 						completion(.success(()))
@@ -582,7 +586,7 @@ private extension ReaderAPIAccountDelegate {
 			} else {
 				let feed = account.createWebFeed(with: subscription.name, url: subscription.url, webFeedID: subFeedId, homePageURL: subscription.homePageURL)
 				feed.iconURL = subscription.iconURL
-				feed.subscriptionID = String(subscription.feedID)
+				feed.externalID = String(subscription.feedID)
 				account.addWebFeed(feed)
 			}
 			
@@ -598,14 +602,7 @@ private extension ReaderAPIAccountDelegate {
 		os_log(.debug, log: log, "Syncing taggings with %ld subscriptions.", subscriptions.count)
 		
 		// Set up some structures to make syncing easier
-		let folderDict: [String: Folder] = {
-			if let folders = account.folders {
-				return Dictionary(uniqueKeysWithValues: folders.map { ($0.name ?? "", $0) } )
-			} else {
-				return [String: Folder]()
-			}
-		}()
-
+		let folderDict = nameToFolderDictionary(with: account.folders)
 		let taggingsDict = subscriptions.reduce([String: [ReaderAPISubscription]]()) { (dict, subscription) in
 			var taggedFeeds = dict
 			
@@ -667,6 +664,21 @@ private extension ReaderAPIAccountDelegate {
 
 	}
 	
+	func nameToFolderDictionary(with folders: Set<Folder>?) -> [String: Folder] {
+		guard let folders = folders else {
+			return [String: Folder]()
+		}
+
+		var d = [String: Folder]()
+		for folder in folders {
+			let name = folder.name ?? ""
+			if d[name] == nil {
+				d[name] = folder
+			}
+		}
+		return d
+	}
+
 	func sendArticleStatuses(_ statuses: [SyncStatus],
 							 apiCall: ([Int], @escaping (Result<Void, Error>) -> Void) -> Void,
 							 completion: @escaping (() -> Void)) {
@@ -750,7 +762,7 @@ private extension ReaderAPIAccountDelegate {
 		DispatchQueue.main.async {
 			
 			let feed = account.createWebFeed(with: sub.name, url: sub.url, webFeedID: String(sub.feedID), homePageURL: sub.homePageURL)
-			feed.subscriptionID = String(sub.feedID)
+			feed.externalID = String(sub.feedID)
 			
 			account.addWebFeed(feed, to: container) { result in
 				switch result {
@@ -924,7 +936,7 @@ private extension ReaderAPIAccountDelegate {
 			// let authors = Set([ParsedAuthor(name: entry.authorName, url: entry.jsonFeed?.jsonFeedAuthor?.url, avatarURL: entry.jsonFeed?.jsonFeedAuthor?.avatarURL, emailAddress: nil)])
 			// let feed = account.idToFeedDictionary[entry.origin.streamId!]! // TODO clean this up
 			
-			return ParsedItem(syncServiceID: entry.uniqueID(), uniqueID: entry.uniqueID(), feedURL: entry.origin.streamId!, url: nil, externalURL: entry.alternates.first?.url, title: entry.title, contentHTML: entry.summary.content, contentText: nil, summary: entry.summary.content, imageURL: nil, bannerImageURL: nil, datePublished: entry.parseDatePublished(), dateModified: nil, authors: nil, tags: nil, attachments: nil)
+			return ParsedItem(syncServiceID: entry.uniqueID(), uniqueID: entry.uniqueID(), feedURL: entry.origin.streamId!, url: nil, externalURL: entry.alternates.first?.url, title: entry.title, language: nil, contentHTML: entry.summary.content, contentText: nil, summary: entry.summary.content, imageURL: nil, bannerImageURL: nil, datePublished: entry.parseDatePublished(), dateModified: nil, authors: nil, tags: nil, attachments: nil)
 		}
 		
 		return Set(parsedItems)
@@ -977,7 +989,7 @@ private extension ReaderAPIAccountDelegate {
 
 	func deleteTagging(for account: Account, with feed: WebFeed, from container: Container?, completion: @escaping (Result<Void, Error>) -> Void) {
 		
-		if let folder = container as? Folder, let feedName = feed.subscriptionID {
+		if let folder = container as? Folder, let feedName = feed.externalID {
 			caller.deleteTagging(subscriptionID: feedName, tagName: folder.name ?? "") { result in
 				switch result {
 				case .success:
@@ -1006,7 +1018,7 @@ private extension ReaderAPIAccountDelegate {
 	func deleteSubscription(for account: Account, with feed: WebFeed, from container: Container?, completion: @escaping (Result<Void, Error>) -> Void) {
 		
 		// This error should never happen
-		guard let subscriptionID = feed.subscriptionID else {
+		guard let subscriptionID = feed.externalID else {
 			completion(.failure(FeedbinAccountDelegateError.invalidParameter))
 			return
 		}

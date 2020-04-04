@@ -7,23 +7,33 @@
 //
 
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 import RSCore
 import Articles
 import Account
 
 struct ArticleRenderer {
 
-	typealias Rendering = (style: String, html: String)
-	typealias Page = (html: String, baseURL: URL)
+	typealias Rendering = (style: String, html: String, title: String, baseURL: String)
+	
+	struct Page {
+		let url: URL
+		let baseURL: URL
+		let html: String
+		
+		init(name: String) {
+			url = Bundle.main.url(forResource: name, withExtension: "html")!
+			baseURL = url.deletingLastPathComponent()
+			html = try! NSString(contentsOfFile: url.path, encoding: String.Encoding.utf8.rawValue) as String
+		}
+	}
 
 	static var imageIconScheme = "nnwImageIcon"
 	
-	static var page: Page = {
-		let pageURL = Bundle.main.url(forResource: "page", withExtension: "html")!
-		let html = try! String(contentsOf: pageURL)
-		let baseURL = pageURL.deletingLastPathComponent()
-		return Page(html: html, baseURL: baseURL)
-	}()
+	static var blank = Page(name: "blank")
+	static var page = Page(name: "page")
 	
 	private let article: Article?
 	private let extractedArticle: ExtractedArticle?
@@ -48,29 +58,29 @@ struct ArticleRenderer {
 
 	// MARK: - API
 
-	static func articleHTML(article: Article, extractedArticle: ExtractedArticle? = nil, style: ArticleStyle, useImageIcon: Bool = false) -> Rendering {
+	static func articleHTML(article: Article, extractedArticle: ExtractedArticle? = nil, style: ArticleStyle) -> Rendering {
 		let renderer = ArticleRenderer(article: article, extractedArticle: extractedArticle, style: style)
-		return (renderer.styleString(), renderer.articleHTML)
+		return (renderer.articleCSS, renderer.articleHTML, renderer.title, renderer.baseURL ?? "")
 	}
 
 	static func multipleSelectionHTML(style: ArticleStyle) -> Rendering {
 		let renderer = ArticleRenderer(article: nil, extractedArticle: nil, style: style)
-		return (renderer.styleString(), renderer.multipleSelectionHTML)
+		return (renderer.articleCSS, renderer.multipleSelectionHTML, renderer.title, renderer.baseURL ?? "")
 	}
 
 	static func loadingHTML(style: ArticleStyle) -> Rendering {
 		let renderer = ArticleRenderer(article: nil, extractedArticle: nil, style: style)
-		return (renderer.styleString(), renderer.loadingHTML)
+		return (renderer.articleCSS, renderer.loadingHTML, renderer.title, renderer.baseURL ?? "")
 	}
 
 	static func noSelectionHTML(style: ArticleStyle) -> Rendering {
 		let renderer = ArticleRenderer(article: nil, extractedArticle: nil, style: style)
-		return (renderer.styleString(), renderer.noSelectionHTML)
+		return (renderer.articleCSS, renderer.noSelectionHTML, renderer.title, renderer.baseURL ?? "")
 	}
 	
 	static func noContentHTML(style: ArticleStyle) -> Rendering {
 		let renderer = ArticleRenderer(article: nil, extractedArticle: nil, style: style)
-		return (renderer.styleString(), renderer.noContentHTML)
+		return (renderer.articleCSS, renderer.noContentHTML, renderer.title, renderer.baseURL ?? "")
 	}
 }
 
@@ -79,27 +89,35 @@ struct ArticleRenderer {
 private extension ArticleRenderer {
 
 	private var articleHTML: String {
-		let body = RSMacroProcessor.renderedText(withTemplate: template(), substitutions: articleSubstitutions(), macroStart: "[[", macroEnd: "]]")
-		return renderHTML(withBody: body)
+		return try! MacroProcessor.renderedText(withTemplate: template(), substitutions: articleSubstitutions())
 	}
 
 	private var multipleSelectionHTML: String {
 		let body = "<h3 class='systemMessage'>Multiple selection</h3>"
-		return renderHTML(withBody: body)
+		return body
 	}
 
 	private var loadingHTML: String {
 		let body = "<h3 class='systemMessage'>Loading...</h3>"
-		return renderHTML(withBody: body)
+		return body
 	}
 
 	private var noSelectionHTML: String {
 		let body = "<h3 class='systemMessage'>No selection</h3>"
-		return renderHTML(withBody: body)
+		return body
 	}
 
 	private var noContentHTML: String {
-		return renderHTML(withBody: "")
+		return ""
+	}
+	
+	private var articleCSS: String {
+		#if os(iOS)
+		let style = try! MacroProcessor.renderedText(withTemplate: styleString(), substitutions: styleSubstitutions())
+		return style
+		#else
+		return styleString()
+		#endif
 	}
 
 	static var defaultStyleSheet: String = {
@@ -141,7 +159,16 @@ private extension ArticleRenderer {
 		d["title"] = title
 
 		d["body"] = body
-		d["avatars"] = "<td class=\"header rightAlign avatar\"><img id=\"nnwImageIcon\" src=\"\(ArticleRenderer.imageIconScheme)://\" height=48 width=48 /></td>";
+
+		var components = URLComponents()
+		components.scheme = Self.imageIconScheme
+		components.path = article.articleID
+		if let imageIconURLString = components.string {
+			d["avatars"] = "<td class=\"header rightAlign avatar\"><img id=\"nnwImageIcon\" src=\"\(imageIconURLString)\" height=48 width=48 /></td>"
+		}
+		else {
+			d["avatars"] = ""
+		}
 
 		var feedLink = ""
 		if let feedTitle = article.webFeed?.nameForDisplay {
@@ -157,7 +184,7 @@ private extension ArticleRenderer {
 		let mediumDate = dateString(datePublished, .medium, .short)
 		let shortDate = dateString(datePublished, .short, .short)
 
-		if dateShouldBeLink() || self.title == "", let permalink = article.url {
+		if let permalink = article.url {
 			d["date_long"] = longDate.htmlByAddingLink(permalink)
 			d["date_medium"] = mediumDate.htmlByAddingLink(permalink)
 			d["date_short"] = shortDate.htmlByAddingLink(permalink)
@@ -171,16 +198,6 @@ private extension ArticleRenderer {
 		d["byline"] = byline()
 
 		return d
-	}
-
-	func dateShouldBeLink() -> Bool {
-		guard let permalink = article?.url else {
-			return false
-		}
-		guard let preferredLink = article?.preferredLink else { // Title uses preferredLink
-			return false
-		}
-		return permalink != preferredLink // Make date a link if it’s a different link from the title’s link
 	}
 
 	func byline() -> String {
@@ -235,17 +252,15 @@ private extension ArticleRenderer {
 		dateFormatter.timeStyle = timeStyle
 		return dateFormatter.string(from: date)
 	}
-
-	func renderHTML(withBody body: String) -> String {
-		var s = ""
-		if let baseURL = baseURL {
-			s += ("<base href=\"" + baseURL + "\"\n>")
-		}
-		s += title.htmlBySurroundingWithTag("title")
-		
-		s += body
-		return s
+	
+	#if os(iOS)
+	func styleSubstitutions() -> [String: String] {
+		var d = [String: String]()
+		let bodyFont = UIFont.preferredFont(forTextStyle: .body)
+		d["font-size"] = String(describing: bodyFont.pointSize)
+		return d
 	}
+	#endif
 
 }
 
