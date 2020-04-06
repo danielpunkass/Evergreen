@@ -25,7 +25,7 @@ final class CloudKitAccountZone: CloudKitZone {
 	var delegate: CloudKitZoneDelegate?
     
 	struct CloudKitWebFeed {
-		static let recordType = "WebFeed"
+		static let recordType = "AccountWebFeed"
 		struct Fields {
 			static let url = "url"
 			static let editedName = "editedName"
@@ -34,7 +34,7 @@ final class CloudKitAccountZone: CloudKitZone {
 	}
 	
 	struct CloudKitContainer {
-		static let recordType = "Container"
+		static let recordType = "AccountContainer"
 		struct Fields {
 			static let isAccount = "isAccount"
 			static let name = "name"
@@ -77,12 +77,13 @@ final class CloudKitAccountZone: CloudKitZone {
 			}
 		}
 
-		modify(recordsToSave: records, recordIDsToDelete: [], completion: completion)
+		save(records, completion: completion)
 	}
     
 	///  Persist a web feed record to iCloud and return the external key
 	func createWebFeed(url: String, editedName: String?, container: Container, completion: @escaping (Result<String, Error>) -> Void) {
-		let record = CKRecord(recordType: CloudKitWebFeed.recordType, recordID: generateRecordID())
+		let recordID = CKRecord.ID(recordName: url.md5String, zoneID: Self.zoneID)
+		let record = CKRecord(recordType: CloudKitWebFeed.recordType, recordID: recordID)
 		record[CloudKitWebFeed.Fields.url] = url
 		if let editedName = editedName {
 			record[CloudKitWebFeed.Fields.editedName] = editedName
@@ -125,8 +126,8 @@ final class CloudKitAccountZone: CloudKitZone {
 		}
 	}
 	
-	/// Deletes a web feed from iCloud
-	func removeWebFeed(_ webFeed: WebFeed, from: Container, completion: @escaping (Result<Void, Error>) -> Void) {
+	/// Removes a web feed from a container and optionally deletes it, calling the completion with true if deleted
+	func removeWebFeed(_ webFeed: WebFeed, from: Container, completion: @escaping (Result<Bool, Error>) -> Void) {
 		guard let fromContainerExternalID = from.externalID else {
 			completion(.failure(CloudKitZoneError.invalidParameter))
 			return
@@ -135,16 +136,36 @@ final class CloudKitAccountZone: CloudKitZone {
 		fetch(externalID: webFeed.externalID) { result in
 			switch result {
 			case .success(let record):
+				
 				if let containerExternalIDs = record[CloudKitWebFeed.Fields.containerExternalIDs] as? [String] {
 					var containerExternalIDSet = Set(containerExternalIDs)
 					containerExternalIDSet.remove(fromContainerExternalID)
+					
 					if containerExternalIDSet.isEmpty {
-						self.delete(externalID: webFeed.externalID , completion: completion)
+						self.delete(externalID: webFeed.externalID) { result in
+							switch result {
+							case .success:
+								completion(.success(true))
+							case .failure(let error):
+								completion(.failure(error))
+							}
+						}
+						
 					} else {
+						
 						record[CloudKitWebFeed.Fields.containerExternalIDs] = Array(containerExternalIDSet)
-						self.save(record, completion: completion)
+						self.save(record) { result in
+							switch result {
+							case .success:
+								completion(.success(false))
+							case .failure(let error):
+								completion(.failure(error))
+							}
+						}
+						
 					}
 				}
+				
 			case .failure(let error):
 				completion(.failure(error))
 			}
@@ -197,6 +218,40 @@ final class CloudKitAccountZone: CloudKitZone {
 	func findOrCreateAccount(completion: @escaping (Result<String, Error>) -> Void) {
 		let predicate = NSPredicate(format: "isAccount = \"1\"")
 		let ckQuery = CKQuery(recordType: CloudKitContainer.recordType, predicate: predicate)
+		
+		database?.perform(ckQuery, inZoneWith: Self.zoneID) { [weak self] records, error in
+			guard let self = self else { return }
+			
+			switch CloudKitZoneResult.resolve(error) {
+            case .success:
+				DispatchQueue.main.async {
+					if records!.count > 0 {
+						completion(.success(records![0].externalID))
+					} else {
+						self.createContainer(name: "Account", isAccount: true, completion: completion)
+					}
+				}
+			case .retry(let timeToWait):
+				self.retryIfPossible(after: timeToWait) {
+					self.findOrCreateAccount(completion: completion)
+				}
+			case .zoneNotFound, .userDeletedZone:
+				self.createZoneRecord() { result in
+					switch result {
+					case .success:
+						self.findOrCreateAccount(completion: completion)
+					case .failure(let error):
+						DispatchQueue.main.async {
+							completion(.failure(CloudKitError(error)))
+						}
+					}
+				}
+			default:
+				DispatchQueue.main.async {
+					completion(.failure(CloudKitError(error!)))
+				}
+			}
+		}
 		
 		query(ckQuery) { result in
 			switch result {

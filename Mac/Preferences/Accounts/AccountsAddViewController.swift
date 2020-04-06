@@ -19,7 +19,7 @@ class AccountsAddViewController: NSViewController {
 	#if DEBUG
 	private var addableAccountTypes: [AccountType] = [.onMyMac, .feedbin, .feedly, .feedWrangler, .freshRSS, .cloudKit, .newsBlur]
 	#else
-	private var addableAccountTypes: [AccountType] = [.onMyMac, .feedbin, .feedly]
+	private var addableAccountTypes: [AccountType] = [.onMyMac, .feedbin, .feedly, .cloudKit, .newsBlur]
 	#endif
 	
 	init() {
@@ -83,8 +83,6 @@ extension AccountsAddViewController: NSTableViewDelegate {
 			case .newsBlur:
 				cell.accountNameLabel?.stringValue = NSLocalizedString("NewsBlur", comment: "NewsBlur")
 				cell.accountImageView?.image = AppAssets.accountNewsBlur
-			default:
-				break
 			}
 			return cell
 		}
@@ -134,8 +132,6 @@ extension AccountsAddViewController: NSTableViewDelegate {
 			let accountsNewsBlurWindowController = AccountsNewsBlurWindowController()
 			accountsNewsBlurWindowController.runSheetOnWindow(self.view.window!)
 			accountsAddWindowController = accountsNewsBlurWindowController
-		default:
-			break
 		}
 		
 		tableView.selectRowIndexes([], byExtendingSelection: false)

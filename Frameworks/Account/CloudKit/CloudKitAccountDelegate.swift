@@ -72,6 +72,10 @@ final class CloudKitAccountDelegate: AccountDelegate {
 	}
 	
 	func refreshAll(for account: Account, completion: @escaping (Result<Void, Error>) -> Void) {
+		guard refreshProgress.isComplete else {
+			completion(.success(()))
+			return
+		}
 		refreshAll(for: account, downloadFeeds: true, completion: completion)
 	}
 
@@ -99,6 +103,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 								completion(.success(()))
 							case .failure(let error):
 								self.database.resetSelectedForProcessing(syncStatuses.map({ $0.articleID }) )
+								self.processAccountError(account, error)
 								completion(.failure(error))
 							}
 						}
@@ -129,7 +134,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 	func refreshArticleStatus(for account: Account, completion: @escaping ((Result<Void, Error>) -> Void)) {
 		os_log(.debug, log: log, "Refreshing article statuses...")
 		
-		articlesZone.fetchChangesInZone() { result in
+		articlesZone.refreshArticleStatus() { result in
 			os_log(.debug, log: self.log, "Done refreshing article statuses.")
 			switch result {
 			case .success:
@@ -176,15 +181,38 @@ final class CloudKitAccountDelegate: AccountDelegate {
 
 		let normalizedItems = OPMLNormalizer.normalize(opmlItems)
 		
-		accountZone.importOPML(rootExternalID: rootExternalID, items: normalizedItems, completion: completion)
+		// Combine all existing web feed URLs with all the new ones
+		
+		var webFeedURLs = account.flattenedWebFeedURLs
+		for opmlItem in normalizedItems {
+			if let webFeedURL = opmlItem.feedSpecifier?.feedURL {
+				webFeedURLs.insert(webFeedURL)
+			} else {
+				if let childItems = opmlItem.children {
+					for childItem in childItems {
+						if let webFeedURL = childItem.feedSpecifier?.feedURL {
+							webFeedURLs.insert(webFeedURL)
+						}
+					}
+				}
+			}
+		}
+		
+		self.accountZone.importOPML(rootExternalID: rootExternalID, items: normalizedItems) { _ in
+			self.refreshAll(for: account, downloadFeeds: false, completion: completion)
+		}
+		
 	}
 	
 	func createWebFeed(for account: Account, url urlString: String, name: String?, container: Container, completion: @escaping (Result<WebFeed, Error>) -> Void) {
+		let editedName = name == nil || name!.isEmpty ? nil : name
+
 		guard let url = URL(string: urlString) else {
 			completion(.failure(LocalAccountDelegateError.invalidParameter))
 			return
 		}
 		
+		BatchUpdate.shared.start()
 		refreshProgress.addToNumberOfTasksAndRemaining(3)
 		FeedFinder.find(url: url) { result in
 			
@@ -192,25 +220,27 @@ final class CloudKitAccountDelegate: AccountDelegate {
 			switch result {
 			case .success(let feedSpecifiers):
 				guard let bestFeedSpecifier = FeedSpecifier.bestFeed(in: feedSpecifiers), let url = URL(string: bestFeedSpecifier.urlString) else {
-					self.refreshProgress.completeTask()
+					BatchUpdate.shared.end()
+					self.refreshProgress.clear()
 					completion(.failure(AccountError.createErrorNotFound))
 					return
 				}
 				
 				if account.hasWebFeed(withURL: bestFeedSpecifier.urlString) {
-					self.refreshProgress.completeTask()
+					BatchUpdate.shared.end()
+					self.refreshProgress.clear()
 					completion(.failure(AccountError.createErrorAlreadySubscribed))
 					return
 				}
 				
-				self.accountZone.createWebFeed(url: bestFeedSpecifier.urlString, editedName: name, container: container) { result in
+				self.accountZone.createWebFeed(url: bestFeedSpecifier.urlString, editedName: editedName, container: container) { result in
 
 					self.refreshProgress.completeTask()
 					switch result {
 					case .success(let externalID):
 						
 						let feed = account.createWebFeed(with: nil, url: url.absoluteString, webFeedID: url.absoluteString, homePageURL: nil)
-						feed.editedName = name
+						feed.editedName = editedName
 						feed.externalID = externalID
 						container.addWebFeed(feed)
 
@@ -219,6 +249,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 
 							if let parsedFeed = parsedFeed {
 								account.update(feed, with: parsedFeed, {_ in
+									BatchUpdate.shared.end()
 									completion(.success(feed))
 								})
 							}
@@ -226,11 +257,14 @@ final class CloudKitAccountDelegate: AccountDelegate {
 						}
 
 					case .failure(let error):
+						BatchUpdate.shared.end()
+						self.refreshProgress.clear()
 						completion(.failure(error))
 					}
 				}
 								
 			case .failure:
+				BatchUpdate.shared.end()
 				self.refreshProgress.clear()
 				completion(.failure(AccountError.createErrorNotFound))
 			}
@@ -249,6 +283,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 				feed.editedName = name
 				completion(.success(()))
 			case .failure(let error):
+				self.processAccountError(account, error)
 				completion(.failure(error))
 			}
 		}
@@ -263,6 +298,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 				container.removeWebFeed(feed)
 				completion(.success(()))
 			case .failure(let error):
+				self.processAccountError(account, error)
 				completion(.failure(error))
 			}
 		}
@@ -278,6 +314,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 				toContainer.addWebFeed(feed)
 				completion(.success(()))
 			case .failure(let error):
+				self.processAccountError(account, error)
 				completion(.failure(error))
 			}
 		}
@@ -292,6 +329,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 				container.addWebFeed(feed)
 				completion(.success(()))
 			case .failure(let error):
+				self.processAccountError(account, error)
 				completion(.failure(error))
 			}
 		}
@@ -307,6 +345,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 				container.addWebFeed(feed)
 				completion(.success(()))
 			case .failure(let error):
+				self.processAccountError(account, error)
 				completion(.failure(error))
 			}
 		}
@@ -325,6 +364,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 					completion(.failure(FeedbinAccountDelegateError.invalidParameter))
 				}
 			case .failure(let error):
+				self.processAccountError(account, error)
 				completion(.failure(error))
 			}
 		}
@@ -339,6 +379,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 				folder.name = name
 				completion(.success(()))
 			case .failure(let error):
+				self.processAccountError(account, error)
 				completion(.failure(error))
 			}
 		}
@@ -353,6 +394,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 				account.removeFolder(folder)
 				completion(.success(()))
 			case .failure(let error):
+				self.processAccountError(account, error)
 				completion(.failure(error))
 			}
 		}
@@ -399,6 +441,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 				}
 				
 			case .failure(let error):
+				self.processAccountError(account, error)
 				completion(.failure(error))
 			}
 		}
@@ -423,6 +466,7 @@ final class CloudKitAccountDelegate: AccountDelegate {
 		accountZone.delegate = CloudKitAcountZoneDelegate(account: account, refreshProgress: refreshProgress)
 		articlesZone.delegate = CloudKitArticlesZoneDelegate(account: account, database: database, articlesZone: articlesZone)
 		
+		// Check to see if this is a new account and initialize anything we need
 		if account.externalID == nil {
 			accountZone.findOrCreateAccount() { result in
 				switch result {
@@ -437,11 +481,11 @@ final class CloudKitAccountDelegate: AccountDelegate {
 					os_log(.error, log: self.log, "Error adding account container: %@", error.localizedDescription)
 				}
 			}
+			zones.forEach { zone in
+				zone.subscribeToZoneChanges()
+			}
 		}
 		
-		zones.forEach { zone in
-			zone.subscribe()
-		}
 	}
 	
 	func accountWillBeDeleted(_ account: Account) {
@@ -512,20 +556,33 @@ private extension CloudKitAccountDelegate {
 								}
 
 							case .failure(let error):
+								self.processAccountError(account, error)
+								self.refreshProgress.clear()
 								completion(.failure(error))
 							}
 						}
 						
 					case .failure(let error):
+						self.processAccountError(account, error)
+						self.refreshProgress.clear()
 						completion(.failure(error))
 					}
 
 				}
 				
 			case .failure(let error):
+				self.processAccountError(account, error)
 				self.refreshProgress.clear()
-				BatchUpdate.shared.end()
 				completion(.failure(error))
+			}
+		}
+	}
+	
+	func processAccountError(_ account: Account, _ error: Error) {
+		if case CloudKitZoneError.userDeletedZone = error {
+			account.removeFeeds(account.topLevelWebFeeds)
+			for folder in account.folders ?? Set<Folder>() {
+				account.removeFolder(folder)
 			}
 		}
 	}
