@@ -303,7 +303,19 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		webFeedMetadataFile.load()
 		opmlFile.load()
 
+		var shouldHandleRetentionPolicyChange = false
+		if type == .onMyMac {
+			let didHandlePolicyChange = metadata.performedApril2020RetentionPolicyChange ?? false
+			shouldHandleRetentionPolicyChange = !didHandlePolicyChange
+		}
+
 		DispatchQueue.main.async {
+			if shouldHandleRetentionPolicyChange {
+				// Handle one-time database changes made necessary by April 2020 retention policy change.
+				self.database.performApril2020RetentionPolicyChange()
+				self.metadata.performedApril2020RetentionPolicyChange = true
+			}
+
 			self.database.cleanupDatabaseAtStartup(subscribedToWebFeedIDs: self.flattenedWebFeeds().webFeedIDs())
 			self.fetchAllUnreadCounts()
 		}
@@ -694,7 +706,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		database.fetchStarredArticleIDsAsync(webFeedIDs: flattenedWebFeeds().webFeedIDs(), completion: completion)
 	}
 
-	/// Fetch articleIDs for articles that we should have, but don’t. These articles are not userDeleted, and they are either (starred) or (newer than the article cutoff date).
+	/// Fetch articleIDs for articles that we should have, but don’t. These articles are either (starred) or (newer than the article cutoff date).
 	public func fetchArticleIDsForStatusesWithoutArticlesNewerThanCutoffDate(_ completion: @escaping ArticleIDsCompletionBlock) {
 		database.fetchArticleIDsForStatusesWithoutArticlesNewerThanCutoffDate(completion)
 	}
@@ -715,7 +727,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		webFeedDictionariesNeedUpdate = true
 	}
 
-	func update(_ webFeed: WebFeed, with parsedFeed: ParsedFeed, _ completion: @escaping DatabaseCompletionBlock) {
+	func update(_ webFeed: WebFeed, with parsedFeed: ParsedFeed, _ completion: @escaping UpdateArticlesCompletionBlock) {
 		// Used only by an On My Mac or iCloud account.
 		precondition(Thread.isMainThread)
 		precondition(type == .onMyMac || type == .cloudKit)
@@ -723,14 +735,14 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		webFeed.takeSettings(from: parsedFeed)
 		let parsedItems = parsedFeed.items
 		guard !parsedItems.isEmpty else {
-			completion(nil)
+			completion(.success(NewAndUpdatedArticles()))
 			return
 		}
 		
 		update(webFeed.webFeedID, with: parsedItems, completion: completion)
 	}
 	
-	func update(_ webFeedID: String, with parsedItems: Set<ParsedItem>, completion: @escaping DatabaseCompletionBlock) {
+	func update(_ webFeedID: String, with parsedItems: Set<ParsedItem>, completion: @escaping UpdateArticlesCompletionBlock) {
 		// Used only by an On My Mac or iCloud account.
 		precondition(Thread.isMainThread)
 		precondition(type == .onMyMac || type == .cloudKit)
@@ -739,9 +751,9 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			switch updateArticlesResult {
 			case .success(let newAndUpdatedArticles):
 				self.sendNotificationAbout(newAndUpdatedArticles)
-				completion(nil)
+				completion(.success(newAndUpdatedArticles))
 			case .failure(let databaseError):
-				completion(databaseError)
+				completion(.failure(databaseError))
 			}
 		}
 	}
@@ -800,39 +812,45 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 
 	/// Mark articleIDs statuses based on statusKey and flag.
 	/// Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
-	func mark(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool, completion: DatabaseCompletionBlock? = nil) {
+	/// Returns a set of new article statuses.
+	func markAndFetchNew(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool, completion: ArticleIDsCompletionBlock? = nil) {
 		guard !articleIDs.isEmpty else {
-			completion?(nil)
+			completion?(.success(Set<String>()))
 			return
 		}
-		database.mark(articleIDs: articleIDs, statusKey: statusKey, flag: flag) { error in
-			if let error = error {
-				completion?(error)
-				return
+		database.markAndFetchNew(articleIDs: articleIDs, statusKey: statusKey, flag: flag) { result in
+			switch result {
+			case .success(let newArticleStatusIDs):
+				self.noteStatusesForArticleIDsDidChange(articleIDs)
+				completion?(.success(newArticleStatusIDs))
+			case .failure(let databaseError):
+				completion?(.failure(databaseError))
 			}
-			self.noteStatusesForArticleIDsDidChange(articleIDs)
-			completion?(nil)
 		}
 	}
 
 	/// Mark articleIDs as read. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
-	func markAsRead(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
-		mark(articleIDs: articleIDs, statusKey: .read, flag: true, completion: completion)
+	/// Returns a set of new article statuses.
+	func markAsRead(_ articleIDs: Set<String>, completion: ArticleIDsCompletionBlock? = nil) {
+		markAndFetchNew(articleIDs: articleIDs, statusKey: .read, flag: true, completion: completion)
 	}
 
 	/// Mark articleIDs as unread. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
-	func markAsUnread(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
-		mark(articleIDs: articleIDs, statusKey: .read, flag: false, completion: completion)
+	/// Returns a set of new article statuses.
+	func markAsUnread(_ articleIDs: Set<String>, completion: ArticleIDsCompletionBlock? = nil) {
+		markAndFetchNew(articleIDs: articleIDs, statusKey: .read, flag: false, completion: completion)
 	}
 
 	/// Mark articleIDs as starred. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
-	func markAsStarred(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
-		mark(articleIDs: articleIDs, statusKey: .starred, flag: true, completion: completion)
+	/// Returns a set of new article statuses.
+	func markAsStarred(_ articleIDs: Set<String>, completion: ArticleIDsCompletionBlock? = nil) {
+		markAndFetchNew(articleIDs: articleIDs, statusKey: .starred, flag: true, completion: completion)
 	}
 
 	/// Mark articleIDs as unstarred. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
-	func markAsUnstarred(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
-		mark(articleIDs: articleIDs, statusKey: .starred, flag: false, completion: completion)
+	/// Returns a set of new article statuses.
+	func markAsUnstarred(_ articleIDs: Set<String>, completion: ArticleIDsCompletionBlock? = nil) {
+		markAndFetchNew(articleIDs: articleIDs, statusKey: .starred, flag: false, completion: completion)
 	}
 
 	/// Empty caches that can reasonably be emptied. Call when the app goes in the background, for instance.
@@ -887,7 +905,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 
 	public func debugDropConditionalGetInfo() {
 		#if DEBUG
-			flattenedWebFeeds().forEach{ $0.debugDropConditionalGetInfo() }
+			flattenedWebFeeds().forEach{ $0.dropConditionalGetInfo() }
 		#endif
 	}
 

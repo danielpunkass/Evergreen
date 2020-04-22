@@ -27,6 +27,16 @@ public typealias SingleUnreadCountCompletionBlock = (SingleUnreadCountResult) ->
 public struct NewAndUpdatedArticles {
 	public let newArticles: Set<Article>?
 	public let updatedArticles: Set<Article>?
+	
+	public init() {
+		self.newArticles = Set<Article>()
+		self.updatedArticles = Set<Article>()
+	}
+	
+	public init(newArticles: Set<Article>?, updatedArticles: Set<Article>?) {
+		self.newArticles = newArticles
+		self.updatedArticles = updatedArticles
+	}
 }
 
 public typealias UpdateArticlesResult = Result<NewAndUpdatedArticles, DatabaseError>
@@ -146,7 +156,7 @@ public final class ArticlesDatabase {
 
 	/// Fetch all non-zero unread counts.
 	public func fetchAllUnreadCounts(_ completion: @escaping UnreadCountDictionaryCompletionBlock) {
-		let operation = FetchAllUnreadCountsOperation(databaseQueue: queue, cutoffDate: articlesTable.articleCutoffDate)
+		let operation = FetchAllUnreadCountsOperation(databaseQueue: queue)
 		operationQueue.cancelOperations(named: operation.name!)
 		operation.completionBlock = { operation in
 			let fetchOperation = operation as! FetchAllUnreadCountsOperation
@@ -167,7 +177,7 @@ public final class ArticlesDatabase {
 
 	/// Fetch non-zero unread counts for given webFeedIDs.
 	public func fetchUnreadCounts(for webFeedIDs: Set<String>, _ completion: @escaping UnreadCountDictionaryCompletionBlock) {
-		let operation = FetchUnreadCountsForFeedsOperation(webFeedIDs: webFeedIDs, databaseQueue: queue, cutoffDate: articlesTable.articleCutoffDate)
+		let operation = FetchUnreadCountsForFeedsOperation(webFeedIDs: webFeedIDs, databaseQueue: queue)
 		operation.completionBlock = { operation in
 			let fetchOperation = operation as! FetchUnreadCountsForFeedsOperation
 			completion(fetchOperation.result)
@@ -213,7 +223,7 @@ public final class ArticlesDatabase {
 		articlesTable.fetchStarredArticleIDsAsync(webFeedIDs, completion)
 	}
 
-	/// Fetch articleIDs for articles that we should have, but don’t. These articles are not userDeleted, and they are either (starred) or (newer than the article cutoff date).
+	/// Fetch articleIDs for articles that we should have, but don’t. These articles are either (starred) or (newer than the article cutoff date).
 	public func fetchArticleIDsForStatusesWithoutArticlesNewerThanCutoffDate(_ completion: @escaping ArticleIDsCompletionBlock) {
 		articlesTable.fetchArticleIDsForStatusesWithoutArticlesNewerThanCutoffDate(completion)
 	}
@@ -222,8 +232,8 @@ public final class ArticlesDatabase {
 		return try articlesTable.mark(articles, statusKey, flag)
 	}
 
-	public func mark(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping DatabaseCompletionBlock) {
-		articlesTable.mark(articleIDs, statusKey, flag, completion)
+	public func markAndFetchNew(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping ArticleIDsCompletionBlock) {
+		articlesTable.markAndFetchNew(articleIDs, statusKey, flag, completion)
 	}
 
 	/// Create statuses for specified articleIDs. For existing statuses, don’t do anything.
@@ -265,14 +275,35 @@ public final class ArticlesDatabase {
 
 	// MARK: - Cleanup
 
-	// These are to be used only at startup. These are to prevent the database from growing forever.
-
-	/// Calls the various clean-up functions.
+	/// Calls the various clean-up functions. To be used only at startup.
+	///
+	/// This prevents the database from growing forever. If we didn’t do this:
+	/// 1) The database would grow to an inordinate size, and
+	/// 2) the app would become very slow.
 	public func cleanupDatabaseAtStartup(subscribedToWebFeedIDs: Set<String>) {
 		if retentionStyle == .syncSystem {
 			articlesTable.deleteOldArticles()
 		}
 		articlesTable.deleteArticlesNotInSubscribedToFeedIDs(subscribedToWebFeedIDs)
+		articlesTable.deleteOldStatuses()
+	}
+
+	/// Do database cleanups made necessary by the retention policy change in April 2020.
+	///
+	/// The retention policy for feed-based systems changed in April 2020:
+	/// we keep articles only for as long as they’re in the feed.
+	/// This change could result in a bunch of older articles suddenly
+	/// appearing as unread articles.
+	///
+	/// These are articles that were in the database,
+	/// but weren’t appearing in the UI because they were beyond the 90-day window.
+	/// (The previous retention policy used a 90-day window.)
+	///
+	/// This function marks everything as read that’s beyond that 90-day window.
+	/// It’s intended to be called only once on an account.
+	public func performApril2020RetentionPolicyChange() {
+		precondition(retentionStyle == .feedBased)
+		articlesTable.markOlderStatusesAsRead()
 	}
 }
 
@@ -283,7 +314,7 @@ private extension ArticlesDatabase {
 	static let tableCreationStatements = """
 	CREATE TABLE if not EXISTS articles (articleID TEXT NOT NULL PRIMARY KEY, feedID TEXT NOT NULL, uniqueID TEXT NOT NULL, title TEXT, contentHTML TEXT, contentText TEXT, url TEXT, externalURL TEXT, summary TEXT, imageURL TEXT, bannerImageURL TEXT, datePublished DATE, dateModified DATE, searchRowID INTEGER);
 
-	CREATE TABLE if not EXISTS statuses (articleID TEXT NOT NULL PRIMARY KEY, read BOOL NOT NULL DEFAULT 0, starred BOOL NOT NULL DEFAULT 0, userDeleted BOOL NOT NULL DEFAULT 0, dateArrived DATE NOT NULL DEFAULT 0);
+	CREATE TABLE if not EXISTS statuses (articleID TEXT NOT NULL PRIMARY KEY, read BOOL NOT NULL DEFAULT 0, starred BOOL NOT NULL DEFAULT 0, dateArrived DATE NOT NULL DEFAULT 0);
 
 	CREATE TABLE if not EXISTS authors (authorID TEXT NOT NULL PRIMARY KEY, name TEXT, url TEXT, avatarURL TEXT, emailAddress TEXT);
 	CREATE TABLE if not EXISTS authorsLookup (authorID TEXT NOT NULL, articleID TEXT NOT NULL, PRIMARY KEY(authorID, articleID));

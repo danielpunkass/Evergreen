@@ -181,7 +181,7 @@ final class ArticlesTable: DatabaseTable {
 
 		// 1. Ensure statuses for all the incoming articles.
 		// 2. Create incoming articles with parsedItems.
-		// 3. Ignore incoming articles that are userDeleted
+		// 3. [Deleted - this step is no longer needed]
 		// 4. Fetch all articles for the feed.
 		// 5. Create array of Articles not in database and save them.
 		// 6. Create array of updated Articles and save what’s changed.
@@ -194,11 +194,10 @@ final class ArticlesTable: DatabaseTable {
 			func makeDatabaseCalls(_ database: FMDatabase) {
 				let articleIDs = parsedItems.articleIDs()
 
-				let statusesDictionary = self.statusesTable.ensureStatusesForArticleIDs(articleIDs, false, database) //1
+				let (statusesDictionary, _) = self.statusesTable.ensureStatusesForArticleIDs(articleIDs, false, database) //1
 				assert(statusesDictionary.count == articleIDs.count)
 
-				let allIncomingArticles = Article.articlesWithParsedItems(parsedItems, webFeedID, self.accountID, statusesDictionary) //2
-				let incomingArticles = Set(allIncomingArticles.filter { !($0.status.userDeleted) }) //3
+				let incomingArticles = Article.articlesWithParsedItems(parsedItems, webFeedID, self.accountID, statusesDictionary) //2
 				if incomingArticles.isEmpty {
 					self.callUpdateArticlesCompletionBlock(nil, nil, completion)
 					return
@@ -251,7 +250,7 @@ final class ArticlesTable: DatabaseTable {
 
 		// 1. Ensure statuses for all the incoming articles.
 		// 2. Create incoming articles with parsedItems.
-		// 3. Ignore incoming articles that are userDeleted || (!starred and really old)
+		// 3. Ignore incoming articles that are (!starred and read and really old)
 		// 4. Fetch all articles for the feed.
 		// 5. Create array of Articles not in database and save them.
 		// 6. Create array of updated Articles and save what’s changed.
@@ -266,7 +265,7 @@ final class ArticlesTable: DatabaseTable {
 					articleIDs.formUnion(parsedItems.articleIDs())
 				}
 
-				let statusesDictionary = self.statusesTable.ensureStatusesForArticleIDs(articleIDs, read, database) //1
+				let (statusesDictionary, _) = self.statusesTable.ensureStatusesForArticleIDs(articleIDs, read, database) //1
 				assert(statusesDictionary.count == articleIDs.count)
 
 				let allIncomingArticles = Article.articlesWithWebFeedIDsAndItems(webFeedIDsAndItems, self.accountID, statusesDictionary) //2
@@ -326,7 +325,7 @@ final class ArticlesTable: DatabaseTable {
 
 			func makeDatabaseCalls(_ database: FMDatabase) {
 				let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(webFeedIDs.count))!
-				let sql = "select count(*) from articles natural join statuses where feedID in \(placeholders) and (datePublished > ? or (datePublished is null and dateArrived > ?)) and read=0 and userDeleted=0;"
+				let sql = "select count(*) from articles natural join statuses where feedID in \(placeholders) and (datePublished > ? or (datePublished is null and dateArrived > ?)) and read=0;"
 
 				var parameters = [Any]()
 				parameters += Array(webFeedIDs) as [Any]
@@ -361,7 +360,7 @@ final class ArticlesTable: DatabaseTable {
 
 			func makeDatabaseCalls(_ database: FMDatabase) {
 				let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(webFeedIDs.count))!
-				let sql = "select count(*) from articles natural join statuses where feedID in \(placeholders) and read=0 and starred=1 and userDeleted=0;"
+				let sql = "select count(*) from articles natural join statuses where feedID in \(placeholders) and read=0 and starred=1;"
 				let parameters = Array(webFeedIDs) as [Any]
 
 				let unreadCount = self.numberWithSQLAndParameters(sql, parameters, in: database)
@@ -418,17 +417,17 @@ final class ArticlesTable: DatabaseTable {
 		return statuses
 	}
 
-	func mark(_ articleIDs: Set<String>, _ statusKey: ArticleStatus.Key, _ flag: Bool, _ completion: @escaping DatabaseCompletionBlock) {
+	func markAndFetchNew(_ articleIDs: Set<String>, _ statusKey: ArticleStatus.Key, _ flag: Bool, _ completion: @escaping ArticleIDsCompletionBlock) {
 		queue.runInTransaction { databaseResult in
 			switch databaseResult {
 			case .success(let database):
-				self.statusesTable.mark(articleIDs, statusKey, flag, database)
+				let newStatusIDs = self.statusesTable.markAndFetchNew(articleIDs, statusKey, flag, database)
 				DispatchQueue.main.async {
-					completion(nil)
+					completion(.success(newStatusIDs))
 				}
 			case .failure(let databaseError):
 				DispatchQueue.main.async {
-					completion(databaseError)
+					completion(.failure(databaseError))
 				}
 			}
 		}
@@ -488,20 +487,67 @@ final class ArticlesTable: DatabaseTable {
 	// MARK: - Cleanup
 
 	/// Delete articles that we won’t show in the UI any longer
-	/// — their arrival date is before our 90-day recency window.
-	/// Keep all starred articles, no matter their age.
+	/// — their arrival date is before our 90-day recency window;
+	/// they are read; they are not starred.
+	///
+	/// Because deleting articles might block the database for too long,
+	/// we do this in a careful way: delete articles older than a year,
+	/// check to see how much time has passed, then decide whether or not to continue.
+	/// Repeat for successively more-recent dates.
+	///
+	/// Returns `true` if it deleted old articles all the way up to the 90 day cutoff date.
 	func deleteOldArticles() {
-		queue.runInTransaction { databaseResult in
+		precondition(retentionStyle == .syncSystem)
 
-			func makeDatabaseCalls(_ database: FMDatabase) {
-				let sql = "delete from articles where articleID in (select articleID from articles natural join statuses where dateArrived<? and starred=0);"
-				let parameters = [self.articleCutoffDate] as [Any]
+		queue.runInTransaction { databaseResult in
+			guard let database = databaseResult.database else {
+				return
+			}
+
+			func deleteOldArticles(cutoffDate: Date) {
+				let sql = "delete from articles where articleID in (select articleID from articles natural join statuses where dateArrived<? and read=1 and starred=0);"
+				let parameters = [cutoffDate] as [Any]
 				database.executeUpdate(sql, withArgumentsIn: parameters)
 			}
 
-			if let database = databaseResult.database {
-				makeDatabaseCalls(database)
+			let startTime = Date()
+			func tooMuchTimeHasPassed() -> Bool {
+				let timeElapsed = Date().timeIntervalSince(startTime)
+				return timeElapsed > 2.0
 			}
+
+			let dayIntervals = [365, 300, 225, 150]
+			for dayInterval in dayIntervals {
+				deleteOldArticles(cutoffDate: startTime.bySubtracting(days: dayInterval))
+				if tooMuchTimeHasPassed() {
+					return
+				}
+			}
+			deleteOldArticles(cutoffDate: self.articleCutoffDate)
+		}
+	}
+
+	/// Delete old statuses.
+	func deleteOldStatuses() {
+		queue.runInTransaction { databaseResult in
+			guard let database = databaseResult.database else {
+				return
+			}
+
+			let sql: String
+			let cutoffDate: Date
+			
+			switch self.retentionStyle {
+			case .syncSystem:
+				sql = "delete from statuses where dateArrived<? and read=1 and starred=0 and articleID not in (select articleID from articles);"
+				cutoffDate = Date().bySubtracting(days: 180)
+			case .feedBased:
+				sql = "delete from statuses where dateArrived<? and starred=0 and articleID not in (select articleID from articles);"
+				cutoffDate = Date().bySubtracting(days: 30)
+			}
+
+			let parameters = [cutoffDate] as [Any]
+			database.executeUpdate(sql, withArgumentsIn: parameters)
 		}
 	}
 
@@ -532,6 +578,22 @@ final class ArticlesTable: DatabaseTable {
 			if let database = databaseResult.database {
 				makeDatabaseCalls(database)
 			}
+		}
+	}
+
+	/// Mark statuses beyond the 90-day window as read.
+	///
+	/// This is not intended for wide use: this is part of implementing
+	/// the April 2020 retention policy change for feed-based accounts.
+	func markOlderStatusesAsRead() {
+		queue.runInDatabase { databaseResult in
+			guard let database = databaseResult.database else {
+				return
+			}
+
+			let sql = "update statuses set read = true where dateArrived<?;"
+			let parameters = [self.articleCutoffDate] as [Any]
+			database.executeUpdate(sql, withArgumentsIn: parameters)
 		}
 	}
 }
@@ -628,31 +690,11 @@ private extension ArticlesTable {
 		return cachedArticles.union(articlesWithFetchedAuthors)
 	}
 
-	func fetchArticlesWithWhereClause(_ database: FMDatabase, whereClause: String, parameters: [AnyObject], withLimits: Bool) -> Set<Article> {
-		// Don’t fetch articles that shouldn’t appear in the UI. The rules:
-		// * Must not be deleted.
-		// * Must be either 1) starred or 2) dateArrived must be newer than cutoff date.
-
-		if withLimits {
-			let sql = "select * from articles natural join statuses where \(whereClause) and userDeleted=0 and (starred=1 or dateArrived>?);"
-			return articlesWithSQL(sql, parameters + [articleCutoffDate as AnyObject], database)
-		}
-		else {
-			let sql = "select * from articles natural join statuses where \(whereClause);"
-			return articlesWithSQL(sql, parameters, database)
-		}
+	func fetchArticlesWithWhereClause(_ database: FMDatabase, whereClause: String, parameters: [AnyObject]) -> Set<Article> {
+		let sql = "select * from articles natural join statuses where \(whereClause);"
+		return articlesWithSQL(sql, parameters, database)
 	}
 
-//	func fetchUnreadCount(_ webFeedID: String, _ database: FMDatabase) -> Int {
-//		// Count only the articles that would appear in the UI.
-//		// * Must be unread.
-//		// * Must not be deleted.
-//		// * Must be either 1) starred or 2) dateArrived must be newer than cutoff date.
-//
-//		let sql = "select count(*) from articles natural join statuses where feedID=? and read=0 and userDeleted=0 and (starred=1 or dateArrived>?);"
-//		return numberWithSQLAndParameters(sql, [webFeedID, articleCutoffDate], in: database)
-//	}
-	
 	func fetchArticlesMatching(_ searchString: String, _ database: FMDatabase) -> Set<Article> {
 		let sql = "select rowid from search where search match ?;"
 		let sqlSearchString = sqliteSearchString(with: searchString)
@@ -668,7 +710,7 @@ private extension ArticlesTable {
 		let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(searchRowIDs.count))!
 		let whereClause = "searchRowID in \(placeholders)"
 		let parameters: [AnyObject] = Array(searchRowIDs) as [AnyObject]
-		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters, withLimits: true)
+		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 	}
 
 	func sqliteSearchString(with searchString: String) -> String {
@@ -705,9 +747,6 @@ private extension ArticlesTable {
 				let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(webFeedIDs.count))!
 				var sql = "select articleID from articles natural join statuses where feedID in \(placeholders) and \(statusKey.rawValue)="
 				sql += value ? "1" : "0"
-				if statusKey != .userDeleted {
-					sql += " and userDeleted=0"
-				}
 				sql += ";"
 
 				let parameters = Array(webFeedIDs) as [Any]
@@ -744,7 +783,7 @@ private extension ArticlesTable {
 		let parameters = webFeedIDs.map { $0 as AnyObject }
 		let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(webFeedIDs.count))!
 		let whereClause = "feedID in \(placeholders)"
-		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters, withLimits: true)
+		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 	}
 
 	func fetchUnreadArticles(_ webFeedIDs: Set<String>, _ database: FMDatabase) -> Set<Article> {
@@ -755,11 +794,11 @@ private extension ArticlesTable {
 		let parameters = webFeedIDs.map { $0 as AnyObject }
 		let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(webFeedIDs.count))!
 		let whereClause = "feedID in \(placeholders) and read=0"
-		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters, withLimits: true)
+		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 	}
 
 	func fetchArticlesForFeedID(_ webFeedID: String, withLimits: Bool, _ database: FMDatabase) -> Set<Article> {
-		return fetchArticlesWithWhereClause(database, whereClause: "articles.feedID = ?", parameters: [webFeedID as AnyObject], withLimits: withLimits)
+		return fetchArticlesWithWhereClause(database, whereClause: "articles.feedID = ?", parameters: [webFeedID as AnyObject])
 	}
 
 	func fetchArticles(articleIDs: Set<String>, _ database: FMDatabase) -> Set<Article> {
@@ -769,7 +808,7 @@ private extension ArticlesTable {
 		let parameters = articleIDs.map { $0 as AnyObject }
 		let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(articleIDs.count))!
 		let whereClause = "articleID in \(placeholders)"
-		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters, withLimits: false)
+		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 	}
 
 	func fetchArticlesSince(_ webFeedIDs: Set<String>, _ cutoffDate: Date, _ database: FMDatabase) -> Set<Article> {
@@ -781,19 +820,19 @@ private extension ArticlesTable {
 		}
 		let parameters = webFeedIDs.map { $0 as AnyObject } + [cutoffDate as AnyObject, cutoffDate as AnyObject]
 		let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(webFeedIDs.count))!
-		let whereClause = "feedID in \(placeholders) and (datePublished > ? or (datePublished is null and dateArrived > ?)) and userDeleted = 0"
-		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters, withLimits: false)
+		let whereClause = "feedID in \(placeholders) and (datePublished > ? or (datePublished is null and dateArrived > ?))"
+		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 	}
 
 	func fetchStarredArticles(_ webFeedIDs: Set<String>, _ database: FMDatabase) -> Set<Article> {
-		// select * from articles natural join statuses where feedID in ('http://ranchero.com/xml/rss.xml') and starred = 1 and userDeleted = 0;
+		// select * from articles natural join statuses where feedID in ('http://ranchero.com/xml/rss.xml') and starred=1;
 		if webFeedIDs.isEmpty {
 			return Set<Article>()
 		}
 		let parameters = webFeedIDs.map { $0 as AnyObject }
 		let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(webFeedIDs.count))!
-		let whereClause = "feedID in \(placeholders) and starred = 1 and userDeleted = 0"
-		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters, withLimits: false)
+		let whereClause = "feedID in \(placeholders) and starred=1"
+		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 		}
 
 	func fetchArticlesMatching(_ searchString: String, _ webFeedIDs: Set<String>, _ database: FMDatabase) -> Set<Article> {
@@ -931,11 +970,7 @@ private extension ArticlesTable {
 	}
 
 	func articleIsIgnorable(_ article: Article) -> Bool {
-		// Ignorable articles: either userDeleted==1 or (not starred and arrival date > 4 months).
-		if article.status.userDeleted {
-			return true
-		}
-		if article.status.starred {
+		if article.status.starred || !article.status.read {
 			return false
 		}
 		return article.status.dateArrived < articleCutoffDate

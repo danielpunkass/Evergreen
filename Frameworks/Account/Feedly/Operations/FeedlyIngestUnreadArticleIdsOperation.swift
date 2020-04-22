@@ -26,8 +26,8 @@ final class FeedlyIngestUnreadArticleIdsOperation: FeedlyOperation {
 	private var remoteEntryIds = Set<String>()
 	private let log: OSLog
 	
-	convenience init(account: Account, credentials: Credentials, service: FeedlyGetStreamIdsService, database: SyncDatabase, newerThan: Date?, log: OSLog) {
-		let resource = FeedlyCategoryResourceId.Global.all(for: credentials.username)
+	convenience init(account: Account, userId: String, service: FeedlyGetStreamIdsService, database: SyncDatabase, newerThan: Date?, log: OSLog) {
+		let resource = FeedlyCategoryResourceId.Global.all(for: userId)
 		self.init(account: account, resource: resource, service: service, database: database, newerThan: newerThan, log: log)
 	}
 	
@@ -124,15 +124,19 @@ final class FeedlyIngestUnreadArticleIdsOperation: FeedlyOperation {
 		let results = ReadStatusResults()
 		
 		group.enter()
-		account.markAsUnread(remoteUnreadArticleIDs) { error in
-			results.markAsUnreadError = error
+		account.markAsUnread(remoteUnreadArticleIDs) { result in
+			if case .failure(let error) = result {
+				results.markAsUnreadError = error
+			}
 			group.leave()
 		}
 
 		let articleIDsToMarkRead = localUnreadArticleIDs.subtracting(remoteUnreadArticleIDs)
 		group.enter()
-		account.markAsRead(articleIDsToMarkRead) { error in
-			results.markAsReadError = error
+		account.markAsRead(articleIDsToMarkRead) { result in
+			if case .failure(let error) = result {
+				results.markAsReadError = error
+			}
 			group.leave()
 		}
 

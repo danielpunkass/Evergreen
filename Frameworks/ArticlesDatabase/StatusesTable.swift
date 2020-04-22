@@ -13,7 +13,7 @@ import Articles
 
 // Article->ArticleStatus is a to-one relationship.
 //
-// CREATE TABLE if not EXISTS statuses (articleID TEXT NOT NULL PRIMARY KEY, read BOOL NOT NULL DEFAULT 0, starred BOOL NOT NULL DEFAULT 0, userDeleted BOOL NOT NULL DEFAULT 0, dateArrived DATE NOT NULL DEFAULT 0);
+// CREATE TABLE if not EXISTS statuses (articleID TEXT NOT NULL PRIMARY KEY, read BOOL NOT NULL DEFAULT 0, starred BOOL NOT NULL DEFAULT 0, dateArrived DATE NOT NULL DEFAULT 0);
 
 final class StatusesTable: DatabaseTable {
 
@@ -27,11 +27,11 @@ final class StatusesTable: DatabaseTable {
 
 	// MARK: - Creating/Updating
 
-	func ensureStatusesForArticleIDs(_ articleIDs: Set<String>, _ read: Bool, _ database: FMDatabase) -> [String: ArticleStatus] {
+	func ensureStatusesForArticleIDs(_ articleIDs: Set<String>, _ read: Bool, _ database: FMDatabase) -> ([String: ArticleStatus], Set<String>) {
 		// Check cache.
 		let articleIDsMissingCachedStatus = articleIDsWithNoCachedStatus(articleIDs)
 		if articleIDsMissingCachedStatus.isEmpty {
-			return statusesDictionary(articleIDs)
+			return (statusesDictionary(articleIDs), Set<String>())
 		}
 		
 		// Check database.
@@ -43,7 +43,7 @@ final class StatusesTable: DatabaseTable {
 			self.createAndSaveStatusesForArticleIDs(articleIDsNeedingStatus, read, database)
 		}
 			
-		return statusesDictionary(articleIDs)
+		return (statusesDictionary(articleIDs), articleIDsNeedingStatus)
 	}
 
 	func existingStatusesForArticleIDs(_ articleIDs: Set<String>, _ database: FMDatabase) -> [String: ArticleStatus] {
@@ -85,20 +85,21 @@ final class StatusesTable: DatabaseTable {
 		return updatedStatuses
 	}
 
-	func mark(_ articleIDs: Set<String>, _ statusKey: ArticleStatus.Key, _ flag: Bool, _ database: FMDatabase) {
-		let statusesDictionary = ensureStatusesForArticleIDs(articleIDs, flag, database)
+	func markAndFetchNew(_ articleIDs: Set<String>, _ statusKey: ArticleStatus.Key, _ flag: Bool, _ database: FMDatabase) -> Set<String> {
+		let (statusesDictionary, newStatusIDs) = ensureStatusesForArticleIDs(articleIDs, flag, database)
 		let statuses = Set(statusesDictionary.values)
 		mark(statuses, statusKey, flag, database)
+		return newStatusIDs
 	}
 
 	// MARK: - Fetching
 
 	func fetchUnreadArticleIDs() throws -> Set<String> {
-		return try fetchArticleIDs("select articleID from statuses where read=0 and userDeleted=0;")
+		return try fetchArticleIDs("select articleID from statuses where read=0;")
 	}
 
 	func fetchStarredArticleIDs() throws -> Set<String> {
-		return try fetchArticleIDs("select articleID from statuses where starred=1 and userDeleted=0;")
+		return try fetchArticleIDs("select articleID from statuses where starred=1;")
 	}
 	
 	func fetchArticleIDsForStatusesWithoutArticlesNewerThan(_ cutoffDate: Date, _ completion: @escaping ArticleIDsCompletionBlock) {
@@ -108,7 +109,7 @@ final class StatusesTable: DatabaseTable {
 			var articleIDs = Set<String>()
 			
 			func makeDatabaseCall(_ database: FMDatabase) {
-				let sql = "select articleID from statuses s where (starred=1 or dateArrived>?) and userDeleted=0 and not exists (select 1 from articles a where a.articleID = s.articleID);"
+				let sql = "select articleID from statuses s where (starred=1 or dateArrived>?) and not exists (select 1 from articles a where a.articleID = s.articleID);"
 				if let resultSet = database.executeQuery(sql, withArgumentsIn: [cutoffDate]) {
 					articleIDs = resultSet.mapToSet(self.articleIDWithRow)
 				}

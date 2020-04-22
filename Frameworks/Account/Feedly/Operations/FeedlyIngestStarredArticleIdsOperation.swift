@@ -25,8 +25,8 @@ final class FeedlyIngestStarredArticleIdsOperation: FeedlyOperation {
 	private var remoteEntryIds = Set<String>()
 	private let log: OSLog
 	
-	convenience init(account: Account, credentials: Credentials, service: FeedlyGetStreamIdsService, database: SyncDatabase, newerThan: Date?, log: OSLog) {
-		let resource = FeedlyTagResourceId.Global.saved(for: credentials.username)
+	convenience init(account: Account, userId: String, service: FeedlyGetStreamIdsService, database: SyncDatabase, newerThan: Date?, log: OSLog) {
+		let resource = FeedlyTagResourceId.Global.saved(for: userId)
 		self.init(account: account, resource: resource, service: service, database: database, newerThan: newerThan, log: log)
 	}
 	
@@ -124,15 +124,19 @@ final class FeedlyIngestStarredArticleIdsOperation: FeedlyOperation {
 		let results = StarredStatusResults()
 		
 		group.enter()
-		account.markAsStarred(remoteStarredArticleIDs) { error in
-			results.markAsStarredError = error
+		account.markAsStarred(remoteStarredArticleIDs) { result in
+			if case .failure(let error) = result {
+				results.markAsStarredError = error
+			}
 			group.leave()
 		}
 
 		let deltaUnstarredArticleIDs = localStarredArticleIDs.subtracting(remoteStarredArticleIDs)
 		group.enter()
-		account.markAsUnstarred(deltaUnstarredArticleIDs) { error in
-			results.markAsUnstarredError = error
+		account.markAsUnstarred(deltaUnstarredArticleIDs) { result in
+			if case .failure(let error) = result {
+				results.markAsUnstarredError = error
+			}
 			group.leave()
 		}
 

@@ -48,9 +48,9 @@ final class CloudKitArticlesZone: CloudKitZone {
 	struct CloudKitArticleStatus {
 		static let recordType = "ArticleStatus"
 		struct Fields {
+			static let webFeedExternalID = "webFeedExternalID"
 			static let read = "read"
 			static let starred = "starred"
-			static let userDeleted = "userDeleted"
 		}
 	}
 	
@@ -81,8 +81,16 @@ final class CloudKitArticlesZone: CloudKitZone {
 		}
 	}
 	
-	func sendArticleStatus(_ syncStatuses: [SyncStatus], starredArticles: Set<Article>, completion: @escaping ((Result<Void, Error>) -> Void)) {
-		var records = makeStatusRecords(syncStatuses)
+	func sendNewArticles(_ articles: Set<Article>, completion: @escaping ((Result<Void, Error>) -> Void)) {
+		let records = makeNewStatusRecords(articles)
+		saveIfNew(records, completion: completion)
+	}
+	
+	func sendArticleStatus(_ syncStatuses: [SyncStatus], articles: Set<Article>, completion: @escaping ((Result<Void, Error>) -> Void)) {
+		
+		var records = makeStatusRecords(syncStatuses, articles)
+		
+		let starredArticles = articles.filter({ $0.status.starred == true })
 		makeArticleRecordsIfNecessary(starredArticles) { result in
 			switch result {
 			case .success(let articleRecords):
@@ -92,11 +100,11 @@ final class CloudKitArticlesZone: CloudKitZone {
 					case .success:
 						completion(.success(()))
 					case .failure(let error):
-						self.handleSendArticleStatusError(error, syncStatuses: syncStatuses, starredArticles: starredArticles, completion: completion)
+						self.handleSendArticleStatusError(error, syncStatuses: syncStatuses, starredArticles: articles, completion: completion)
 					}
 				}
 			case .failure(let error):
-				self.handleSendArticleStatusError(error, syncStatuses: syncStatuses, starredArticles: starredArticles, completion: completion)
+				self.handleSendArticleStatusError(error, syncStatuses: syncStatuses, starredArticles: articles, completion: completion)
 			}
 		}
 	}
@@ -106,7 +114,7 @@ final class CloudKitArticlesZone: CloudKitZone {
 			self.createZoneRecord() { result in
 				switch result {
 				case .success:
-					self.sendArticleStatus(syncStatuses, starredArticles: starredArticles, completion: completion)
+					self.sendArticleStatus(syncStatuses, articles: starredArticles, completion: completion)
 				case .failure(let error):
 					completion(.failure(error))
 				}
@@ -120,7 +128,30 @@ final class CloudKitArticlesZone: CloudKitZone {
 
 private extension CloudKitArticlesZone {
 	
-	func makeStatusRecords(_ syncStatuses: [SyncStatus]) -> [CKRecord] {
+	func makeNewStatusRecords(_ articles: Set<Article>) -> [CKRecord] {
+		
+		var records = [CKRecord]()
+		
+		for article in articles {
+			let recordID = CKRecord.ID(recordName: article.articleID, zoneID: Self.zoneID)
+			let record = CKRecord(recordType: CloudKitArticleStatus.recordType, recordID: recordID)
+			if let webFeedExternalID = article.webFeed?.externalID {
+				record[CloudKitArticleStatus.Fields.webFeedExternalID] = webFeedExternalID
+			}
+			record[CloudKitArticleStatus.Fields.read] = "0"
+			records.append(record)
+		}
+		
+		return records
+	}
+
+	func makeStatusRecords(_ syncStatuses: [SyncStatus], _ articles: Set<Article>) -> [CKRecord] {
+		
+		var articleDict = [String: Article]()
+		for article in articles {
+			articleDict[article.articleID] = article
+		}
+		
 		var records = [String: CKRecord]()
 		
 		for status in syncStatuses {
@@ -132,13 +163,15 @@ private extension CloudKitArticlesZone {
 				records[status.articleID] = record
 			}
 			
+			if let webFeedExternalID = articleDict[status.articleID]?.webFeed?.externalID {
+				record![CloudKitArticleStatus.Fields.webFeedExternalID] = webFeedExternalID
+			}
+			
 			switch status.key {
 			case .read:
 				record![CloudKitArticleStatus.Fields.read] = status.flag ? "1" : "0"
 			case .starred:
 				record![CloudKitArticleStatus.Fields.starred] = status.flag ? "1" : "0"
-			case .userDeleted:
-				record![CloudKitArticleStatus.Fields.userDeleted] = status.flag ? "1" : "0"
 			}
 		}
 		
@@ -147,7 +180,6 @@ private extension CloudKitArticlesZone {
 
 	func makeArticleRecordsIfNecessary(_ articles: Set<Article>, completion: @escaping ((Result<[CKRecord], Error>) -> Void)) {
 		let group = DispatchGroup()
-		var errorOccurred = false
 		var records = [CKRecord]()
 
 		for article in articles {
@@ -164,9 +196,8 @@ private extension CloudKitArticlesZone {
 					if !recordFound {
 						records.append(contentsOf:  self.makeArticleRecords(article))
 					}
-				case .failure(let error):
-					errorOccurred = true
-					os_log(.error, log: self.log, "Error occurred while checking for existing articles: %@", error.localizedDescription)
+				case .failure:
+					records.append(contentsOf:  self.makeArticleRecords(article))
 				}
 				group.leave()
 			}
@@ -174,11 +205,7 @@ private extension CloudKitArticlesZone {
 		}
 		
 		group.notify(queue: DispatchQueue.main) {
-			if errorOccurred {
-				completion(.failure(CloudKitZoneError.unknown))
-			} else {
-				completion(.success(records))
-			}
+			completion(.success(records))
 		}
 	}
 	
@@ -204,7 +231,7 @@ private extension CloudKitArticlesZone {
 		let encoder = JSONEncoder()
 		var parsedAuthors = [String]()
 		
-		if let authors = article.authors {
+		if let authors = article.authors, !authors.isEmpty {
 			for author in authors {
 				let parsedAuthor = ParsedAuthor(name: author.name,
 												url: author.url,
@@ -214,9 +241,8 @@ private extension CloudKitArticlesZone {
 					parsedAuthors.append(encodedParsedAuthor)
 				}
 			}
+			articleRecord[CloudKitArticle.Fields.parsedAuthors] = parsedAuthors
 		}
-		
-		articleRecord[CloudKitArticle.Fields.parsedAuthors] = parsedAuthors
 		
 		records.append(articleRecord)
 		return records
