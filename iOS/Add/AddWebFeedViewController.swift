@@ -15,6 +15,8 @@ import RSParser
 class AddWebFeedViewController: UITableViewController, AddContainerViewControllerChild {
 	
 	@IBOutlet private weak var urlTextField: UITextField!
+	@IBOutlet weak var urlTextFieldToSuperViewConstraint: NSLayoutConstraint!
+	@IBOutlet weak var urlBuilderButton: UIButton!
 	@IBOutlet private weak var nameTextField: UITextField!
 	
 	private var folderLabel = ""
@@ -41,6 +43,13 @@ class AddWebFeedViewController: UITableViewController, AddContainerViewControlle
 		urlTextField.text = initialFeed
 		urlTextField.delegate = self
 		
+		if ExtensionPointManager.shared.isTwitterEnabled {
+			urlTextFieldToSuperViewConstraint.isActive = false
+			urlTextField.trailingAnchor.constraint(equalTo: urlBuilderButton.leadingAnchor, constant: -8).isActive = true
+		} else {
+			urlBuilderButton.isHidden = true
+		}
+		
 		if initialFeed != nil {
 			delegate?.readyToAdd(state: true)
 		}
@@ -63,6 +72,14 @@ class AddWebFeedViewController: UITableViewController, AddContainerViewControlle
 
 		NotificationCenter.default.addObserver(self, selector: #selector(textDidChange(_:)), name: UITextField.textDidChangeNotification, object: urlTextField)
 
+	}
+	
+	@IBAction func showURLBuilder(_ sender: Any) {
+		let navController = UIStoryboard.add.instantiateViewController(withIdentifier: "SelectURLBuilderNavViewController") as! UINavigationController
+		navController.modalPresentationStyle = .currentContext
+		let selectURLBuilder = navController.topViewController as! SelectURLBuilderTableViewController
+		selectURLBuilder.delegate = self
+		present(navController, animated: true)
 	}
 	
 	func cancel() {
@@ -118,7 +135,7 @@ class AddWebFeedViewController: UITableViewController, AddContainerViewControlle
 	}
 	
 	@objc func textDidChange(_ note: Notification) {
-		delegate?.readyToAdd(state: urlTextField.text?.mayBeURL ?? false)
+		updateUI()
 	}
 	
 	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -154,6 +171,17 @@ extension AddWebFeedViewController: AddWebFeedFolderViewControllerDelegate {
 	}
 }
 
+// MARK: AddWebFeedFolderViewControllerDelegate
+
+extension AddWebFeedViewController: SelectURLBuilderDelegate {
+	
+	func selectURLBuilderDidBuildURL(_ url: URL) {
+		urlTextField.text = url.absoluteString
+		updateUI()
+	}
+	
+}
+
 // MARK: UITextFieldDelegate
 
 extension AddWebFeedViewController: UITextFieldDelegate {
@@ -168,6 +196,11 @@ extension AddWebFeedViewController: UITextFieldDelegate {
 // MARK: Private
 
 private extension AddWebFeedViewController {
+	
+	func updateUI() {
+		delegate?.readyToAdd(state: urlTextField.text?.mayBeURL ?? false)
+	}
+	
 	func updateFolderLabel() {
 		if let containerName = (container as? DisplayNameProvider)?.nameForDisplay {
 			if container is Folder {

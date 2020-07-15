@@ -12,6 +12,7 @@ import RSParser
 import RSWeb
 import SyncDatabase
 import os.log
+import Secrets
 
 public enum ReaderAPIAccountDelegateError: String, Error {
 	case invalidParameter = "There was an invalid parameter passed."
@@ -122,10 +123,10 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 		database.selectForProcessing { result in
 
 			func processStatuses(_ syncStatuses: [SyncStatus]) {
-				let createUnreadStatuses = syncStatuses.filter { $0.key == ArticleStatus.Key.read && $0.flag == false }
-				let deleteUnreadStatuses = syncStatuses.filter { $0.key == ArticleStatus.Key.read && $0.flag == true }
-				let createStarredStatuses = syncStatuses.filter { $0.key == ArticleStatus.Key.starred && $0.flag == true }
-				let deleteStarredStatuses = syncStatuses.filter { $0.key == ArticleStatus.Key.starred && $0.flag == false }
+				let createUnreadStatuses = syncStatuses.filter { $0.key == SyncStatus.Key.read && $0.flag == false }
+				let deleteUnreadStatuses = syncStatuses.filter { $0.key == SyncStatus.Key.read && $0.flag == true }
+				let createStarredStatuses = syncStatuses.filter { $0.key == SyncStatus.Key.starred && $0.flag == true }
+				let deleteStarredStatuses = syncStatuses.filter { $0.key == SyncStatus.Key.starred && $0.flag == false }
 
 				let group = DispatchGroup()
 
@@ -411,9 +412,9 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) -> Set<Article>? {
 		
 		let syncStatuses = articles.map { article in
-			return SyncStatus(articleID: article.articleID, key: statusKey, flag: flag)
+			return SyncStatus(articleID: article.articleID, key: SyncStatus.Key(statusKey), flag: flag)
 		}
-		database.insertStatuses(syncStatuses)
+		try? database.insertStatuses(syncStatuses)
 		
 		database.selectPendingCount { result in
 			if let count = try? result.get(), count > 100 {

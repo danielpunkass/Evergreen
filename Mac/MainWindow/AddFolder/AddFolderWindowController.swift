@@ -36,13 +36,17 @@ class AddFolderWindowController : NSWindowController {
 	// MARK: - NSViewController
 	
 	override func windowDidLoad() {
-		let preferredAccountID = AppDefaults.addFolderAccountID
+		let preferredAccountID = AppDefaults.shared.addFolderAccountID
 		accountPopupButton.removeAllItems()
 		
 		let menu = NSMenu()
 		accountPopupButton.menu = menu
 		
-		for oneAccount in AccountManager.shared.sortedActiveAccounts {
+		let accounts = AccountManager.shared
+			.sortedActiveAccounts
+			.filter { !$0.behaviors.contains(.disallowFolderManagement) }
+		
+		for oneAccount in accounts {
 			
 			let oneMenuItem = NSMenuItem()
 			oneMenuItem.title = oneAccount.nameForDisplay
@@ -89,7 +93,7 @@ private extension AddFolderWindowController {
 		}
 
 		let account = menuItem.representedObject as! Account
-		AppDefaults.addFolderAccountID = account.accountID
+		AppDefaults.shared.addFolderAccountID = account.accountID
 
 		let folderName = self.folderNameTextField.stringValue
 		if folderName.isEmpty {

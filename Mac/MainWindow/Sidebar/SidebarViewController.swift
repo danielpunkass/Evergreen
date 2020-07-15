@@ -57,7 +57,7 @@ protocol SidebarDelegate: class {
 	// MARK: - NSViewController
 
 	override func viewDidLoad() {
-		sidebarCellAppearance = SidebarCellAppearance(fontSize: AppDefaults.sidebarFontSize)
+		sidebarCellAppearance = SidebarCellAppearance(fontSize: AppDefaults.shared.sidebarFontSize)
 
 		outlineView.dataSource = dataSource
 		outlineView.doubleAction = #selector(doubleClickedSidebar(_:))
@@ -223,7 +223,11 @@ protocol SidebarDelegate: class {
 		if outlineView.selectionIsEmpty {
 			return
 		}
+		let firstRow = outlineView.selectedRowIndexes.min()
 		deleteNodes(selectedNodes)
+		if let restoreRow = firstRow, restoreRow < outlineView.numberOfRows {
+			outlineView.selectRow(restoreRow)
+		}
 	}
 	
 	@IBAction func doubleClickedSidebar(_ sender: Any?) {
@@ -237,7 +241,15 @@ protocol SidebarDelegate: class {
 		guard let feed = singleSelectedWebFeed, let homePageURL = feed.homePageURL else {
 			return
 		}
-		Browser.open(homePageURL)
+		Browser.open(homePageURL, invertPreference: NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false)
+	}
+
+	@objc func openInAppBrowser(_ sender: Any?) {
+		// There is no In-App Browser for mac - so we use safari
+		guard let feed = singleSelectedWebFeed, let homePageURL = feed.homePageURL else {
+			return
+		}
+		Browser.open(homePageURL, invertPreference: NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false)
 	}
 
 	@IBAction func gotoToday(_ sender: Any?) {
@@ -497,7 +509,7 @@ private extension SidebarViewController {
 	
 	func addToFilterExeptionsIfNecessary(_ feed: Feed?) {
 		if isReadFiltered, let feedID = feed?.feedID {
-			if feed is SmartFeed {
+			if feed is PseudoFeed {
 				treeControllerDelegate.addFilterException(feedID)
 			} else if let folderFeed = feed as? Folder {
 				if folderFeed.account?.existingFolder(withID: folderFeed.folderID) != nil {

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="15705" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
+<document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="16097" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
     <dependencies>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="15705"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="16097"/>
     </dependencies>
     <scenes>
         <!--Application-->
@@ -70,7 +70,7 @@
                                     <items>
                                         <menuItem title="New Feed" keyEquivalent="n" id="Was-JA-tGl">
                                             <connections>
-                                                <action selector="showAddFeedWindow:" target="Ady-hI-5gd" id="LkT-kx-aCR"/>
+                                                <action selector="showAddWebFeedWindow:" target="Ady-hI-5gd" id="LkT-kx-aCR"/>
                                             </connections>
                                         </menuItem>
                                         <menuItem title="New Folder" keyEquivalent="N" id="wkh-LX-Xp1">
@@ -490,6 +490,12 @@
                                                 <action selector="openArticleInBrowser:" target="Ady-hI-5gd" id="KeH-ES-fpo"/>
                                             </connections>
                                         </menuItem>
+                                        <menuItem title="Open in Browser Inverted" alternate="YES" keyEquivalent="" id="EjD-X9-Pjf">
+                                            <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
+                                            <connections>
+                                                <action selector="openArticleInBrowser:" target="Ady-hI-5gd" id="Frq-Uo-DQs"/>
+                                            </connections>
+                                        </menuItem>
                                     </items>
                                 </menu>
                             </menuItem>
@@ -526,6 +532,12 @@
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
                                                 <action selector="toggleWebInspectorEnabled:" target="Voe-Tx-rLC" id="SNL-zh-XIE"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Open Application Support Folder" id="rg6-L6-JUr">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="openApplicationSupportFolder:" target="Ady-hI-5gd" id="gT9-ry-evV"/>
                                             </connections>
                                         </menuItem>
                                     </items>

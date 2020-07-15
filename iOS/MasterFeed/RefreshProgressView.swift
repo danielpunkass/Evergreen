@@ -17,20 +17,78 @@ class RefreshProgressView: UIView {
 	override func awakeFromNib() {
 		NotificationCenter.default.addObserver(self, selector: #selector(progressDidChange(_:)), name: .AccountRefreshProgressDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(contentSizeCategoryDidChange(_:)), name: UIContentSizeCategory.didChangeNotification, object: nil)
-
+		update()
+		scheduleUpdateRefreshLabel()
+	}
+	
+	func update() {
 		if !AccountManager.shared.combinedRefreshProgress.isComplete {
-			progressChanged()
+			progressChanged(animated: false)
 		} else {
 			updateRefreshLabel()
 		}
-
-		scheduleUpdateRefreshLabel()
 	}
 
 	override func didMoveToSuperview() {
-		progressChanged()
+		progressChanged(animated: false)
 	}
 
+	@objc func progressDidChange(_ note: Notification) {
+		progressChanged(animated: true)
+	}
+
+	@objc func contentSizeCategoryDidChange(_ note: Notification) {
+		// This hack is probably necessary because custom views in the toolbar don't get
+		// notifications that the content size changed.
+		label.font = UIFont.preferredFont(forTextStyle: .footnote)
+	}
+
+	deinit {
+		NotificationCenter.default.removeObserver(self)
+	}
+	
+}
+
+// MARK: Private
+
+private extension RefreshProgressView {
+
+	func progressChanged(animated: Bool) {
+		// Layout may crash if not in the view hierarchy.
+		// https://github.com/Ranchero-Software/NetNewsWire/issues/1764
+		let isInViewHierarchy = self.superview != nil
+
+		let progress = AccountManager.shared.combinedRefreshProgress
+
+		if progress.isComplete {
+			if isInViewHierarchy {
+				progressView.setProgress(1, animated: animated)
+			}
+			DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+				// Check that there are no pending downloads.
+				if (AccountManager.shared.combinedRefreshProgress.isComplete) {
+					self.updateRefreshLabel()
+					self.label.isHidden = false
+					self.progressView.isHidden = true
+					if self.superview != nil {
+						self.progressView.setProgress(0, animated: animated)
+					}
+				}
+			}
+		} else {
+			label.isHidden = true
+			progressView.isHidden = false
+			if isInViewHierarchy {
+				let percent = Float(progress.numberCompleted) / Float(progress.numberOfTasks)
+
+				// Don't let the progress bar go backwards unless we need to go back more than 25%
+				if percent > progressView.progress || progressView.progress - percent > 0.25 {
+					progressView.setProgress(percent, animated: animated)
+				}
+			}
+		}
+	}
+	
 	func updateRefreshLabel() {
 		if let accountLastArticleFetchEndTime = AccountManager.shared.lastArticleFetchEndTime {
 
@@ -53,62 +111,6 @@ class RefreshProgressView: UIView {
 
 	}
 
-	@objc func progressDidChange(_ note: Notification) {
-		progressChanged()
-	}
-
-	@objc func contentSizeCategoryDidChange(_ note: Notification) {
-		// This hack is probably necessary because custom views in the toolbar don't get
-		// notifications that the content size changed.
-		label.font = UIFont.preferredFont(forTextStyle: .footnote)
-	}
-
-	deinit {
-		NotificationCenter.default.removeObserver(self)
-	}
-	
-}
-
-// MARK: Private
-
-private extension RefreshProgressView {
-
-	func progressChanged() {
-		// Layout may crash if not in the view hierarchy.
-		// https://github.com/Ranchero-Software/NetNewsWire/issues/1764
-		let isInViewHierarchy = self.superview != nil
-
-		let progress = AccountManager.shared.combinedRefreshProgress
-
-		if progress.isComplete {
-			if isInViewHierarchy {
-				progressView.setProgress(1, animated: true)
-			}
-			DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-				// Check that there are no pending downloads.
-				if (AccountManager.shared.combinedRefreshProgress.isComplete) {
-					self.updateRefreshLabel()
-					self.label.isHidden = false
-					self.progressView.isHidden = true
-					if self.superview != nil {
-						self.progressView.setProgress(0, animated: true)
-					}
-				}
-			}
-		} else {
-			label.isHidden = true
-			progressView.isHidden = false
-			if isInViewHierarchy {
-				let percent = Float(progress.numberCompleted) / Float(progress.numberOfTasks)
-
-				// Don't let the progress bar go backwards unless we need to go back more than 25%
-				if percent > progressView.progress || progressView.progress - percent > 0.25 {
-					progressView.setProgress(percent, animated: true)
-				}
-			}
-		}
-	}
-	
 	func scheduleUpdateRefreshLabel() {
 		DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
 			self?.updateRefreshLabel()

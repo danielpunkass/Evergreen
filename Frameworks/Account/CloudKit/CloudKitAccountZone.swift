@@ -12,6 +12,12 @@ import RSWeb
 import RSParser
 import CloudKit
 
+enum CloudKitAccountZoneError: LocalizedError {
+	case unknown
+	var errorDescription: String? {
+		return NSLocalizedString("An unexpected CloudKit error occurred.", comment: "An unexpected CloudKit error occurred.")
+	}
+}
 final class CloudKitAccountZone: CloudKitZone {
 
 	static var zoneID: CKRecordZone.ID {
@@ -28,7 +34,9 @@ final class CloudKitAccountZone: CloudKitZone {
 		static let recordType = "AccountWebFeed"
 		struct Fields {
 			static let url = "url"
+			static let name = "name"
 			static let editedName = "editedName"
+			static let homePageURL = "homePageURL"
 			static let containerExternalIDs = "containerExternalIDs"
 		}
 	}
@@ -81,14 +89,18 @@ final class CloudKitAccountZone: CloudKitZone {
 	}
     
 	///  Persist a web feed record to iCloud and return the external key
-	func createWebFeed(url: String, editedName: String?, container: Container, completion: @escaping (Result<String, Error>) -> Void) {
+	func createWebFeed(url: String, name: String?, editedName: String?, homePageURL: String?, container: Container, completion: @escaping (Result<String, Error>) -> Void) {
 		let recordID = CKRecord.ID(recordName: url.md5String, zoneID: Self.zoneID)
 		let record = CKRecord(recordType: CloudKitWebFeed.recordType, recordID: recordID)
 		record[CloudKitWebFeed.Fields.url] = url
+		record[CloudKitWebFeed.Fields.name] = name
 		if let editedName = editedName {
 			record[CloudKitWebFeed.Fields.editedName] = editedName
 		}
-		
+		if let homePageURL = homePageURL {
+			record[CloudKitWebFeed.Fields.homePageURL] = homePageURL
+		}
+
 		guard let containerExternalID = container.externalID else {
 			completion(.failure(CloudKitZoneError.invalidParameter))
 			return
@@ -215,6 +227,26 @@ final class CloudKitAccountZone: CloudKitZone {
 		}
 	}
 	
+	func findWebFeedExternalIDs(for folder: Folder, completion: @escaping (Result<[String], Error>) -> Void) {
+		guard let folderExternalID = folder.externalID else {
+			completion(.failure(CloudKitAccountZoneError.unknown))
+			return
+		}
+		
+		let predicate = NSPredicate(format: "containerExternalIDs CONTAINS %@", folderExternalID)
+		let ckQuery = CKQuery(recordType: CloudKitWebFeed.recordType, predicate: predicate)
+		
+		query(ckQuery) { result in
+			switch result {
+			case .success(let records):
+				let webFeedExternalIds = records.map { $0.externalID }
+				completion(.success(webFeedExternalIds))
+			case .failure(let error):
+				completion(.failure(error))
+			}
+		}
+	}
+	
 	func findOrCreateAccount(completion: @escaping (Result<String, Error>) -> Void) {
 		let predicate = NSPredicate(format: "isAccount = \"1\"")
 		let ckQuery = CKQuery(recordType: CloudKitContainer.recordType, predicate: predicate)
@@ -290,6 +322,9 @@ private extension CloudKitAccountZone {
 		record[CloudKitWebFeed.Fields.url] = feedSpecifier.feedURL
 		if let editedName = feedSpecifier.title {
 			record[CloudKitWebFeed.Fields.editedName] = editedName
+		}
+		if let homePageURL = feedSpecifier.homePageURL {
+			record[CloudKitWebFeed.Fields.homePageURL] = homePageURL
 		}
 		record[CloudKitWebFeed.Fields.containerExternalIDs] = [containerExternalID]
 		return record

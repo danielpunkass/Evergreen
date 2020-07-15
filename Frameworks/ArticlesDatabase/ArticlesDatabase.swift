@@ -24,22 +24,26 @@ public typealias UnreadCountDictionaryCompletionBlock = (UnreadCountDictionaryCo
 public typealias SingleUnreadCountResult = Result<Int, DatabaseError>
 public typealias SingleUnreadCountCompletionBlock = (SingleUnreadCountResult) -> Void
 
-public struct NewAndUpdatedArticles {
+public struct ArticleChanges {
 	public let newArticles: Set<Article>?
 	public let updatedArticles: Set<Article>?
-	
+	public let deletedArticles: Set<Article>?
+
 	public init() {
 		self.newArticles = Set<Article>()
 		self.updatedArticles = Set<Article>()
+		self.deletedArticles = Set<Article>()
 	}
 	
-	public init(newArticles: Set<Article>?, updatedArticles: Set<Article>?) {
+	public init(newArticles: Set<Article>?, updatedArticles: Set<Article>?, deletedArticles: Set<Article>?) {
 		self.newArticles = newArticles
 		self.updatedArticles = updatedArticles
+		self.deletedArticles = deletedArticles
 	}
+	
 }
 
-public typealias UpdateArticlesResult = Result<NewAndUpdatedArticles, DatabaseError>
+public typealias UpdateArticlesResult = Result<ArticleChanges, DatabaseError>
 public typealias UpdateArticlesCompletionBlock = (UpdateArticlesResult) -> Void
 
 public typealias ArticleSetResult = Result<Set<Article>, DatabaseError>
@@ -197,18 +201,23 @@ public final class ArticlesDatabase {
 		articlesTable.fetchStarredAndUnreadCount(webFeedIDs, completion)
 	}
 
-	// MARK: - Saving and Updating Articles
+	// MARK: - Saving, Updating, and Deleting Articles
 
 	/// Update articles and save new ones — for feed-based systems (local and iCloud).
-	public func update(with parsedItems: Set<ParsedItem>, webFeedID: String, completion: @escaping UpdateArticlesCompletionBlock) {
+	public func update(with parsedItems: Set<ParsedItem>, webFeedID: String, deleteOlder: Bool, completion: @escaping UpdateArticlesCompletionBlock) {
 		precondition(retentionStyle == .feedBased)
-		articlesTable.update(parsedItems, webFeedID, completion)
+		articlesTable.update(parsedItems, webFeedID, deleteOlder, completion)
 	}
 
 	/// Update articles and save new ones — for sync systems (Feedbin, Feedly, etc.).
 	public func update(webFeedIDsAndItems: [String: Set<ParsedItem>], defaultRead: Bool, completion: @escaping UpdateArticlesCompletionBlock) {
 		precondition(retentionStyle == .syncSystem)
 		articlesTable.update(webFeedIDsAndItems, defaultRead, completion)
+	}
+
+	/// Delete articles
+	public func delete(articleIDs: Set<String>, completion: DatabaseCompletionBlock?) {
+		articlesTable.delete(articleIDs: articleIDs, completion: completion)
 	}
 
 	// MARK: - Status

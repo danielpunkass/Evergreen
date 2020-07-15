@@ -61,7 +61,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 
 		sharingServicePickerDelegate = SharingServicePickerDelegate(self.window)
 		
-		if !AppDefaults.showTitleOnMainWindow {
+		if !AppDefaults.shared.showTitleOnMainWindow {
 			window?.titleVisibility = .hidden
 		}
 		
@@ -92,6 +92,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		DispatchQueue.main.async {
 			self.updateWindowTitle()
 		}
+
 	}
 
 	// MARK: - API
@@ -115,12 +116,12 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 	}
 
 	func saveStateToUserDefaults() {
-		AppDefaults.windowState = savableState()
+		AppDefaults.shared.windowState = savableState()
 		window?.saveFrame(usingName: windowAutosaveName)
 	}
 	
 	func restoreStateFromUserDefaults() {
-		if let state = AppDefaults.windowState {
+		if let state = AppDefaults.shared.windowState {
 			restoreState(from: state)
 			window?.setFrameUsingName(windowAutosaveName, force: true)
 		}
@@ -166,7 +167,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		}
 		
 	}
-	
+
 	// MARK: - Toolbar
 	
 	@objc func makeToolbarValidate() {
@@ -179,6 +180,10 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 	public func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
 		
 		if item.action == #selector(openArticleInBrowser(_:)) {
+			if let item = item as? NSMenuItem, item.keyEquivalentModifierMask.contains(.shift) {
+				item.title = Browser.titleForOpenInBrowserInverted
+			}
+
 			return currentLink != nil
 		}
 		
@@ -259,14 +264,38 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 		}
 	}
 
+	@IBAction func scrollUp(_ sender: Any?) {
+		guard let detailViewController = detailViewController else {
+			return
+		}
+		detailViewController.canScrollUp { (canScroll) in
+			if (canScroll) {
+				NSCursor.setHiddenUntilMouseMoves(true)
+				detailViewController.scrollPageUp(sender)
+			}
+		}
+
+	}
+
 	@IBAction func openArticleInBrowser(_ sender: Any?) {
 		if let link = currentLink {
-			Browser.open(link)
+			Browser.open(link, invertPreference: NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false)
 		}		
 	}
 
 	@IBAction func openInBrowser(_ sender: Any?) {
 		openArticleInBrowser(sender)
+	}
+
+	@objc func openInAppBrowser(_ sender: Any?) {
+		// There is no In-App Browser for mac - so we use safari
+		openArticleInBrowser(sender)
+	}
+
+	@IBAction func openInBrowserUsingOppositeOfSettings(_ sender: Any?) {
+		if let link = currentLink {
+			Browser.open(link, inBackground: !AppDefaults.shared.openInBrowserInBackground)
+		}
 	}
 
 	@IBAction func nextUnread(_ sender: Any?) {
@@ -739,6 +768,7 @@ private extension MainWindowController {
 	
 	func savableState() -> [AnyHashable : Any] {
 		var state = [AnyHashable : Any]()
+		state[UserInfoKey.windowFullScreenState] = window?.styleMask.contains(.fullScreen) ?? false
 		saveSplitViewState(to: &state)
 		sidebarViewController?.saveState(to: &state)
 		timelineContainerViewController?.saveState(to: &state)
@@ -746,6 +776,9 @@ private extension MainWindowController {
 	}
 
 	func restoreState(from state: [AnyHashable : Any]) {
+		if let fullScreen = state[UserInfoKey.windowFullScreenState] as? Bool, fullScreen {
+			window?.toggleFullScreen(self)
+		}
 		restoreSplitViewState(from: state)
 		sidebarViewController?.restoreState(from: state)
 		timelineContainerViewController?.restoreState(from: state)
@@ -799,7 +832,7 @@ private extension MainWindowController {
 	}
 
 	func validateToggleArticleExtractor(_ item: NSValidatedUserInterfaceItem) -> Bool {
-		guard !AppDefaults.isDeveloperBuild else {
+		guard !AppDefaults.shared.isDeveloperBuild else {
 			return false
 		}
 		

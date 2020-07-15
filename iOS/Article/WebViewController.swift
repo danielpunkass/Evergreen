@@ -12,6 +12,7 @@ import RSCore
 import Account
 import Articles
 import SafariServices
+import MessageUI
 
 protocol WebViewControllerDelegate: class {
 	func webViewController(_: WebViewController, articleExtractorButtonStateDidUpdate: ArticleExtractorButtonState)
@@ -22,6 +23,7 @@ class WebViewController: UIViewController {
 	private struct MessageName {
 		static let imageWasClicked = "imageWasClicked"
 		static let imageWasShown = "imageWasShown"
+		static let showFeedInspector = "showFeedInspector"
 	}
 
 	private var topShowBarsView: UIView!
@@ -35,7 +37,7 @@ class WebViewController: UIViewController {
 	
 	private lazy var contextMenuInteraction = UIContextMenuInteraction(delegate: self)
 	private var isFullScreenAvailable: Bool {
-		return AppDefaults.articleFullscreenAvailable && traitCollection.userInterfaceIdiom == .phone && coordinator.isRootSplitCollapsed
+		return AppDefaults.shared.articleFullscreenAvailable && traitCollection.userInterfaceIdiom == .phone && coordinator.isRootSplitCollapsed
 	}
 	private lazy var transition = ImageTransition(controller: self)
 	private var clickedImageCompletion: (() -> Void)?
@@ -59,7 +61,7 @@ class WebViewController: UIViewController {
 	
 	private(set) var article: Article?
 	
-	let scrollPositionQueue = CoalescingQueue(name: "Article Scroll Position", interval: 0.3, maxInterval: 1.0)
+	let scrollPositionQueue = CoalescingQueue(name: "Article Scroll Position", interval: 0.3, maxInterval: 0.3)
 	var windowScrollY = 0
 	
 	override func viewDidLoad() {
@@ -121,23 +123,38 @@ class WebViewController: UIViewController {
 
 	func canScrollDown() -> Bool {
 		guard let webView = webView else { return false }
-		return webView.scrollView.contentOffset.y < finalScrollPosition()
+		return webView.scrollView.contentOffset.y < finalScrollPosition(scrollingUp: false)
 	}
 
-	func scrollPageDown() {
+	func canScrollUp() -> Bool {
+		guard let webView = webView else { return false }
+		return webView.scrollView.contentOffset.y > finalScrollPosition(scrollingUp: true)
+	}
+
+	private func scrollPage(up scrollingUp: Bool) {
 		guard let webView = webView else { return }
-		
+
+		let overlap = 2 * UIFont.systemFont(ofSize: UIFont.systemFontSize).lineHeight * UIScreen.main.scale
 		let scrollToY: CGFloat = {
-			let fullScroll = webView.scrollView.contentOffset.y + webView.scrollView.layoutMarginsGuide.layoutFrame.height
-			let final = finalScrollPosition()
-			return fullScroll < final ? fullScroll : final
+			let scrollDistance = webView.scrollView.layoutMarginsGuide.layoutFrame.height - overlap;
+			let fullScroll = webView.scrollView.contentOffset.y + (scrollingUp ? -scrollDistance : scrollDistance)
+			let final = finalScrollPosition(scrollingUp: scrollingUp)
+			return (scrollingUp ? fullScroll > final : fullScroll < final) ? fullScroll : final
 		}()
-		
+
 		let convertedPoint = self.view.convert(CGPoint(x: 0, y: 0), to: webView.scrollView)
 		let scrollToPoint = CGPoint(x: convertedPoint.x, y: scrollToY)
 		webView.scrollView.setContentOffset(scrollToPoint, animated: true)
 	}
-	
+
+	func scrollPageDown() {
+		scrollPage(up: false)
+	}
+
+	func scrollPageUp() {
+		scrollPage(up: true)
+	}
+
 	func hideClickedImage() {
 		webView?.evaluateJavaScript("hideClickedImage();")
 	}
@@ -148,11 +165,11 @@ class WebViewController: UIViewController {
 	}
 	
 	func fullReload() {
-		self.loadWebView()
+		loadWebView(replaceExistingWebView: true)
 	}
 
 	func showBars() {
-		AppDefaults.articleFullscreenEnabled = false
+		AppDefaults.shared.articleFullscreenEnabled = false
 		coordinator.showStatusBar()
 		topShowBarsViewConstraint?.constant = 0
 		bottomShowBarsViewConstraint?.constant = 0
@@ -163,7 +180,7 @@ class WebViewController: UIViewController {
 		
 	func hideBars() {
 		if isFullScreenAvailable {
-			AppDefaults.articleFullscreenEnabled = true
+			AppDefaults.shared.articleFullscreenEnabled = true
 			coordinator.hideStatusBar()
 			topShowBarsViewConstraint?.constant = -44.0
 			bottomShowBarsViewConstraint?.constant = 44.0
@@ -222,11 +239,19 @@ class WebViewController: UIViewController {
 			return
 		}
 
-		let activityViewController = UIActivityViewController(url: url, title: article?.title, applicationActivities: [OpenInSafariActivity()])
+		let activityViewController = UIActivityViewController(url: url, title: article?.title, applicationActivities: [FindInArticleActivity(), OpenInSafariActivity()])
 		activityViewController.popoverPresentationController?.barButtonItem = popOverBarButtonItem
 		present(activityViewController, animated: true)
 	}
-	
+
+	func openInAppBrowser() {
+		guard let preferredLink = article?.preferredLink, let url = URL(string: preferredLink) else {
+			return
+		}
+
+		let vc = SFSafariViewController(url: url)
+		present(vc, animated: true)
+	}
 }
 
 // MARK: ArticleExtractorDelegate
@@ -288,10 +313,18 @@ extension WebViewController: UIContextMenuInteractionDelegate {
 // MARK: WKNavigationDelegate
 
 extension WebViewController: WKNavigationDelegate {
+	
+	func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+		for (index, view) in view.subviews.enumerated() {
+			if index != 0, let oldWebView = view as? PreloadedWebView {
+				oldWebView.removeFromSuperview()
+			}
+		}
+	}
+	
 	func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
 		
 		if navigationAction.navigationType == .linkActivated {
-			
 			guard let url = navigationAction.request.url else {
 				decisionHandler(.allow)
 				return
@@ -310,16 +343,40 @@ extension WebViewController: WKNavigationDelegate {
 					let vc = SFSafariViewController(url: url)
 					self.present(vc, animated: true)
 				}
+			} else if components?.scheme == "mailto" {
+				decisionHandler(.cancel)
+				
+				guard let emailAddress = url.emailAddress else {
+					return
+				}
+				
+				if MFMailComposeViewController.canSendMail() {
+					let mailComposeViewController = MFMailComposeViewController()
+					mailComposeViewController.setToRecipients([emailAddress])
+					mailComposeViewController.mailComposeDelegate = self
+					self.present(mailComposeViewController, animated: true, completion: {})
+				} else {
+					let alert = UIAlertController(title: NSLocalizedString("Error", comment: "Error"), message: NSLocalizedString("This device cannot send emails.", comment: "This device cannot send emails."), preferredStyle: .alert)
+					alert.addAction(.init(title: NSLocalizedString("Dismiss", comment: "Dismiss"), style: .cancel, handler: nil))
+					self.present(alert, animated: true, completion: nil)
+				}
+			} else if components?.scheme == "tel" {
+				decisionHandler(.cancel)
+				
+				if UIApplication.shared.canOpenURL(url) {
+					UIApplication.shared.open(url, options: [.universalLinksOnly : false], completionHandler: nil)
+				}
+				
 			} else {
 				decisionHandler(.allow)
 			}
-			
 		} else {
-			
 			decisionHandler(.allow)
-			
 		}
-		
+	}
+
+	func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+		fullReload()
 	}
 	
 }
@@ -345,6 +402,10 @@ extension WebViewController: WKScriptMessageHandler {
 			clickedImageCompletion?()
 		case MessageName.imageWasClicked:
 			imageWasClicked(body: message.body as? String)
+		case MessageName.showFeedInspector:
+			if let webFeed = article?.webFeed {
+				coordinator.showFeedInspector(for: webFeed)
+			}
 		default:
 			return
 		}
@@ -387,6 +448,15 @@ extension WebViewController: UIScrollViewDelegate {
 	
 }
 
+// MARK: MFMailComposeViewControllerDelegate
+extension WebViewController: MFMailComposeViewControllerDelegate {
+	
+	func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
+		self.dismiss(animated: true, completion: nil)
+	}
+	
+}
+
 // MARK: JSON
 
 private struct ImageClickMessage: Codable {
@@ -402,10 +472,10 @@ private struct ImageClickMessage: Codable {
 
 private extension WebViewController {
 
-	func loadWebView() {
+	func loadWebView(replaceExistingWebView: Bool = false) {
 		guard isViewLoaded else { return }
 		
-		if let webView = webView {
+		if !replaceExistingWebView, let webView = webView {
 			self.renderPage(webView)
 			return
 		}
@@ -440,6 +510,7 @@ private extension WebViewController {
 
 			webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasClicked)
 			webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasShown)
+			webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.showFeedInspector)
 
 			self.renderPage(webView)
 			
@@ -482,9 +553,14 @@ private extension WebViewController {
 		
 	}
 	
-	func finalScrollPosition() -> CGFloat {
+	func finalScrollPosition(scrollingUp: Bool) -> CGFloat {
 		guard let webView = webView else { return 0 }
-		return webView.scrollView.contentSize.height - webView.scrollView.bounds.height + webView.scrollView.safeAreaInsets.bottom
+
+		if scrollingUp {
+			return -webView.scrollView.safeAreaInsets.top
+		} else {
+			return webView.scrollView.contentSize.height - webView.scrollView.bounds.height + webView.scrollView.safeAreaInsets.bottom
+		}
 	}
 	
 	func startArticleExtractor() {
@@ -556,7 +632,7 @@ private extension WebViewController {
 		topShowBarsView.translatesAutoresizingMaskIntoConstraints = false
 		view.addSubview(topShowBarsView)
 		
-		if AppDefaults.articleFullscreenEnabled {
+		if AppDefaults.shared.articleFullscreenEnabled {
 			topShowBarsViewConstraint = view.topAnchor.constraint(equalTo: topShowBarsView.bottomAnchor, constant: -44.0)
 		} else {
 			topShowBarsViewConstraint = view.topAnchor.constraint(equalTo: topShowBarsView.bottomAnchor, constant: 0.0)
@@ -576,7 +652,7 @@ private extension WebViewController {
 		topShowBarsView.backgroundColor = .clear
 		bottomShowBarsView.translatesAutoresizingMaskIntoConstraints = false
 		view.addSubview(bottomShowBarsView)
-		if AppDefaults.articleFullscreenEnabled {
+		if AppDefaults.shared.articleFullscreenEnabled {
 			bottomShowBarsViewConstraint = view.bottomAnchor.constraint(equalTo: bottomShowBarsView.topAnchor, constant: 44.0)
 		} else {
 			bottomShowBarsViewConstraint = view.bottomAnchor.constraint(equalTo: bottomShowBarsView.topAnchor, constant: 0.0)
@@ -663,6 +739,69 @@ private extension WebViewController {
 		return UIAction(title: title, image: AppAssets.shareImage) { [weak self] action in
 			self?.showActivityDialog()
 		}
+	}
+	
+}
+
+// MARK: Find in Article
+
+private struct FindInArticleOptions: Codable {
+	var text: String
+	var caseSensitive = false
+	var regex = false
+}
+
+internal struct FindInArticleState: Codable {
+	struct WebViewClientRect: Codable {
+		let x: Double
+		let y: Double
+		let width: Double
+		let height: Double
+	}
+	
+	struct FindInArticleResult: Codable {
+		let rects: [WebViewClientRect]
+		let bounds: WebViewClientRect
+		let index: UInt
+		let matchGroups: [String]
+	}
+	
+	let index: UInt?
+	let results: [FindInArticleResult]
+	let count: UInt
+}
+
+extension WebViewController {
+	
+	func searchText(_ searchText: String, completionHandler: @escaping (FindInArticleState) -> Void) {
+		guard let json = try? JSONEncoder().encode(FindInArticleOptions(text: searchText)) else {
+			return
+		}
+		let encoded = json.base64EncodedString()
+		
+		webView?.evaluateJavaScript("updateFind(\"\(encoded)\")") {
+			(result, error) in
+			guard error == nil,
+				let b64 = result as? String,
+				let rawData = Data(base64Encoded: b64),
+				let findState = try? JSONDecoder().decode(FindInArticleState.self, from: rawData) else {
+					return
+			}
+			
+			completionHandler(findState)
+		}
+	}
+	
+	func endSearch() {
+		webView?.evaluateJavaScript("endFind()")
+	}
+	
+	func selectNextSearchResult() {
+		webView?.evaluateJavaScript("selectNextResult()")
+	}
+	
+	func selectPreviousSearchResult() {
+		webView?.evaluateJavaScript("selectPreviousResult()")
 	}
 	
 }

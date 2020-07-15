@@ -14,14 +14,13 @@ import Articles
 import ArticlesDatabase
 
 protocol LocalAccountRefresherDelegate {
-	func localAccountRefresher(_ refresher: LocalAccountRefresher, didProcess: NewAndUpdatedArticles, completion: @escaping () -> Void)
 	func localAccountRefresher(_ refresher: LocalAccountRefresher, requestCompletedFor: WebFeed)
-	func localAccountRefresherDidFinish(_ refresher: LocalAccountRefresher)
+	func localAccountRefresher(_ refresher: LocalAccountRefresher, articleChanges: ArticleChanges, completion: @escaping () -> Void)
 }
 
 final class LocalAccountRefresher {
 	
-	private var completions = [() -> Void]()
+	private var completion: (() -> Void)? = nil
 	private var isSuspended = false
 	var delegate: LocalAccountRefresherDelegate?
 	
@@ -30,9 +29,11 @@ final class LocalAccountRefresher {
 	}()
 
 	public func refreshFeeds(_ feeds: Set<WebFeed>, completion: (() -> Void)? = nil) {
-		if let completion = completion {
-			completions.append(completion)
+		guard !feeds.isEmpty else {
+			completion?()
+			return
 		}
+		self.completion = completion
 		downloadSession.downloadObjects(feeds as NSSet)
 	}
 	
@@ -100,14 +101,14 @@ extension LocalAccountRefresher: DownloadSessionDelegate {
 			}
 			
 			account.update(feed, with: parsedFeed) { result in
-				if case .success(let newAndUpdatedArticles) = result {
-					self.delegate?.localAccountRefresher(self, didProcess: newAndUpdatedArticles) {
-						if let httpResponse = response as? HTTPURLResponse {
-							feed.conditionalGetInfo = HTTPConditionalGetInfo(urlResponse: httpResponse)
-						}
-						feed.contentHash = dataHash
+				if case .success(let articleChanges) = result {
+					if let httpResponse = response as? HTTPURLResponse {
+						feed.conditionalGetInfo = HTTPConditionalGetInfo(urlResponse: httpResponse)
+					}
+					feed.contentHash = dataHash
+					self.delegate?.localAccountRefresher(self, requestCompletedFor: feed)
+					self.delegate?.localAccountRefresher(self, articleChanges: articleChanges) {
 						completion()
-						self.delegate?.localAccountRefresher(self, requestCompletedFor: feed)
 					}
 				} else {
 					completion()
@@ -163,9 +164,8 @@ extension LocalAccountRefresher: DownloadSessionDelegate {
 	}
 
 	func downloadSessionDidCompleteDownloadObjects(_ downloadSession: DownloadSession) {
-		completions.forEach({ $0() })
-		completions = [() -> Void]()
-		delegate?.localAccountRefresherDidFinish(self)
+		completion?()
+		completion = nil
 	}
 
 }

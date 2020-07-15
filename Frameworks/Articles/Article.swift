@@ -61,6 +61,12 @@ public struct Article: Hashable {
 	public func hash(into hasher: inout Hasher) {
 		hasher.combine(articleID)
 	}
+
+	// MARK: - Equatable
+
+	static public func ==(lhs: Article, rhs: Article) -> Bool {
+		return lhs.articleID == rhs.articleID && lhs.accountID == rhs.accountID && lhs.webFeedID == rhs.webFeedID && lhs.uniqueID == rhs.uniqueID && lhs.title == rhs.title && lhs.contentHTML == rhs.contentHTML && lhs.contentText == rhs.contentText && lhs.url == rhs.url && lhs.externalURL == rhs.externalURL && lhs.summary == rhs.summary && lhs.imageURL == rhs.imageURL && lhs.datePublished == rhs.datePublished && lhs.dateModified == rhs.dateModified && lhs.authors == rhs.authors
+	}
 }
 
 public extension Set where Element == Article {
@@ -85,4 +91,39 @@ public extension Array where Element == Article {
 	func articleIDs() -> [String] {
 		return map { $0.articleID }
 	}
+}
+
+public extension Article {
+	private static let allowedTags: Set = ["b", "bdi", "bdo", "cite", "code", "del", "dfn", "em", "i", "ins", "kbd", "mark", "q", "s", "samp", "small", "strong", "sub", "sup", "time", "u", "var"]
+
+	func sanitizedTitle(forHTML: Bool = true) -> String? {
+		guard let title = title else { return nil }
+
+		let scanner = Scanner(string: title)
+		scanner.charactersToBeSkipped = nil
+		var result = ""
+		result.reserveCapacity(title.count)
+
+		while !scanner.isAtEnd {
+			if let text = scanner.scanUpToString("<") {
+				result.append(text)
+			}
+
+			if let _ = scanner.scanString("<") {
+				// All the allowed tags currently don't allow attributes
+				if let tag = scanner.scanUpToString(">") {
+					if Self.allowedTags.contains(tag.replacingOccurrences(of: "/", with: "")) {
+						forHTML ? result.append("<\(tag)>") : result.append("")
+					} else {
+						forHTML ? result.append("&lt;\(tag)&gt;") : result.append("<\(tag)>")
+					}
+
+					let _ = scanner.scanString(">")
+				}
+			}
+		}
+
+		return result
+	}
+
 }

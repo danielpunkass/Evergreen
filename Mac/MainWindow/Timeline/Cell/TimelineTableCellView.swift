@@ -27,7 +27,7 @@ class TimelineTableCellView: NSTableCellView {
 		return [self.dateView, self.feedNameView, self.titleView, self.summaryView, self.textView]
 	}()
 
-	private var showsSeparator: Bool = AppDefaults.timelineShowsSeparators {
+	private var showsSeparator: Bool = AppDefaults.shared.timelineShowsSeparators {
 		didSet {
 			separatorView.isHidden = !showsSeparator
 		}
@@ -85,7 +85,7 @@ class TimelineTableCellView: NSTableCellView {
 	}
 	
 	func timelineShowsSeparatorsDefaultDidChange() {
-		showsSeparator = AppDefaults.timelineShowsSeparators
+		showsSeparator = AppDefaults.shared.timelineShowsSeparators
 	}
 
 	override func setFrameSize(_ newSize: NSSize) {
@@ -209,7 +209,7 @@ private extension TimelineTableCellView {
 		addSubviewAtInit(feedNameView, hidden: true)
 		addSubviewAtInit(iconView, hidden: true)
 		addSubviewAtInit(starView, hidden: true)
-		addSubviewAtInit(separatorView, hidden: !AppDefaults.timelineShowsSeparators)
+		addSubviewAtInit(separatorView, hidden: !AppDefaults.shared.timelineShowsSeparators)
 
 		makeTextFieldColorsNormal()
 	}
@@ -222,6 +222,7 @@ private extension TimelineTableCellView {
 	func updateTitleView() {
 
 		updateTextFieldText(titleView, cellData?.title)
+		updateTextFieldAttributedText(titleView, cellData?.attributedTitle)
 	}
 
 	func updateSummaryView() {
@@ -247,12 +248,28 @@ private extension TimelineTableCellView {
 		}
 	}
 
+	func updateTextFieldAttributedText(_ textField: NSTextField, _ text: NSAttributedString?) {
+		var s = text ?? NSAttributedString(string: "")
+
+		if let fieldFont = textField.font {
+			s = s.adding(font: fieldFont)
+		}
+
+		if textField.attributedStringValue != s {
+			textField.attributedStringValue = s
+			needsLayout = true
+		}
+	}
+
 	func updateFeedNameView() {
-		if cellData.showFeedName {
+		switch cellData.showFeedName {
+		case .byline:
+			showView(feedNameView)
+			updateTextFieldText(feedNameView, cellData.byline)
+		case .feed:
 			showView(feedNameView)
 			updateTextFieldText(feedNameView, cellData.feedName)
-		}
-		else {
+		case .none:
 			hideView(feedNameView)
 		}
 	}

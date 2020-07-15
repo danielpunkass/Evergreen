@@ -34,8 +34,9 @@ class SettingsViewController: UITableViewController {
 		NotificationCenter.default.addObserver(self, selector: #selector(accountsDidChange), name: .UserDidAddAccount, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(accountsDidChange), name: .UserDidDeleteAccount, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange), name: .DisplayNameDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(activeExtensionPointsDidChange), name: .ActiveExtensionPointsDidChange, object: nil)
 
-		tableView.register(UINib(nibName: "SettingsAccountTableViewCell", bundle: nil), forCellReuseIdentifier: "SettingsAccountTableViewCell")
+		tableView.register(UINib(nibName: "SettingsComboTableViewCell", bundle: nil), forCellReuseIdentifier: "SettingsComboTableViewCell")
 		tableView.register(UINib(nibName: "SettingsTableViewCell", bundle: nil), forCellReuseIdentifier: "SettingsTableViewCell")
 		
 		tableView.rowHeight = UITableView.automaticDimension
@@ -45,31 +46,31 @@ class SettingsViewController: UITableViewController {
 	override func viewWillAppear(_ animated: Bool) {
 		super.viewWillAppear(animated)
 		
-		if AppDefaults.timelineSortDirection == .orderedAscending {
+		if AppDefaults.shared.timelineSortDirection == .orderedAscending {
 			timelineSortOrderSwitch.isOn = true
 		} else {
 			timelineSortOrderSwitch.isOn = false
 		}
 
-		if AppDefaults.timelineGroupByFeed {
+		if AppDefaults.shared.timelineGroupByFeed {
 			groupByFeedSwitch.isOn = true
 		} else {
 			groupByFeedSwitch.isOn = false
 		}
 
-		if AppDefaults.refreshClearsReadArticles {
+		if AppDefaults.shared.refreshClearsReadArticles {
 			refreshClearsReadArticlesSwitch.isOn = true
 		} else {
 			refreshClearsReadArticlesSwitch.isOn = false
 		}
 
-		if AppDefaults.confirmMarkAllAsRead {
+		if AppDefaults.shared.confirmMarkAllAsRead {
 			confirmMarkAllAsReadSwitch.isOn = true
 		} else {
 			confirmMarkAllAsReadSwitch.isOn = false
 		}
 
-		if AppDefaults.articleFullscreenAvailable {
+		if AppDefaults.shared.articleFullscreenAvailable {
 			showFullscreenArticlesSwitch.isOn = true
 		} else {
 			showFullscreenArticlesSwitch.isOn = false
@@ -110,12 +111,14 @@ class SettingsViewController: UITableViewController {
 		case 1:
 			return AccountManager.shared.accounts.count + 1
 		case 2:
+			return ExtensionPointManager.shared.activeExtensionPoints.count + 1
+		case 3:
 			let defaultNumberOfRows = super.tableView(tableView, numberOfRowsInSection: section)
 			if AccountManager.shared.activeAccounts.isEmpty || AccountManager.shared.anyAccountHasFeedWithURL(appNewsURLString) {
 				return defaultNumberOfRows - 1
 			}
 			return defaultNumberOfRows
-		case 4:
+		case 5:
 			return traitCollection.userInterfaceIdiom == .phone ? 2 : 1
 		default:
 			return super.tableView(tableView, numberOfRowsInSection: section)
@@ -133,11 +136,26 @@ class SettingsViewController: UITableViewController {
 				cell = tableView.dequeueReusableCell(withIdentifier: "SettingsTableViewCell", for: indexPath)
 				cell.textLabel?.text = NSLocalizedString("Add Account", comment: "Accounts")
 			} else {
-				let acctCell = tableView.dequeueReusableCell(withIdentifier: "SettingsAccountTableViewCell", for: indexPath) as! SettingsAccountTableViewCell
+				let acctCell = tableView.dequeueReusableCell(withIdentifier: "SettingsComboTableViewCell", for: indexPath) as! SettingsComboTableViewCell
 				acctCell.applyThemeProperties()
 				let account = sortedAccounts[indexPath.row]
-				acctCell.accountImage?.image = AppAssets.image(for: account.type)
-				acctCell.accountNameLabel?.text = account.nameForDisplay
+				acctCell.comboImage?.image = AppAssets.image(for: account.type)
+				acctCell.comboNameLabel?.text = account.nameForDisplay
+				cell = acctCell
+			}
+		
+		case 2:
+						
+			let extensionPoints = Array(ExtensionPointManager.shared.activeExtensionPoints.values)
+			if indexPath.row == extensionPoints.count {
+				cell = tableView.dequeueReusableCell(withIdentifier: "SettingsTableViewCell", for: indexPath)
+				cell.textLabel?.text = NSLocalizedString("Add Extension", comment: "Extensions")
+			} else {
+				let acctCell = tableView.dequeueReusableCell(withIdentifier: "SettingsComboTableViewCell", for: indexPath) as! SettingsComboTableViewCell
+				acctCell.applyThemeProperties()
+				let extensionPoint = extensionPoints[indexPath.row]
+				acctCell.comboImage?.image = extensionPoint.templateImage
+				acctCell.comboNameLabel?.text = extensionPoint.title
 				cell = acctCell
 			}
 		
@@ -166,6 +184,16 @@ class SettingsViewController: UITableViewController {
 				self.navigationController?.pushViewController(controller, animated: true)
 			}
 		case 2:
+			let extensionPoints = Array(ExtensionPointManager.shared.activeExtensionPoints.values)
+			if indexPath.row == extensionPoints.count {
+				let controller = UIStoryboard.settings.instantiateController(ofType: AddExtensionPointViewController.self)
+				self.navigationController?.pushViewController(controller, animated: true)
+			} else {
+				let controller = UIStoryboard.inspector.instantiateController(ofType: ExtensionPointInspectorViewController.self)
+				controller.extensionPoint = extensionPoints[indexPath.row]
+				self.navigationController?.pushViewController(controller, animated: true)
+			}
+		case 3:
 			switch indexPath.row {
 			case 0:
 				tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
@@ -185,7 +213,7 @@ class SettingsViewController: UITableViewController {
 			default:
 				break
 			}
-		case 3:
+		case 4:
 			switch indexPath.row {
 			case 3:
 				let timeline = UIStoryboard.settings.instantiateController(ofType: TimelineCustomizerViewController.self)
@@ -193,10 +221,10 @@ class SettingsViewController: UITableViewController {
 			default:
 				break
 			}
-		case 5:
+		case 6:
 			let colorPalette = UIStoryboard.settings.instantiateController(ofType: ColorPaletteTableViewController.self)
 			self.navigationController?.pushViewController(colorPalette, animated: true)
-		case 6:
+		case 7:
 			switch indexPath.row {
 			case 0:
 				openURL("https://ranchero.com/netnewswire/help/ios/5.0/en/")
@@ -258,41 +286,41 @@ class SettingsViewController: UITableViewController {
 	
 	@IBAction func switchTimelineOrder(_ sender: Any) {
 		if timelineSortOrderSwitch.isOn {
-			AppDefaults.timelineSortDirection = .orderedAscending
+			AppDefaults.shared.timelineSortDirection = .orderedAscending
 		} else {
-			AppDefaults.timelineSortDirection = .orderedDescending
+			AppDefaults.shared.timelineSortDirection = .orderedDescending
 		}
 	}
 	
 	@IBAction func switchGroupByFeed(_ sender: Any) {
 		if groupByFeedSwitch.isOn {
-			AppDefaults.timelineGroupByFeed = true
+			AppDefaults.shared.timelineGroupByFeed = true
 		} else {
-			AppDefaults.timelineGroupByFeed = false
+			AppDefaults.shared.timelineGroupByFeed = false
 		}
 	}
 	
 	@IBAction func switchClearsReadArticles(_ sender: Any) {
 		if refreshClearsReadArticlesSwitch.isOn {
-			AppDefaults.refreshClearsReadArticles = true
+			AppDefaults.shared.refreshClearsReadArticles = true
 		} else {
-			AppDefaults.refreshClearsReadArticles = false
+			AppDefaults.shared.refreshClearsReadArticles = false
 		}
 	}
 	
 	@IBAction func switchConfirmMarkAllAsRead(_ sender: Any) {
 		if confirmMarkAllAsReadSwitch.isOn {
-			AppDefaults.confirmMarkAllAsRead = true
+			AppDefaults.shared.confirmMarkAllAsRead = true
 		} else {
-			AppDefaults.confirmMarkAllAsRead = false
+			AppDefaults.shared.confirmMarkAllAsRead = false
 		}
 	}
 	
 	@IBAction func switchFullscreenArticles(_ sender: Any) {
 		if showFullscreenArticlesSwitch.isOn {
-			AppDefaults.articleFullscreenAvailable = true
+			AppDefaults.shared.articleFullscreenAvailable = true
 		} else {
-			AppDefaults.articleFullscreenAvailable = false
+			AppDefaults.shared.articleFullscreenAvailable = false
 		}
 	}
 	
@@ -307,6 +335,10 @@ class SettingsViewController: UITableViewController {
 	}
 
 	@objc func displayNameDidChange() {
+		tableView.reloadData()
+	}
+	
+	@objc func activeExtensionPointsDidChange() {
 		tableView.reloadData()
 	}
 	

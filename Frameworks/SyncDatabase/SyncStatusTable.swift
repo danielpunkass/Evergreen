@@ -20,7 +20,7 @@ struct SyncStatusTable: DatabaseTable {
 		self.queue = queue
 	}
 
-	func selectForProcessing(_ completion: @escaping SyncStatusesCompletionBlock) {
+	func selectForProcessing(limit: Int?, completion: @escaping SyncStatusesCompletionBlock) {
 		queue.runInTransaction { databaseResult in
 			var statuses = Set<SyncStatus>()
 			var error: DatabaseError?
@@ -29,7 +29,10 @@ struct SyncStatusTable: DatabaseTable {
 				let updateSQL = "update syncStatus set selected = true"
 				database.executeUpdate(updateSQL, withArgumentsIn: nil)
 
-				let selectSQL = "select * from syncStatus where selected == true"
+				var selectSQL = "select * from syncStatus where selected == true"
+				if let limit = limit {
+					selectSQL = "\(selectSQL) limit \(limit)"
+				}
 				if let resultSet = database.executeQuery(selectSQL, withArgumentsIn: nil) {
 					statuses = resultSet.mapToSet(self.statusWithRow)
 				}
@@ -91,6 +94,24 @@ struct SyncStatusTable: DatabaseTable {
         selectPendingArticleIDsAsync(.starred, completion)
     }
     
+	func resetAllSelectedForProcessing(completion: DatabaseCompletionBlock? = nil) {
+		queue.runInTransaction { databaseResult in
+
+			func makeDatabaseCall(_ database: FMDatabase) {
+				let updateSQL = "update syncStatus set selected = false"
+				database.executeUpdate(updateSQL, withArgumentsIn: nil)
+			}
+
+			switch databaseResult {
+			case .success(let database):
+				makeDatabaseCall(database)
+				callCompletion(completion, nil)
+			case .failure(let databaseError):
+				callCompletion(completion, databaseError)
+			}
+		}
+	}
+
 	func resetSelectedForProcessing(_ articleIDs: [String], completion: DatabaseCompletionBlock? = nil) {
 		queue.runInTransaction { databaseResult in
 
@@ -117,7 +138,7 @@ struct SyncStatusTable: DatabaseTable {
 			func makeDatabaseCall(_ database: FMDatabase) {
 				let parameters = articleIDs.map { $0 as AnyObject }
 				let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(articleIDs.count))!
-				let deleteSQL = "delete from syncStatus where articleID in \(placeholders)"
+				let deleteSQL = "delete from syncStatus where selected = true and articleID in \(placeholders)"
 				database.executeUpdate(deleteSQL, withArgumentsIn: parameters)
 			}
 
@@ -131,9 +152,26 @@ struct SyncStatusTable: DatabaseTable {
 		}
 	}
 	
-	func insertStatuses(_ statuses: [SyncStatus], completion: DatabaseCompletionBlock? = nil) {
+	func insertStatuses(_ statuses: [SyncStatus]) throws {
+		var error: DatabaseError?
+		queue.runInTransactionSync { databaseResult in
+			switch databaseResult {
+			case .success(let database):
+				let statusArray = statuses.map { $0.databaseDictionary() }
+				self.insertRows(statusArray, insertType: .orReplace, in: database)
+			case .failure(let databaseError):
+				error = databaseError
+			}
+		}
+		
+		if let error = error {
+			throw error
+		}
+	}
+
+    func insertStatuses(_ statuses: [SyncStatus], completion: @escaping DatabaseCompletionBlock) {
 		queue.runInTransaction { databaseResult in
-			
+
 			func makeDatabaseCall(_ database: FMDatabase) {
 				let statusArray = statuses.map { $0.databaseDictionary() }
 				self.insertRows(statusArray, insertType: .orReplace, in: database)
@@ -142,12 +180,13 @@ struct SyncStatusTable: DatabaseTable {
 			switch databaseResult {
 			case .success(let database):
 				makeDatabaseCall(database)
-				callCompletion(completion, nil)
+				completion(nil)
 			case .failure(let databaseError):
-				callCompletion(completion, databaseError)
+				completion(databaseError)
 			}
 		}
 	}
+	
 }
 
 private extension SyncStatusTable {
@@ -155,7 +194,7 @@ private extension SyncStatusTable {
 	func statusWithRow(_ row: FMResultSet) -> SyncStatus? {
 		guard let articleID = row.string(forColumn: DatabaseKey.articleID),
 			let rawKey = row.string(forColumn: DatabaseKey.key),
-			let key = ArticleStatus.Key(rawValue: rawKey) else {
+			let key = SyncStatus.Key(rawValue: rawKey) else {
 				return nil
 		}
 		

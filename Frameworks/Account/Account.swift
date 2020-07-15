@@ -18,6 +18,7 @@ import RSDatabase
 import ArticlesDatabase
 import RSWeb
 import os.log
+import Secrets
 
 // Main thread only.
 
@@ -735,23 +736,23 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		webFeed.takeSettings(from: parsedFeed)
 		let parsedItems = parsedFeed.items
 		guard !parsedItems.isEmpty else {
-			completion(.success(NewAndUpdatedArticles()))
+			completion(.success(ArticleChanges()))
 			return
 		}
 		
 		update(webFeed.webFeedID, with: parsedItems, completion: completion)
 	}
 	
-	func update(_ webFeedID: String, with parsedItems: Set<ParsedItem>, completion: @escaping UpdateArticlesCompletionBlock) {
+	func update(_ webFeedID: String, with parsedItems: Set<ParsedItem>, deleteOlder: Bool = true, completion: @escaping UpdateArticlesCompletionBlock) {
 		// Used only by an On My Mac or iCloud account.
 		precondition(Thread.isMainThread)
 		precondition(type == .onMyMac || type == .cloudKit)
 		
-		database.update(with: parsedItems, webFeedID: webFeedID) { updateArticlesResult in
+		database.update(with: parsedItems, webFeedID: webFeedID, deleteOlder: deleteOlder) { updateArticlesResult in
 			switch updateArticlesResult {
-			case .success(let newAndUpdatedArticles):
-				self.sendNotificationAbout(newAndUpdatedArticles)
-				completion(.success(newAndUpdatedArticles))
+			case .success(let articleChanges):
+				self.sendNotificationAbout(articleChanges)
+				completion(.success(articleChanges))
 			case .failure(let databaseError):
 				completion(.failure(databaseError))
 			}
@@ -853,6 +854,15 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		markAndFetchNew(articleIDs: articleIDs, statusKey: .starred, flag: false, completion: completion)
 	}
 
+	// Delete the articles associated with the given set of articleIDs
+	func delete(articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
+		guard !articleIDs.isEmpty else {
+			completion?(nil)
+			return
+		}
+		database.delete(articleIDs: articleIDs, completion: completion)
+	}
+	
 	/// Empty caches that can reasonably be emptied. Call when the app goes in the background, for instance.
 	func emptyCaches() {
 		database.emptyCaches()
@@ -1302,28 +1312,37 @@ private extension Account {
 		}
 	}
 
-	func sendNotificationAbout(_ newAndUpdatedArticles: NewAndUpdatedArticles) {
+	func sendNotificationAbout(_ articleChanges: ArticleChanges) {
 		var webFeeds = Set<WebFeed>()
 
-		if let newArticles = newAndUpdatedArticles.newArticles {
+		if let newArticles = articleChanges.newArticles {
 			webFeeds.formUnion(Set(newArticles.compactMap { $0.webFeed }))
 		}
-		if let updatedArticles = newAndUpdatedArticles.updatedArticles {
+		if let updatedArticles = articleChanges.updatedArticles {
 			webFeeds.formUnion(Set(updatedArticles.compactMap { $0.webFeed }))
 		}
 
 		var shouldSendNotification = false
+		var shouldUpdateUnreadCounts = false
 		var userInfo = [String: Any]()
 
-		if let newArticles = newAndUpdatedArticles.newArticles, !newArticles.isEmpty {
+		if let newArticles = articleChanges.newArticles, !newArticles.isEmpty {
 			shouldSendNotification = true
+			shouldUpdateUnreadCounts = true
 			userInfo[UserInfoKey.newArticles] = newArticles
-			self.updateUnreadCounts(for: webFeeds)
 		}
 
-		if let updatedArticles = newAndUpdatedArticles.updatedArticles, !updatedArticles.isEmpty {
+		if let updatedArticles = articleChanges.updatedArticles, !updatedArticles.isEmpty {
 			shouldSendNotification = true
 			userInfo[UserInfoKey.updatedArticles] = updatedArticles
+		}
+
+		if let deletedArticles = articleChanges.deletedArticles, !deletedArticles.isEmpty {
+			shouldUpdateUnreadCounts = true
+		}
+
+		if shouldUpdateUnreadCounts {
+			self.updateUnreadCounts(for: webFeeds)
 		}
 
 		if shouldSendNotification {

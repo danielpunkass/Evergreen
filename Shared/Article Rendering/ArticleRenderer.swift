@@ -46,7 +46,7 @@ struct ArticleRenderer {
 		self.article = article
 		self.extractedArticle = extractedArticle
 		self.articleStyle = style
-		self.title = article?.title ?? ""
+		self.title = article?.sanitizedTitle() ?? ""
 		if let content = extractedArticle?.content {
 			self.body = content
 			self.baseURL = extractedArticle?.url
@@ -253,11 +253,24 @@ private extension ArticleRenderer {
 		var d = [String: String]()
 		let bodyFont = UIFont.preferredFont(forTextStyle: .body)
 		d["font-size"] = String(describing: bodyFont.pointSize)
+		
+		if let components = UIColor(named: "AccentColor")?.cgColor.components {
+			d["accent-r"] = String(Int(round(components[0] * 0xFF)))
+			d["accent-g"] = String(Int(round(components[1] * 0xFF)))
+			d["accent-b"] = String(Int(round(components[2] * 0xFF)))
+		}
+		
 		return d
 	}
 	#else
 	func styleSubstitutions() -> [String: String] {
 		var d = [String: String]()
+		
+		#if SWIFTUI
+			let bodyFont = NSFont.preferredFont(forTextStyle: .body)
+			d["font-size"] = String(describing: Int(round(bodyFont.pointSize * 1.33)))
+		#endif
+		
 		guard let linkColor = NSColor.controlAccentColor.usingColorSpace(.deviceRGB) else {
 			return d
 		}
@@ -267,7 +280,7 @@ private extension ArticleRenderer {
 		let blue: Int
 		
 		if NSApplication.shared.effectiveAppearance.isDarkMode {
-			let brighten = CGFloat(0.25)
+			let brighten = CGFloat(0.50)
 			let baseRed = linkColor.redComponent * 0xFF
 			red = Int(round(((255 - baseRed) * brighten)) + round(baseRed))
 			let baseGreen = linkColor.greenComponent * 0xFF

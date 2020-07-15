@@ -104,7 +104,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		super.init()
 
 		AccountManager.shared = AccountManager(accountsFolder: Platform.dataSubfolder(forApplication: nil, folderName: "Accounts")!)
-		
+		FeedProviderManager.shared.delegate = ExtensionPointManager.shared
+
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(inspectableObjectsDidChange(_:)), name: .InspectableObjectsDidChange, object: nil)
 		NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWakeNotification(_:)), name: NSWorkspace.didWakeNotification, object: nil)
@@ -134,10 +135,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		addFolderWindowController!.runSheetOnWindow(window)
 	}
 
-	func showAddFeedSheetOnWindow(_ window: NSWindow, urlString: String?, name: String?, account: Account?, folder: Folder?) {
-
+	func showAddWebFeedSheetOnWindow(_ window: NSWindow, urlString: String?, name: String?, account: Account?, folder: Folder?) {
 		addFeedController = AddFeedController(hostWindow: window)
-		addFeedController?.showAddFeedSheet(urlString, name, account, folder)
+		addFeedController?.showAddFeedSheet(.webFeed, urlString, name, account, folder)
 	}
 	
 	// MARK: - NSApplicationDelegate
@@ -191,8 +191,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 			}
 		#endif
 		
-		AppDefaults.registerDefaults()
-		let isFirstRun = AppDefaults.isFirstRun
+		AppDefaults.shared.registerDefaults()
+		let isFirstRun = AppDefaults.shared.isFirstRun
 		if isFirstRun {
 			logDebugMessage("Is first run.")
 		}
@@ -237,7 +237,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		UNUserNotificationCenter.current().delegate = self
 		userNotificationManager = UserNotificationManager()
 
-		if AppDefaults.showDebugMenu {
+		if AppDefaults.shared.showDebugMenu {
  			refreshTimer!.update()
  			syncTimer!.update()
 
@@ -400,12 +400,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		if item.action == #selector(sortByNewestArticleOnTop(_:)) || item.action == #selector(sortByOldestArticleOnTop(_:)) {
 			return mainWindowController?.isOpen ?? false
 		}
-		if item.action == #selector(showAddFeedWindow(_:)) || item.action == #selector(showAddFolderWindow(_:)) {
+		if item.action == #selector(showAddWebFeedWindow(_:)) || item.action == #selector(showAddFolderWindow(_:)) {
 			return !isDisplayingSheet && !AccountManager.shared.activeAccounts.isEmpty
+		}
+		if item.action == #selector(showAddRedditFeedWindow(_:)) {
+			guard !isDisplayingSheet && !AccountManager.shared.activeAccounts.isEmpty else {
+				return false
+			}
+			return ExtensionPointManager.shared.isRedditEnabled
+		}
+		if item.action == #selector(showAddTwitterFeedWindow(_:)) {
+			guard !isDisplayingSheet && !AccountManager.shared.activeAccounts.isEmpty else {
+				return false
+			}
+			return ExtensionPointManager.shared.isTwitterEnabled
 		}
 		#if !MAC_APP_STORE
 		if item.action == #selector(toggleWebInspectorEnabled(_:)) {
-			(item as! NSMenuItem).state = AppDefaults.webInspectorEnabled ? .on : .off
+			(item as! NSMenuItem).state = AppDefaults.shared.webInspectorEnabled ? .on : .off
 		}
 		#endif
 		return true
@@ -423,19 +435,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
     }
 	
 	// MARK: Add Feed
-	func addFeed(_ urlString: String?, name: String? = nil, account: Account? = nil, folder: Folder? = nil) {
+	func addWebFeed(_ urlString: String?, name: String? = nil, account: Account? = nil, folder: Folder? = nil) {
 		createAndShowMainWindowIfNecessary()
 		
 		if mainWindowController!.isDisplayingSheet {
 			return
 		}
 
-		showAddFeedSheetOnWindow(mainWindowController!.window!, urlString: urlString, name: name, account: account, folder: folder)
+		showAddWebFeedSheetOnWindow(mainWindowController!.window!, urlString: urlString, name: name, account: account, folder: folder)
 	}
 
 	// MARK: - Dock Badge
 	@objc func updateDockBadge() {
-		let label = unreadCount > 0 && !AppDefaults.hideDockUnreadCount ? "\(unreadCount)" : ""
+		let label = unreadCount > 0 && !AppDefaults.shared.hideDockUnreadCount ? "\(unreadCount)" : ""
 		NSApplication.shared.dockTile.badgeLabel = label
 	}
 
@@ -461,8 +473,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		AccountManager.shared.refreshAll(errorHandler: ErrorHandler.present)
 	}
 
-	@IBAction func showAddFeedWindow(_ sender: Any?) {
-		addFeed(nil)
+	@IBAction func showAddWebFeedWindow(_ sender: Any?) {
+		addWebFeed(nil)
+	}
+
+	@IBAction func showAddRedditFeedWindow(_ sender: Any?) {
+		createAndShowMainWindowIfNecessary()
+		addFeedController = AddFeedController(hostWindow: mainWindowController!.window!)
+		addFeedController?.showAddFeedSheet(.redditFeed)
+	}
+
+	@IBAction func showAddTwitterFeedWindow(_ sender: Any?) {
+		createAndShowMainWindowIfNecessary()
+		addFeedController = AddFeedController(hostWindow: mainWindowController!.window!)
+		addFeedController?.showAddFeedSheet(.twitterFeed)
 	}
 
 	@IBAction func showAddFolderWindow(_ sender: Any?) {
@@ -535,7 +559,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		if AccountManager.shared.anyAccountHasFeedWithURL(appNewsURLString) {
 			return
 		}
-		addFeed(appNewsURLString, name: "NetNewsWire News")
+		addWebFeed(appNewsURLString, name: "NetNewsWire News")
 	}
 
 	@IBAction func openWebsite(_ sender: Any?) {
@@ -580,26 +604,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		Browser.open("https://ranchero.com/netnewswire/privacypolicy", inBackground: false)
 	}
 
-	@IBAction func debugDropConditionalGetInfo(_ sender: Any?) {
-		#if DEBUG
-			AccountManager.shared.activeAccounts.forEach{ $0.debugDropConditionalGetInfo() }
-		#endif
-	}
-
-	@IBAction func debugTestCrashReporterWindow(_ sender: Any?) {
-		#if DEBUG
-			crashReportWindowController = CrashReportWindowController(crashLogText: "This is a test crash log.")
-			crashReportWindowController!.testing = true
-			crashReportWindowController!.showWindow(self)
-		#endif
-	}
-
-	@IBAction func debugTestCrashReportSending(_ sender: Any?) {
-		#if DEBUG
-			CrashReporter.sendCrashLogText("This is a test. Hi, Brent.")
-		#endif
-	}
-
 	@IBAction func gotoToday(_ sender: Any?) {
 
 		createAndShowMainWindowIfNecessary()
@@ -620,16 +624,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@IBAction func sortByOldestArticleOnTop(_ sender: Any?) {
 
-		AppDefaults.timelineSortDirection = .orderedAscending
+		AppDefaults.shared.timelineSortDirection = .orderedAscending
 	}
 
 	@IBAction func sortByNewestArticleOnTop(_ sender: Any?) {
 
-		AppDefaults.timelineSortDirection = .orderedDescending
+		AppDefaults.shared.timelineSortDirection = .orderedDescending
 	}
 	
 	@IBAction func groupByFeedToggled(_ sender: NSMenuItem) {		
-		AppDefaults.timelineGroupByFeed.toggle()
+		AppDefaults.shared.timelineGroupByFeed.toggle()
 	}
 
 	@IBAction func checkForUpdates(_ sender: Any?) {
@@ -647,18 +651,46 @@ extension AppDelegate {
 		AccountManager.shared.defaultAccount.debugRunSearch()
 	}
 
+	@IBAction func debugDropConditionalGetInfo(_ sender: Any?) {
+		#if DEBUG
+			AccountManager.shared.activeAccounts.forEach{ $0.debugDropConditionalGetInfo() }
+		#endif
+	}
+
+	@IBAction func debugTestCrashReporterWindow(_ sender: Any?) {
+		#if DEBUG
+			crashReportWindowController = CrashReportWindowController(crashLogText: "This is a test crash log.")
+			crashReportWindowController!.testing = true
+			crashReportWindowController!.showWindow(self)
+		#endif
+	}
+
+	@IBAction func debugTestCrashReportSending(_ sender: Any?) {
+		#if DEBUG
+			CrashReporter.sendCrashLogText("This is a test. Hi, Brent.")
+		#endif
+	}
+
+	@IBAction func openApplicationSupportFolder(_ sender: Any?) {
+		#if DEBUG
+			guard let appSupport = Platform.dataSubfolder(forApplication: nil, folderName: "") else { return }
+			NSWorkspace.shared.open(URL(fileURLWithPath: appSupport))
+		#endif
+	}
+
 	@IBAction func toggleWebInspectorEnabled(_ sender: Any?) {
 		#if !MAC_APP_STORE
-			let newValue = !AppDefaults.webInspectorEnabled
-			AppDefaults.webInspectorEnabled = newValue
+		let newValue = !AppDefaults.shared.webInspectorEnabled
+		AppDefaults.shared.webInspectorEnabled = newValue
 
 			// An attached inspector can display incorrectly on certain setups (like mine); default to displaying in a separate window,
 			// and reset the default to a separate window when the preference is toggled off and on again in case the inspector is
 			// accidentally reattached.
-			AppDefaults.webInspectorStartsAttached = false
+		AppDefaults.shared.webInspectorStartsAttached = false
 			NotificationCenter.default.post(name: .WebInspectorEnabledDidChange, object: newValue)
 		#endif
 	}
+
 }
 
 private extension AppDelegate {
@@ -685,13 +717,13 @@ private extension AppDelegate {
 
 	func updateSortMenuItems() {
 
-		let sortByNewestOnTop = AppDefaults.timelineSortDirection == .orderedDescending
+		let sortByNewestOnTop = AppDefaults.shared.timelineSortDirection == .orderedDescending
 		sortByNewestArticleOnTopMenuItem.state = sortByNewestOnTop ? .on : .off
 		sortByOldestArticleOnTopMenuItem.state = sortByNewestOnTop ? .off : .on
 	}
 	
 	func updateGroupByFeedMenuItem() {
-		let groupByFeedEnabled = AppDefaults.timelineGroupByFeed
+		let groupByFeedEnabled = AppDefaults.shared.timelineGroupByFeed
 		groupArticlesByFeedMenuItem.state = groupByFeedEnabled ? .on : .off
 	}
 }

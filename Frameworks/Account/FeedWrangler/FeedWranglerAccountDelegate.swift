@@ -12,10 +12,11 @@ import RSParser
 import RSWeb
 import SyncDatabase
 import os.log
+import Secrets
 
 final class FeedWranglerAccountDelegate: AccountDelegate {
 	
-	var behaviors: AccountBehaviors = []
+	var behaviors: AccountBehaviors = [.disallowFolderManagement]
 	
 	var isOPMLImportInProgress = false
 	var server: String? = FeedWranglerConfig.clientPath
@@ -435,8 +436,8 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 	}
 	
 	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) -> Set<Article>? {
-		let syncStatuses = articles.map { SyncStatus(articleID: $0.articleID, key: statusKey, flag: flag)}
-		database.insertStatuses(syncStatuses)
+		let syncStatuses = articles.map { SyncStatus(articleID: $0.articleID, key: SyncStatus.Key(statusKey), flag: flag)}
+		try? database.insertStatuses(syncStatuses)
 		
 		database.selectPendingCount { result in
 			if let count = try? result.get(), count > 0 {

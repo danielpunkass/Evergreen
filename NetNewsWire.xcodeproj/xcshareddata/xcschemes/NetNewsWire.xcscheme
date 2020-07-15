@@ -41,7 +41,7 @@
       </BuildActionEntries>
    </BuildAction>
    <TestAction
-      buildConfiguration = "Test"
+      buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
@@ -94,6 +94,16 @@
                BuildableName = "ArticlesDatabaseTests.xctest"
                BlueprintName = "ArticlesDatabaseTests"
                ReferencedContainer = "container:Frameworks/ArticlesDatabase/ArticlesDatabase.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "849C64701ED37A5D003D8FC0"
+               BuildableName = "NetNewsWireTests.xctest"
+               BlueprintName = "NetNewsWireTests"
+               ReferencedContainer = "container:NetNewsWire.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>

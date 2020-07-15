@@ -12,6 +12,16 @@
 	</dict>
 	<dict>
 		<key>title</key>
+		<string>Scroll or Go to Next Unread</string>
+		<key>key</key>
+		<string>[space]</string>
+		<key>shiftModifier</key>
+		<true/>
+		<key>action</key>
+		<string>scrollUp:</string>
+	</dict>
+	<dict>
+		<key>title</key>
 		<string>Go to Previous Unread</string>
 		<key>key</key>
 		<string>-</string>
@@ -106,11 +116,11 @@
 	</dict>
 	<dict>
 		<key>title</key>
-		<string>Open in Browser</string>
+		<string>Open In App Browser</string>
 		<key>key</key>
 		<string>[return]</string>
 		<key>action</key>
-		<string>openInBrowser:</string>
+		<string>openInAppBrowser:</string>
 	</dict>
 	<dict>
 		<key>key</key>
@@ -139,6 +149,30 @@
 		<string>s</string>
 		<key>action</key>
 		<string>toggleStarred:</string>
+	</dict>
+	<dict>
+		<key>key</key>
+		<string>[enter]</string>
+		<key>shiftModifier</key>
+		<true/>
+		<key>action</key>
+		<string>openInBrowserUsingOppositeOfSettings:</string>
+	</dict>
+	<dict>
+		<key>key</key>
+		<string>[return]</string>
+		<key>shiftModifier</key>
+		<true/>
+		<key>action</key>
+		<string>openInBrowserUsingOppositeOfSettings:</string>
+	</dict>
+	<dict>
+		<key>key</key>
+		<string>B</string>
+		<key>shiftModifier</key>
+		<true/>
+		<key>action</key>
+		<string>openInBrowserUsingOppositeOfSettings:</string>
 	</dict>
 </array>
 </plist>

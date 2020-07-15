@@ -109,6 +109,8 @@ body > .systemMessage {
 h1 {
 	line-height: 1.15em;
 	font-weight: bold;
+	padding-bottom: 0;
+	margin-bottom: 5px;
 }
 
 pre {
@@ -121,9 +123,12 @@ pre {
 	word-break: normal;
 }
 
+pre {
+	line-height: 1.4286em;
+}
 code, pre {
 	font-family: "SF Mono", Menlo, "Courier New", Courier, monospace;
-	font-size: .8235rem;
+	font-size: .8235em;
 	-webkit-hyphens: none;
 }
 
@@ -153,10 +158,12 @@ code, pre {
 	border-left: none;
 	padding: 5px;
 }
-.nnw-overflow tr td:last-child, .nnw-overflow tr th:last-child {
+
+.nnw-overflow tr :matches(td, th):last-child {
 	border-right: none;
 }
-.nnw-overflow tr:last-child td, .nnw-overflow tr:last-child th {
+
+.nnw-overflow :matches(thead, tbody, tfoot):last-child > tr:last-child :matches(td, th) {
 	border-bottom: none;
 }
 .nnw-overflow td pre {
@@ -164,21 +171,20 @@ code, pre {
 	padding: 0;
 }
 
-img, figure, iframe, div {
+img, figure, video, div {
 	max-width: 100%;
 	height: auto !important;
+	margin: 0 auto;
+}
+
+iframe {
+	max-width: 100%;
 	margin: 0 auto;
 }
 
 figure {
 	margin-bottom: 1em;
 	margin-top: 1em;
-}
-
-video {
-    width: 100% !important;
-    height: auto !important;
-	margin: 0 auto;
 }
 
 figcaption {
@@ -228,6 +234,25 @@ blockquote {
 .wp-smiley {
    height: 1em;
    max-height: 1em;
+}
+
+/* Twitter */
+
+.twitterAvatar {
+	vertical-align: middle;
+	border-radius: 4px;
+	height: 24px;
+	width: 24px;
+}
+
+.twitterUsername {
+	margin-left: 4px;
+	display: inline-block;
+	vertical-align: middle;
+}
+
+.twitterTimestamp {
+	font-size: 66%;
 }
 
 /*Block ads and junk*/

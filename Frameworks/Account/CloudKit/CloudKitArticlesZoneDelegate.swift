@@ -22,19 +22,11 @@ class CloudKitArticlesZoneDelegate: CloudKitZoneDelegate {
 	weak var account: Account?
 	var database: SyncDatabase
 	weak var articlesZone: CloudKitArticlesZone?
-	weak var refreshProgress: DownloadProgress?
-
-	private lazy var refresher: LocalAccountRefresher = {
-		let refresher = LocalAccountRefresher()
-		refresher.delegate = self
-		return refresher
-	}()
 	
-	init(account: Account, database: SyncDatabase, articlesZone: CloudKitArticlesZone, refreshProgress: DownloadProgress?) {
+	init(account: Account, database: SyncDatabase, articlesZone: CloudKitArticlesZone) {
 		self.account = account
 		self.database = database
 		self.articlesZone = articlesZone
-		self.refreshProgress = refreshProgress
 	}
 	
 	func cloudKitDidModify(changed: [CKRecord], deleted: [CloudKitRecordKey], completion: @escaping (Result<Void, Error>) -> Void) {
@@ -46,18 +38,22 @@ class CloudKitArticlesZoneDelegate: CloudKitZoneDelegate {
 				self.database.selectPendingStarredStatusArticleIDs() { result in
 					switch result {
 					case .success(let pendingStarredStatusArticleIDs):
-						
-						self.process(records: changed,
-									 pendingReadStatusArticleIDs: pendingReadStatusArticleIDs,
-									 pendingStarredStatusArticleIDs: pendingStarredStatusArticleIDs,
-									 completion: completion)
+
+						self.delete(recordKeys: deleted, pendingStarredStatusArticleIDs: pendingStarredStatusArticleIDs) {
+							self.update(records: changed,
+										 pendingReadStatusArticleIDs: pendingReadStatusArticleIDs,
+										 pendingStarredStatusArticleIDs: pendingStarredStatusArticleIDs,
+										 completion: completion)
+						}
 						
 					case .failure(let error):
 						os_log(.error, log: self.log, "Error occurred geting pending starred records: %@", error.localizedDescription)
+						completion(.failure(CloudKitZoneError.unknown))
 					}
 				}
 			case .failure(let error):
 				os_log(.error, log: self.log, "Error occurred getting pending read status records: %@", error.localizedDescription)
+				completion(.failure(CloudKitZoneError.unknown))
 			}
 
 		}
@@ -67,99 +63,115 @@ class CloudKitArticlesZoneDelegate: CloudKitZoneDelegate {
 }
 
 private extension CloudKitArticlesZoneDelegate {
-	
-	func process(records: [CKRecord], pendingReadStatusArticleIDs: Set<String>, pendingStarredStatusArticleIDs: Set<String>, completion: @escaping (Result<Void, Error>) -> Void) {
 
-		let receivedUnreadArticleIDs = Set(records.filter({ $0[CloudKitArticlesZone.CloudKitArticleStatus.Fields.read] == "0" }).map({ $0.externalID }))
-		let receivedReadArticleIDs =  Set(records.filter({ $0[CloudKitArticlesZone.CloudKitArticleStatus.Fields.read] == "1" }).map({ $0.externalID }))
-		let receivedUnstarredArticleIDs =  Set(records.filter({ $0[CloudKitArticlesZone.CloudKitArticleStatus.Fields.starred] == "0" }).map({ $0.externalID }))
-		let receivedStarredArticleIDs =  Set(records.filter({ $0[CloudKitArticlesZone.CloudKitArticleStatus.Fields.starred] == "1" }).map({ $0.externalID }))
-
-		let receivedStarredArticles = records.filter({ $0.recordType == CloudKitArticlesZone.CloudKitArticle.recordType })
+	func delete(recordKeys: [CloudKitRecordKey], pendingStarredStatusArticleIDs: Set<String>, completion: @escaping () -> Void) {
+		let receivedRecordIDs = recordKeys.filter({ $0.recordType == CloudKitArticlesZone.CloudKitArticleStatus.recordType }).map({ $0.recordID })
+		let receivedArticleIDs = Set(receivedRecordIDs.map({ stripPrefix($0.externalID) }))
+		let deletableArticleIDs = receivedArticleIDs.subtracting(pendingStarredStatusArticleIDs)
 		
+		guard !deletableArticleIDs.isEmpty else {
+			completion()
+			return
+		}
+		
+		database.deleteSelectedForProcessing(Array(deletableArticleIDs)) { _ in
+			self.account?.delete(articleIDs: deletableArticleIDs) { _ in
+				completion()
+			}
+		}
+	}
+
+	func update(records: [CKRecord], pendingReadStatusArticleIDs: Set<String>, pendingStarredStatusArticleIDs: Set<String>, completion: @escaping (Result<Void, Error>) -> Void) {
+
+		let receivedUnreadArticleIDs = Set(records.filter({ $0[CloudKitArticlesZone.CloudKitArticleStatus.Fields.read] == "0" }).map({ stripPrefix($0.externalID) }))
+		let receivedReadArticleIDs =  Set(records.filter({ $0[CloudKitArticlesZone.CloudKitArticleStatus.Fields.read] == "1" }).map({ stripPrefix($0.externalID) }))
+		let receivedUnstarredArticleIDs =  Set(records.filter({ $0[CloudKitArticlesZone.CloudKitArticleStatus.Fields.starred] == "0" }).map({ stripPrefix($0.externalID) }))
+		let receivedStarredArticleIDs =  Set(records.filter({ $0[CloudKitArticlesZone.CloudKitArticleStatus.Fields.starred] == "1" }).map({ stripPrefix($0.externalID) }))
+
 		let updateableUnreadArticleIDs = receivedUnreadArticleIDs.subtracting(pendingReadStatusArticleIDs)
 		let updateableReadArticleIDs = receivedReadArticleIDs.subtracting(pendingReadStatusArticleIDs)
 		let updateableUnstarredArticleIDs = receivedUnstarredArticleIDs.subtracting(pendingStarredStatusArticleIDs)
 		let updateableStarredArticleIDs = receivedStarredArticleIDs.subtracting(pendingStarredStatusArticleIDs)
 
+		var errorOccurred = false
 		let group = DispatchGroup()
 		
 		group.enter()
 		account?.markAsUnread(updateableUnreadArticleIDs) { result in
-			switch result {
-			case .success(let newArticleStatusIDs):
-				
-				if newArticleStatusIDs.isEmpty {
-					group.leave()
-				} else {
-					
-					var webFeedExternalIDDict = [String: String]()
-					for record in records {
-						if let webFeedExternalID = record[CloudKitArticlesZone.CloudKitArticleStatus.Fields.webFeedExternalID] as? String {
-							webFeedExternalIDDict[record.externalID] = webFeedExternalID
-						}
-					}
-					
-					var webFeeds = Set<WebFeed>()
-					for newArticleStatusID in newArticleStatusIDs {
-						if let webFeedExternalID = webFeedExternalIDDict[newArticleStatusID],
-							let webFeed = self.account?.existingWebFeed(withExternalID: webFeedExternalID) {
-							webFeeds.insert(webFeed)
-						}
-					}
-					
-					webFeeds.forEach { $0.dropConditionalGetInfo() }
-					self.refreshProgress?.addToNumberOfTasksAndRemaining(webFeeds.count)
-					
-					if webFeeds.isEmpty {
+			if case .failure(let databaseError) = result {
+				errorOccurred = true
+				os_log(.error, log: self.log, "Error occurred while storing unread statuses: %@", databaseError.localizedDescription)
+			}
+			group.leave()
+		}
+		
+		group.enter()
+		account?.markAsRead(updateableReadArticleIDs) { result in
+			if case .failure(let databaseError) = result {
+				errorOccurred = true
+				os_log(.error, log: self.log, "Error occurred while storing read statuses: %@", databaseError.localizedDescription)
+			}
+			group.leave()
+		}
+		
+		group.enter()
+		account?.markAsUnstarred(updateableUnstarredArticleIDs) { result in
+			if case .failure(let databaseError) = result {
+				errorOccurred = true
+				os_log(.error, log: self.log, "Error occurred while storing unstarred statuses: %@", databaseError.localizedDescription)
+			}
+			group.leave()
+		}
+		
+		group.enter()
+		account?.markAsStarred(updateableStarredArticleIDs) { result in
+			if case .failure(let databaseError) = result {
+				errorOccurred = true
+				os_log(.error, log: self.log, "Error occurred while storing starred statuses: %@", databaseError.localizedDescription)
+			}
+			group.leave()
+		}
+		
+		let parsedItems = records.compactMap { makeParsedItem($0) }
+		let webFeedIDsAndItems = Dictionary(grouping: parsedItems, by: { item in item.feedURL } ).mapValues { Set($0) }
+		for (webFeedID, parsedItems) in webFeedIDsAndItems {
+			group.enter()
+			self.account?.update(webFeedID, with: parsedItems, deleteOlder: false) { result in
+				switch result {
+				case .success(let articleChanges):
+					guard let deletes = articleChanges.deletedArticles, !deletes.isEmpty else {
 						group.leave()
-					} else {
-						self.refresher.refreshFeeds(webFeeds) {
-							group.leave()
-						}
+						return
 					}
-					
-				}
-				
-			case .failure:
-				group.leave()
-			}
-		}
-		
-		group.enter()
-		account?.markAsRead(updateableReadArticleIDs) { _ in
-			group.leave()
-		}
-		
-		group.enter()
-		account?.markAsUnstarred(updateableUnstarredArticleIDs) { _ in
-			group.leave()
-		}
-		
-		group.enter()
-		account?.markAsStarred(updateableStarredArticleIDs) { _ in
-			group.leave()
-		}
-		
-		for receivedStarredArticle in receivedStarredArticles {
-			if let parsedItem = makeParsedItem(receivedStarredArticle) {
-				group.enter()
-				self.account?.update(parsedItem.feedURL, with: Set([parsedItem])) { result in
+					let syncStatuses = deletes.map { SyncStatus(articleID: $0.articleID, key: .deleted, flag: true) }
+					try? self.database.insertStatuses(syncStatuses)
 					group.leave()
-					if case .failure(let databaseError) = result {
-						os_log(.error, log: self.log, "Error occurred while storing starred items: %@", databaseError.localizedDescription)
-					}
+				case .failure(let databaseError):
+					errorOccurred = true
+					os_log(.error, log: self.log, "Error occurred while storing articles: %@", databaseError.localizedDescription)
+					group.leave()
 				}
 			}
 		}
-
-		group.notify(queue: DispatchQueue.main) {
-			completion(.success(()))
-		}
 		
+		group.notify(queue: DispatchQueue.main) {
+			if errorOccurred {
+				completion(.failure(CloudKitZoneError.unknown))
+			} else {
+				completion(.success(()))
+			}
+		}
+	}
+	
+	func stripPrefix(_ externalID: String) -> String {
+		return String(externalID[externalID.index(externalID.startIndex, offsetBy: 2)..<externalID.endIndex])
 	}
 
 	func makeParsedItem(_ articleRecord: CKRecord) -> ParsedItem? {
+		guard articleRecord.recordType == CloudKitArticlesZone.CloudKitArticle.recordType else {
+			return nil
+		}
+		
 		var parsedAuthors = Set<ParsedAuthor>()
 		
 		let decoder = JSONDecoder()
@@ -196,21 +208,6 @@ private extension CloudKitArticlesZoneDelegate {
 									attachments: nil)
 		
 		return parsedItem
-	}
-	
-}
-
-extension CloudKitArticlesZoneDelegate: LocalAccountRefresherDelegate {
-	
-	func localAccountRefresher(_ refresher: LocalAccountRefresher, didProcess newAndUpdatedArticles: NewAndUpdatedArticles, completion: @escaping () -> Void) {
-		completion()
-	}
-
-	func localAccountRefresher(_ refresher: LocalAccountRefresher, requestCompletedFor: WebFeed) {
-		refreshProgress?.completeTask()
-	}
-	
-	func localAccountRefresherDidFinish(_ refresher: LocalAccountRefresher) {
 	}
 	
 }

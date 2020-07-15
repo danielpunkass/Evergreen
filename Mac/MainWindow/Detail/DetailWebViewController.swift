@@ -116,7 +116,7 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 		waitingForFirstReload = true
 
 		#if !MAC_APP_STORE
-			webInspectorEnabled = AppDefaults.webInspectorEnabled
+			webInspectorEnabled = AppDefaults.shared.webInspectorEnabled
 			NotificationCenter.default.addObserver(self, selector: #selector(webInspectorEnabledDidChange(_:)), name: .WebInspectorEnabledDidChange, object: nil)
 		#endif
 
@@ -167,8 +167,18 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 		}
 	}
 
+	func canScrollUp(_ completion: @escaping (Bool) -> Void) {
+		fetchScrollInfo { (scrollInfo) in
+			completion(scrollInfo?.canScrollUp ?? false)
+		}
+	}
+
 	override func scrollPageDown(_ sender: Any?) {
 		webView.scrollPageDown(sender)
+	}
+
+	override func scrollPageUp(_ sender: Any?) {
+		webView.scrollPageUp(sender)
 	}
 }
 
@@ -193,7 +203,9 @@ extension DetailWebViewController: WKNavigationDelegate {
 	public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
 		if navigationAction.navigationType == .linkActivated {
 			if let url = navigationAction.request.url {
-				Browser.open(url.absoluteString)
+				let flags = navigationAction.modifierFlags
+				let invert = flags.contains(.shift) || flags.contains(.command)
+				Browser.open(url.absoluteString, invertPreference: invert)
 			}
 			decisionHandler(.cancel)
 			return

@@ -23,6 +23,9 @@ class MasterTimelineTableViewCell: VibrantTableViewCell {
 		return NonIntrinsicImageView(image: AppAssets.timelineStarImage)
 	}()
 	
+	private var unreadIndicatorPropertyAnimator: UIViewPropertyAnimator?
+	private var starViewPropertyAnimator: UIViewPropertyAnimator?
+
 	var cellData: MasterTimelineCellData! {
 		didSet {
 			updateSubviews()
@@ -35,7 +38,12 @@ class MasterTimelineTableViewCell: VibrantTableViewCell {
 	}
 	
 	override func prepareForReuse() {
+		unreadIndicatorPropertyAnimator?.stopAnimation(true)
+		unreadIndicatorPropertyAnimator = nil
 		unreadIndicatorView.isHidden = true
+
+		starViewPropertyAnimator?.stopAnimation(true)
+		starViewPropertyAnimator = nil
 		starView.isHidden = true
 	}
 	
@@ -148,7 +156,7 @@ private extension MasterTimelineTableViewCell {
 	func updateTitleView() {
 		titleView.font = MasterTimelineDefaultCellLayout.titleFont
 		titleView.textColor = labelColor
-		updateTextFieldText(titleView, cellData?.title)
+		updateTextFieldAttributedText(titleView, cellData?.attributedTitle)
 	}
 	
 	func updateSummaryView() {
@@ -170,24 +178,48 @@ private extension MasterTimelineTableViewCell {
 			setNeedsLayout()
 		}
 	}
+
+	func updateTextFieldAttributedText(_ label: UILabel, _ text: NSAttributedString?) {
+		var s = text ?? NSAttributedString(string: "")
+
+		if let fieldFont = label.font {
+			s = s.adding(font: fieldFont)
+		}
+
+		if label.attributedText != s {
+			label.attributedText = s
+			setNeedsLayout()
+		}
+	}
 	
 	func updateFeedNameView() {
-		if cellData.showFeedName {
+		switch cellData.showFeedName {
+		case .feed:
 			showView(feedNameView)
 			feedNameView.font = MasterTimelineDefaultCellLayout.feedNameFont
 			feedNameView.textColor = secondaryLabelColor
 			updateTextFieldText(feedNameView, cellData.feedName)
-		} else {
+		case .byline:
+			showView(feedNameView)
+			feedNameView.font = MasterTimelineDefaultCellLayout.feedNameFont
+			feedNameView.textColor = secondaryLabelColor
+			updateTextFieldText(feedNameView, cellData.byline)
+		case .none:
 			hideView(feedNameView)
 		}
 	}
 	
 	func updateUnreadIndicator() {
 		if !unreadIndicatorView.isHidden && cellData.read && !cellData.starred {
-			UIView.animate(withDuration: 0.66, animations: { self.unreadIndicatorView.alpha = 0 }) { _ in
-				self.unreadIndicatorView.isHidden = true
-				self.unreadIndicatorView.alpha = 1
+			unreadIndicatorPropertyAnimator = UIViewPropertyAnimator(duration: 0.66, curve: .easeInOut) { [weak self] in
+				self?.unreadIndicatorView.alpha = 0
 			}
+			unreadIndicatorPropertyAnimator?.addCompletion { [weak self] _ in
+				self?.unreadIndicatorView.isHidden = true
+				self?.unreadIndicatorView.alpha = 1
+				self?.unreadIndicatorPropertyAnimator = nil
+			}
+			unreadIndicatorPropertyAnimator?.startAnimation()
 		} else {
 			showOrHideView(unreadIndicatorView, cellData.read || cellData.starred)
 		}
@@ -195,10 +227,15 @@ private extension MasterTimelineTableViewCell {
 	
 	func updateStarView() {
 		if !starView.isHidden &&  cellData.read && !cellData.starred {
-			UIView.animate(withDuration: 0.66, animations: { self.starView.alpha = 0 }) { _ in
-				self.starView.isHidden = true
-				self.starView.alpha = 1
+			starViewPropertyAnimator = UIViewPropertyAnimator(duration: 0.66, curve: .easeInOut) { [weak self] in
+				self?.starView.alpha = 0
 			}
+			starViewPropertyAnimator?.addCompletion { [weak self] _ in
+				self?.starView.isHidden = true
+				self?.starView.alpha = 1
+				self?.starViewPropertyAnimator = nil
+			}
+			starViewPropertyAnimator?.startAnimation()
 		} else {
 			showOrHideView(starView, !cellData.starred)
 		}
@@ -219,7 +256,9 @@ private extension MasterTimelineTableViewCell {
 	}
 	
 	func updateAccessiblityLabel() {
-		accessibilityLabel = "\(cellData.feedName), \(cellData.title), \(cellData.summary), \(cellData.dateString)"
+		var label = cellData.read ? "" : "\(NSLocalizedString("Unread", comment: "Unread")), "
+		label += "\(cellData.feedName), \(cellData.title), \(cellData.summary), \(cellData.dateString)"
+		accessibilityLabel = label
 	}
 	
 	func makeIconEmpty() {

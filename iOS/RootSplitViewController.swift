@@ -21,6 +21,10 @@ class RootSplitViewController: UISplitViewController {
 		return .slide
 	}
 	
+	override func viewDidAppear(_ animated: Bool) {
+		coordinator.resetFocus()
+	}
+	
 	override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
 		self.coordinator.configurePanelMode(for: size)
 		super.viewWillTransition(to: size, with: coordinator)
@@ -30,6 +34,10 @@ class RootSplitViewController: UISplitViewController {
 	
 	@objc func scrollOrGoToNextUnread(_ sender: Any?) {
 		coordinator.scrollOrGoToNextUnread()
+	}
+
+	@objc func scrollUp(_ sender: Any?) {
+		coordinator.scrollUp()
 	}
 	
 	@objc func goToPreviousUnread(_ sender: Any?) {
@@ -77,6 +85,10 @@ class RootSplitViewController: UISplitViewController {
 	@objc func openInBrowser(_ sender: Any?) {
 		coordinator.showBrowserForCurrentArticle()
 	}
+
+	@objc func openInAppBrowser(_ sender: Any?) {
+		coordinator.showInAppBrowser()
+	}
 	
 	@objc func articleSearch(_ sender: Any?) {
 		coordinator.showSearch()
@@ -117,7 +129,11 @@ class RootSplitViewController: UISplitViewController {
 	@objc func goToStarred(_ sender: Any?) {
 		coordinator.selectStarredFeed()
 	}
-	
+
+	@objc func goToSettings(_ sender: Any?) {
+		coordinator.showSettings()
+	}
+
 	@objc func toggleRead(_ sender: Any?) {
 		coordinator.toggleReadForCurrentArticle()
 	}
@@ -125,5 +141,8 @@ class RootSplitViewController: UISplitViewController {
 	@objc func toggleStarred(_ sender: Any?) {
 		coordinator.toggleStarredForCurrentArticle()
 	}
-	
+
+	@objc func toggleSidebar(_ sender: Any?) {
+		coordinator.toggleSidebar()
+	}
 }

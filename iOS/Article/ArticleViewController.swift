@@ -26,6 +26,10 @@ class ArticleViewController: UIViewController {
 	@IBOutlet private weak var starBarButtonItem: UIBarButtonItem!
 	@IBOutlet private weak var actionBarButtonItem: UIBarButtonItem!
 	
+	@IBOutlet private var searchBar: ArticleSearchBar!
+	@IBOutlet private var searchBarBottomConstraint: NSLayoutConstraint!
+	private var defaultControls: [UIBarButtonItem]?
+	
 	private var pageViewController: UIPageViewController!
 	
 	private var currentWebViewController: WebViewController? {
@@ -67,6 +71,10 @@ class ArticleViewController: UIViewController {
 	
 	private let keyboardManager = KeyboardManager(type: .detail)
 	override var keyCommands: [UIKeyCommand]? {
+		if searchBar.isFirstResponder {
+			return nil
+		}
+		
 		return keyboardManager.keyCommands
 	}
 	
@@ -124,15 +132,30 @@ class ArticleViewController: UIViewController {
 		articleExtractorButton.buttonState = controller.articleExtractorButtonState
 		
 		self.pageViewController.setViewControllers([controller], direction: .forward, animated: false, completion: nil)
-		if AppDefaults.articleFullscreenEnabled {
+		if AppDefaults.shared.articleFullscreenEnabled {
 			controller.hideBars()
 		}
+		
+		// Search bar
+		searchBar.translatesAutoresizingMaskIntoConstraints = false
+		NotificationCenter.default.addObserver(self, selector: #selector(beginFind(_:)), name: .FindInArticle, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(endFind(_:)), name: .EndFindInArticle, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)), name: UIWindow.keyboardWillChangeFrameNotification, object: nil)
+		searchBar.delegate = self
+		view.bringSubviewToFront(searchBar)
+		
 		updateUI()
 	}
 
 	override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(true)
 		coordinator.isArticleViewControllerPending = false
+	}
+	
+	override func viewWillDisappear(_ animated: Bool) {
+		if searchBar != nil && !searchBar.isHidden {
+			endFind()
+		}
 	}
 	
 	override func viewSafeAreaInsetsDidChange() {
@@ -160,7 +183,7 @@ class ArticleViewController: UIViewController {
 		starBarButtonItem.isEnabled = true
 		
 		let permalinkPresent = article.preferredLink != nil
-		articleExtractorButton.isEnabled = permalinkPresent && !AppDefaults.isDeveloperBuild
+		articleExtractorButton.isEnabled = permalinkPresent && !AppDefaults.shared.isDeveloperBuild
 		actionBarButtonItem.isEnabled = permalinkPresent
 		
 		if article.status.read {
@@ -202,17 +225,12 @@ class ArticleViewController: UIViewController {
 	}
 
 	@objc func contentSizeCategoryDidChange(_ note: Notification) {
-		coordinator.webViewProvider.flushQueue()
-		coordinator.webViewProvider.replenishQueueIfNeeded()
-		if let controller = currentWebViewController {
-			controller.fullReload()
-			self.pageViewController.setViewControllers([controller], direction: .forward, animated: false, completion: nil)
-		}
+		resetWebViewController()
 	}
 	
 	@objc func willEnterForeground(_ note: Notification) {
 		// The toolbar will come back on you if you don't hide it again
-		if AppDefaults.articleFullscreenEnabled {
+		if AppDefaults.shared.articleFullscreenEnabled {
 			currentWebViewController?.hideBars()
 		}
 	}
@@ -254,8 +272,13 @@ class ArticleViewController: UIViewController {
 	@IBAction func showActivityDialog(_ sender: Any) {
 		currentWebViewController?.showActivityDialog(popOverBarButtonItem: actionBarButtonItem)
 	}
+
+	@objc func toggleReaderView(_ sender: Any?) {
+		currentWebViewController?.toggleArticleExtractor()
+	}
 	
 	// MARK: Keyboard Shortcuts
+
 	@objc func navigateToTimeline(_ sender: Any?) {
 		coordinator.navigateToTimeline()
 	}
@@ -270,19 +293,100 @@ class ArticleViewController: UIViewController {
 		return currentWebViewController?.canScrollDown() ?? false
 	}
 
+	func canScrollUp() -> Bool {
+		return currentWebViewController?.canScrollUp() ?? false
+	}
+
 	func scrollPageDown() {
 		currentWebViewController?.scrollPageDown()
 	}
-	
-	func fullReload() {
-		currentWebViewController?.fullReload()
+
+	func scrollPageUp() {
+		currentWebViewController?.scrollPageUp()
 	}
 	
 	func stopArticleExtractorIfProcessing() {
 		currentWebViewController?.stopArticleExtractorIfProcessing()
 	}
+
+	func openInAppBrowser() {
+		currentWebViewController?.openInAppBrowser()
+	}	
+}
+
+// MARK: Find in Article
+public extension Notification.Name {
+	static let FindInArticle = Notification.Name("FindInArticle")
+	static let EndFindInArticle = Notification.Name("EndFindInArticle")
+}
+
+extension ArticleViewController: SearchBarDelegate {
+	
+	func searchBar(_ searchBar: ArticleSearchBar, textDidChange searchText: String) {
+		currentWebViewController?.searchText(searchText) {
+			found in
+			searchBar.resultsCount = found.count
+			
+			if let index = found.index {
+				searchBar.selectedResult = index + 1
+			}
+		}
+	}
+	
+	func doneWasPressed(_ searchBar: ArticleSearchBar) {
+		NotificationCenter.default.post(name: .EndFindInArticle, object: nil)
+	}
+	
+	func nextWasPressed(_ searchBar: ArticleSearchBar) {
+		if searchBar.selectedResult < searchBar.resultsCount {
+			currentWebViewController?.selectNextSearchResult()
+			searchBar.selectedResult += 1
+		}
+	}
+	
+	func previousWasPressed(_ searchBar: ArticleSearchBar) {
+		if searchBar.selectedResult > 1 {
+			currentWebViewController?.selectPreviousSearchResult()
+			searchBar.selectedResult -= 1
+		}
+	}
+}
+
+extension ArticleViewController {
+	
+	@objc func beginFind(_ _: Any? = nil) {
+		searchBar.isHidden = false
+		navigationController?.setToolbarHidden(true, animated: true)
+		currentWebViewController?.additionalSafeAreaInsets.bottom = searchBar.frame.height
+		searchBar.becomeFirstResponder()
+	}
+	
+	@objc func endFind(_ _: Any? = nil) {
+		searchBar.resignFirstResponder()
+		searchBar.isHidden = true
+		navigationController?.setToolbarHidden(false, animated: true)
+		currentWebViewController?.additionalSafeAreaInsets.bottom = 0
+		currentWebViewController?.endSearch()
+	}
+	
+	@objc func keyboardWillChangeFrame(_ notification: Notification) {
+		if !searchBar.isHidden,
+			let duration = notification.userInfo?[UIWindow.keyboardAnimationDurationUserInfoKey] as? Double,
+			let curveRaw = notification.userInfo?[UIWindow.keyboardAnimationCurveUserInfoKey] as? UInt,
+			let frame = notification.userInfo?[UIWindow.keyboardFrameEndUserInfoKey] as? CGRect {
+			
+			let curve = UIView.AnimationOptions(rawValue: curveRaw)
+			let newHeight = view.safeAreaLayoutGuide.layoutFrame.maxY - frame.minY
+			currentWebViewController?.additionalSafeAreaInsets.bottom = newHeight + searchBar.frame.height + 10
+			self.searchBarBottomConstraint.constant = newHeight
+			UIView.animate(withDuration: duration, delay: 0, options: curve, animations: {
+				self.view.layoutIfNeeded()
+			})
+		}
+	}
 	
 }
+
 
 // MARK: WebViewControllerDelegate
 
@@ -364,6 +468,15 @@ private extension ArticleViewController {
 		controller.delegate = self
 		controller.setArticle(article, updateView: updateView)
 		return controller
+	}
+	
+	func resetWebViewController() {
+		coordinator.webViewProvider.flushQueue()
+		coordinator.webViewProvider.replenishQueueIfNeeded()
+		if let controller = currentWebViewController {
+			controller.fullReload()
+			self.pageViewController.setViewControllers([controller], direction: .forward, animated: false, completion: nil)
+		}
 	}
 	
 }

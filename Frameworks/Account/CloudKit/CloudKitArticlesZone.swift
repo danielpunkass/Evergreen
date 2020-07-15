@@ -53,13 +53,13 @@ final class CloudKitArticlesZone: CloudKitZone {
 			static let starred = "starred"
 		}
 	}
-	
+
 	init(container: CKContainer) {
 		self.container = container
 		self.database = container.privateCloudDatabase
 	}
 	
-	func refreshArticleStatus(completion: @escaping ((Result<Void, Error>) -> Void)) {
+	func refreshArticles(completion: @escaping ((Result<Void, Error>) -> Void)) {
 		fetchChangesInZone() { result in
 			switch result {
 			case .success:
@@ -69,7 +69,7 @@ final class CloudKitArticlesZone: CloudKitZone {
 					self.createZoneRecord() { result in
 						switch result {
 						case .success:
-							self.refreshArticleStatus(completion: completion)
+							self.refreshArticles(completion: completion)
 						case .failure(let error):
 							completion(.failure(error))
 						}
@@ -81,40 +81,82 @@ final class CloudKitArticlesZone: CloudKitZone {
 		}
 	}
 	
-	func sendNewArticles(_ articles: Set<Article>, completion: @escaping ((Result<Void, Error>) -> Void)) {
-		let records = makeNewStatusRecords(articles)
-		saveIfNew(records, completion: completion)
+	func saveNewArticles(_ articles: Set<Article>, completion: @escaping ((Result<Void, Error>) -> Void)) {
+		guard !articles.isEmpty else {
+			completion(.success(()))
+			return
+		}
+		
+		var records = [CKRecord]()
+		
+		let saveArticles = articles.filter { $0.status.read == false || $0.status.starred == true }
+		for saveArticle in saveArticles {
+			records.append(makeStatusRecord(saveArticle))
+			records.append(makeArticleRecord(saveArticle))
+		}
+
+		save(records, completion: completion)
 	}
 	
-	func sendArticleStatus(_ syncStatuses: [SyncStatus], articles: Set<Article>, completion: @escaping ((Result<Void, Error>) -> Void)) {
+	func deleteArticles(_ webFeedExternalID: String, completion: @escaping ((Result<Void, Error>) -> Void)) {
+		let predicate = NSPredicate(format: "webFeedExternalID = %@", webFeedExternalID)
+		let ckQuery = CKQuery(recordType: CloudKitArticleStatus.recordType, predicate: predicate)
+		delete(ckQuery: ckQuery, completion: completion)
+	}
+	
+	func modifyArticles(_ statusUpdates: [CloudKitArticleStatusUpdate], completion: @escaping ((Result<Void, Error>) -> Void)) {
+		guard !statusUpdates.isEmpty else {
+			completion(.success(()))
+			return
+		}
 		
-		var records = makeStatusRecords(syncStatuses, articles)
+		var modifyRecords = [CKRecord]()
+		var newRecords = [CKRecord]()
+		var deleteRecordIDs = [CKRecord.ID]()
 		
-		let starredArticles = articles.filter({ $0.status.starred == true })
-		makeArticleRecordsIfNecessary(starredArticles) { result in
+		for statusUpdate in statusUpdates {
+			switch statusUpdate.record {
+			case .all:
+				modifyRecords.append(makeStatusRecord(statusUpdate))
+				modifyRecords.append(makeArticleRecord(statusUpdate.article!))
+			case .new:
+				newRecords.append(makeStatusRecord(statusUpdate))
+				newRecords.append(makeArticleRecord(statusUpdate.article!))
+			case .delete:
+				deleteRecordIDs.append(CKRecord.ID(recordName: statusID(statusUpdate.articleID), zoneID: Self.zoneID))
+			case .statusOnly:
+				modifyRecords.append(makeStatusRecord(statusUpdate))
+				deleteRecordIDs.append(CKRecord.ID(recordName: articleID(statusUpdate.articleID), zoneID: Self.zoneID))
+			}
+		}
+		
+		modify(recordsToSave: modifyRecords, recordIDsToDelete: deleteRecordIDs) { result in
 			switch result {
-			case .success(let articleRecords):
-				records.append(contentsOf: articleRecords)
-				self.modify(recordsToSave: records, recordIDsToDelete: []) { result in
+			case .success:
+				self.saveIfNew(newRecords) { result in
 					switch result {
 					case .success:
 						completion(.success(()))
 					case .failure(let error):
-						self.handleSendArticleStatusError(error, syncStatuses: syncStatuses, starredArticles: articles, completion: completion)
+						completion(.failure(error))
 					}
 				}
 			case .failure(let error):
-				self.handleSendArticleStatusError(error, syncStatuses: syncStatuses, starredArticles: articles, completion: completion)
+				self.handleModifyArticlesError(error, statusUpdates: statusUpdates, completion: completion)
 			}
 		}
 	}
 	
-	func handleSendArticleStatusError(_ error: Error, syncStatuses: [SyncStatus], starredArticles: Set<Article>, completion: @escaping ((Result<Void, Error>) -> Void)) {
+}
+
+private extension CloudKitArticlesZone {
+
+	func handleModifyArticlesError(_ error: Error, statusUpdates: [CloudKitArticleStatusUpdate], completion: @escaping ((Result<Void, Error>) -> Void)) {
 		if case CloudKitZoneError.userDeletedZone = error {
 			self.createZoneRecord() { result in
 				switch result {
 				case .success:
-					self.sendArticleStatus(syncStatuses, articles: starredArticles, completion: completion)
+					self.modifyArticles(statusUpdates, completion: completion)
 				case .failure(let error):
 					completion(.failure(error))
 				}
@@ -124,109 +166,56 @@ final class CloudKitArticlesZone: CloudKitZone {
 		}
 	}
 	
-}
-
-private extension CloudKitArticlesZone {
-	
-	func makeNewStatusRecords(_ articles: Set<Article>) -> [CKRecord] {
-		
-		var records = [CKRecord]()
-		
-		for article in articles {
-			let recordID = CKRecord.ID(recordName: article.articleID, zoneID: Self.zoneID)
-			let record = CKRecord(recordType: CloudKitArticleStatus.recordType, recordID: recordID)
-			if let webFeedExternalID = article.webFeed?.externalID {
-				record[CloudKitArticleStatus.Fields.webFeedExternalID] = webFeedExternalID
-			}
-			record[CloudKitArticleStatus.Fields.read] = "0"
-			records.append(record)
-		}
-		
-		return records
-	}
-
-	func makeStatusRecords(_ syncStatuses: [SyncStatus], _ articles: Set<Article>) -> [CKRecord] {
-		
-		var articleDict = [String: Article]()
-		for article in articles {
-			articleDict[article.articleID] = article
-		}
-		
-		var records = [String: CKRecord]()
-		
-		for status in syncStatuses {
-			
-			var record = records[status.articleID]
-			if record == nil {
-				let recordID = CKRecord.ID(recordName: status.articleID, zoneID: Self.zoneID)
-				record = CKRecord(recordType: CloudKitArticleStatus.recordType, recordID: recordID)
-				records[status.articleID] = record
-			}
-			
-			if let webFeedExternalID = articleDict[status.articleID]?.webFeed?.externalID {
-				record![CloudKitArticleStatus.Fields.webFeedExternalID] = webFeedExternalID
-			}
-			
-			switch status.key {
-			case .read:
-				record![CloudKitArticleStatus.Fields.read] = status.flag ? "1" : "0"
-			case .starred:
-				record![CloudKitArticleStatus.Fields.starred] = status.flag ? "1" : "0"
-			}
-		}
-		
-		return Array(records.values)
-	}
-
-	func makeArticleRecordsIfNecessary(_ articles: Set<Article>, completion: @escaping ((Result<[CKRecord], Error>) -> Void)) {
-		let group = DispatchGroup()
-		var records = [CKRecord]()
-
-		for article in articles {
-			
-			let statusRecordID = CKRecord.ID(recordName: article.articleID, zoneID: Self.zoneID)
-			let statusRecordRef = CKRecord.Reference(recordID: statusRecordID, action: .deleteSelf)
-			let predicate = NSPredicate(format: "articleStatus = %@", statusRecordRef)
-			let ckQuery = CKQuery(recordType: CloudKitArticle.recordType, predicate: predicate)
-
-			group.enter()
-			exists(ckQuery) { result in
-				switch result {
-				case .success(let recordFound):
-					if !recordFound {
-						records.append(contentsOf:  self.makeArticleRecords(article))
-					}
-				case .failure:
-					records.append(contentsOf:  self.makeArticleRecords(article))
-				}
-				group.leave()
-			}
-			
-		}
-		
-		group.notify(queue: DispatchQueue.main) {
-			completion(.success(records))
-		}
+	func statusID(_ id: String) -> String {
+		return "s|\(id)"
 	}
 	
-	func makeArticleRecords(_ article: Article) -> [CKRecord] {
-		var records = [CKRecord]()
+	func articleID(_ id: String) -> String {
+		return "a|\(id)"
+	}
+	
+	func makeStatusRecord(_ article: Article) -> CKRecord {
+		let recordID = CKRecord.ID(recordName: statusID(article.articleID), zoneID: Self.zoneID)
+		let record = CKRecord(recordType: CloudKitArticleStatus.recordType, recordID: recordID)
+		if let webFeedExternalID = article.webFeed?.externalID {
+			record[CloudKitArticleStatus.Fields.webFeedExternalID] = webFeedExternalID
+		}
+		record[CloudKitArticleStatus.Fields.read] = article.status.read ? "1" : "0"
+		record[CloudKitArticleStatus.Fields.starred] = article.status.starred ? "1" : "0"
+		return record
+	}
+	
+	func makeStatusRecord(_ statusUpdate: CloudKitArticleStatusUpdate) -> CKRecord {
+		let recordID = CKRecord.ID(recordName: statusID(statusUpdate.articleID), zoneID: Self.zoneID)
+		let record = CKRecord(recordType: CloudKitArticleStatus.recordType, recordID: recordID)
+		
+		if let webFeedExternalID = statusUpdate.article?.webFeed?.externalID {
+			record[CloudKitArticleStatus.Fields.webFeedExternalID] = webFeedExternalID
+		}
+		
+		record[CloudKitArticleStatus.Fields.read] = statusUpdate.isRead ? "1" : "0"
+		record[CloudKitArticleStatus.Fields.starred] = statusUpdate.isStarred ? "1" : "0"
+		
+		return record
+	}
+	
+	func makeArticleRecord(_ article: Article) -> CKRecord {
+		let recordID = CKRecord.ID(recordName: articleID(article.articleID), zoneID: Self.zoneID)
+		let record = CKRecord(recordType: CloudKitArticle.recordType, recordID: recordID)
 
-		let articleRecord = CKRecord(recordType: CloudKitArticle.recordType, recordID: generateRecordID())
-
-		let articleStatusRecordID = CKRecord.ID(recordName: article.articleID, zoneID: Self.zoneID)
-		articleRecord[CloudKitArticle.Fields.articleStatus] = CKRecord.Reference(recordID: articleStatusRecordID, action: .deleteSelf)
-		articleRecord[CloudKitArticle.Fields.webFeedURL] = article.webFeed?.url
-		articleRecord[CloudKitArticle.Fields.uniqueID] = article.uniqueID
-		articleRecord[CloudKitArticle.Fields.title] = article.title
-		articleRecord[CloudKitArticle.Fields.contentHTML] = article.contentHTML
-		articleRecord[CloudKitArticle.Fields.contentText] = article.contentText
-		articleRecord[CloudKitArticle.Fields.url] = article.url
-		articleRecord[CloudKitArticle.Fields.externalURL] = article.externalURL
-		articleRecord[CloudKitArticle.Fields.summary] = article.summary
-		articleRecord[CloudKitArticle.Fields.imageURL] = article.imageURL
-		articleRecord[CloudKitArticle.Fields.datePublished] = article.datePublished
-		articleRecord[CloudKitArticle.Fields.dateModified] = article.dateModified
+		let articleStatusRecordID = CKRecord.ID(recordName: statusID(article.articleID), zoneID: Self.zoneID)
+		record[CloudKitArticle.Fields.articleStatus] = CKRecord.Reference(recordID: articleStatusRecordID, action: .deleteSelf)
+		record[CloudKitArticle.Fields.webFeedURL] = article.webFeed?.url
+		record[CloudKitArticle.Fields.uniqueID] = article.uniqueID
+		record[CloudKitArticle.Fields.title] = article.title
+		record[CloudKitArticle.Fields.contentHTML] = article.contentHTML
+		record[CloudKitArticle.Fields.contentText] = article.contentText
+		record[CloudKitArticle.Fields.url] = article.url
+		record[CloudKitArticle.Fields.externalURL] = article.externalURL
+		record[CloudKitArticle.Fields.summary] = article.summary
+		record[CloudKitArticle.Fields.imageURL] = article.imageURL
+		record[CloudKitArticle.Fields.datePublished] = article.datePublished
+		record[CloudKitArticle.Fields.dateModified] = article.dateModified
 		
 		let encoder = JSONEncoder()
 		var parsedAuthors = [String]()
@@ -241,11 +230,10 @@ private extension CloudKitArticlesZone {
 					parsedAuthors.append(encodedParsedAuthor)
 				}
 			}
-			articleRecord[CloudKitArticle.Fields.parsedAuthors] = parsedAuthors
+			record[CloudKitArticle.Fields.parsedAuthors] = parsedAuthors
 		}
 		
-		records.append(articleRecord)
-		return records
+		return record
 	}
 
 

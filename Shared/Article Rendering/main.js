@@ -1,6 +1,9 @@
 // Here we are making iframes responsive.  Particularly useful for inline Youtube videos.
 function wrapFrames() {
 	document.querySelectorAll("iframe").forEach(element => {
+		if (element.height > 0 || parseInt(element.style.height) > 0)
+			return;
+
 		var wrapper = document.createElement("div");
 		wrapper.classList.add("iframeWrap");
 		element.parentNode.insertBefore(wrapper, element);
@@ -19,7 +22,7 @@ function stripStylesFromElement(element, propertiesToStrip) {
 function stripStyles() {
 	document.getElementsByTagName("body")[0].querySelectorAll("style, link[rel=stylesheet]").forEach(element => element.remove());
 	// Removing "background" and "font" will also remove properties that would be reflected in them, e.g., "background-color" and "font-family"
-	document.getElementsByTagName("body")[0].querySelectorAll("[style]").forEach(element => stripStylesFromElement(element, ["color", "background", "font"]));
+	document.getElementsByTagName("body")[0].querySelectorAll("[style]").forEach(element => stripStylesFromElement(element, ["color", "background", "font", "max-width", "max-height"]));
 }
 
 // Convert all Feedbin proxy images to be used as src, otherwise change image locations to be absolute if not already

@@ -32,12 +32,16 @@ public struct SyncDatabase {
 
 	// MARK: - API
 
-	public func insertStatuses(_ statuses: [SyncStatus], completion: DatabaseCompletionBlock? = nil) {
+	public func insertStatuses(_ statuses: [SyncStatus]) throws {
+		try syncStatusTable.insertStatuses(statuses)
+	}
+	
+	public func insertStatuses(_ statuses: [SyncStatus], completion: @escaping DatabaseCompletionBlock) {
 		syncStatusTable.insertStatuses(statuses, completion: completion)
 	}
 	
-	public func selectForProcessing(completion: @escaping SyncStatusesCompletionBlock) {
-		return syncStatusTable.selectForProcessing(completion)
+	public func selectForProcessing(limit: Int? = nil, completion: @escaping SyncStatusesCompletionBlock) {
+		return syncStatusTable.selectForProcessing(limit: limit, completion: completion)
 	}
 
 	public func selectPendingCount(completion: @escaping DatabaseIntCompletionBlock) {
@@ -52,6 +56,10 @@ public struct SyncDatabase {
         syncStatusTable.selectPendingStarredStatusArticleIDs(completion: completion)
     }
     
+	public func resetAllSelectedForProcessing(completion: DatabaseCompletionBlock? = nil) {
+		syncStatusTable.resetAllSelectedForProcessing(completion: completion)
+	}
+
 	public func resetSelectedForProcessing(_ articleIDs: [String], completion: DatabaseCompletionBlock? = nil) {
 		syncStatusTable.resetSelectedForProcessing(articleIDs, completion: completion)
 	}

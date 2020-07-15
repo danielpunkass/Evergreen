@@ -8,6 +8,7 @@
 
 import UIKit
 import Account
+import Secrets
 import RSWeb
 
 class NewsBlurAccountViewController: UITableViewController {
@@ -60,7 +61,6 @@ class NewsBlurAccountViewController: UITableViewController {
 
 	@IBAction func cancel(_ sender: Any) {
 		dismiss(animated: true, completion: nil)
-		delegate?.dismiss()
 	}
 
 	@IBAction func showHidePassword(_ sender: Any) {

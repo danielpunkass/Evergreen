@@ -72,6 +72,7 @@ class MasterFeedTableViewSectionHeader: UITableViewHeaderFooterView {
 	}()
 	
 	private let unreadCountView = MasterFeedUnreadCountView(frame: CGRect.zero)
+
 	private lazy var disclosureButton: UIButton = {
 		let button = NonIntrinsicButton()
 		button.tintColor = UIColor.tertiaryLabel
