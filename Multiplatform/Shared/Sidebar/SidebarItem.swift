@@ -6,7 +6,7 @@
 //  Copyright © 2020 Ranchero Software. All rights reserved.
 //
 
-import Foundation
+import SwiftUI
 import RSCore
 import Account
 
@@ -17,7 +17,7 @@ public enum SidebarItemIdentifier: Hashable, Equatable {
 }
 
 public enum RepresentedType {
-	case webFeed, folder, pseudoFeed, account, unknown
+	case smartFeedController, webFeed, folder, pseudoFeed, account, unknown
 }
 
 struct SidebarItem: Identifiable {
@@ -27,11 +27,7 @@ struct SidebarItem: Identifiable {
 	var children: [SidebarItem] = [SidebarItem]()
 	
 	var unreadCount: Int
-	
-	var nameForDisplay: String {
-		guard let displayNameProvider = represented as? DisplayNameProvider else { return "" }
-		return displayNameProvider.nameForDisplay
-	}
+	var nameForDisplay: String
 	
 	var feed: Feed? {
 		represented as? Feed
@@ -43,6 +39,8 @@ struct SidebarItem: Identifiable {
 	
 	var representedType: RepresentedType {
 		switch type(of: represented) {
+		case is SmartFeedsController.Type:
+			return .smartFeedController
 		case is SmartFeed.Type:
 			return .pseudoFeed
 		case is UnreadFeed.Type:
@@ -62,22 +60,39 @@ struct SidebarItem: Identifiable {
 		self.id = .smartFeedController
 		self.represented = smartFeedsController
 		self.unreadCount = 0
+		self.nameForDisplay = smartFeedsController.nameForDisplay
 	}
 
 	init(_ account: Account) {
 		self.id = .account(account.accountID)
 		self.represented = account
 		self.unreadCount = account.unreadCount
+		self.nameForDisplay = account.nameForDisplay
 	}
 
 	init(_ feed: Feed, unreadCount: Int) {
 		self.id = .feed(feed.feedID!)
 		self.represented = feed
 		self.unreadCount = unreadCount
+		self.nameForDisplay = feed.nameForDisplay
 	}
 
+	/// Add a sidebar item to the child list
 	mutating func addChild(_ sidebarItem: SidebarItem) {
 		children.append(sidebarItem)
 	}
 	
+	/// Recursively visits each sidebar item.  Return true when done visiting.
+	@discardableResult
+	func visit(_ block: (SidebarItem) -> Bool) -> Bool {
+		let stop = block(self)
+		if !stop {
+			for child in children {
+				if child.visit(block) {
+					break
+				}
+			}
+		}
+		return stop
+	}
 }

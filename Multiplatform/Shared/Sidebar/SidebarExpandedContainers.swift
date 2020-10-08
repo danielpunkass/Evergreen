@@ -10,10 +10,9 @@ import SwiftUI
 import Combine
 import Account
 
-final class SidebarExpandedContainers: ObservableObject {
+struct SidebarExpandedContainers {
 	
-	@Published var expandedTable = [ContainerIdentifier: Bool]()
-	var objectDidChange = PassthroughSubject<Void, Never>()
+	var expandedTable = [ContainerIdentifier: Bool]()
 	
 	var data: Data {
 		get {
@@ -25,6 +24,10 @@ final class SidebarExpandedContainers: ObservableObject {
 			let decoder = PropertyListDecoder()
 			expandedTable = (try? decoder.decode([ContainerIdentifier: Bool].self, from: newValue)) ?? [ContainerIdentifier: Bool]()
 		}
+	}
+	
+	func contains(_ containerID: ContainerIdentifier) -> Bool {
+		return expandedTable.keys.contains(containerID)
 	}
 	
 	subscript(_ containerID: ContainerIdentifier) -> Bool {
@@ -41,7 +44,6 @@ final class SidebarExpandedContainers: ObservableObject {
 		}
 		set(newValue) {
 			expandedTable[containerID] = newValue
-			objectDidChange.send()
 		}
 	}
 	

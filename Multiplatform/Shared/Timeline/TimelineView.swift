@@ -10,57 +10,125 @@ import SwiftUI
 
 struct TimelineView: View {
 	
-	@EnvironmentObject private var timelineModel: TimelineModel
-	@State var navigate = false
+	@Binding var timelineItems: TimelineItems
+	@Binding var isReadFiltered: Bool?
 
-	@ViewBuilder var body: some View {
-		#if os(macOS)
-		VStack {
-			HStack {
-				TimelineSortOrderView()
-				Spacer()
-				Button (action: {
-					withAnimation {
-						timelineModel.toggleReadFilter()
+	@EnvironmentObject private var timelineModel: TimelineModel
+
+	@State private var timelineItemFrames = [String: CGRect]()
+	
+	var body: some View {
+		GeometryReader { geometryReaderProxy in
+			#if os(macOS)
+			VStack {
+				HStack {
+					TimelineSortOrderView()
+					Spacer()
+					Button (action: {
+						if let filtered = isReadFiltered {
+							timelineModel.changeReadFilterSubject.send(!filtered)
+						}
+					}, label: {
+						if isReadFiltered ?? false {
+							AppAssets.filterActiveImage
+						} else {
+							AppAssets.filterInactiveImage
+						}
+					})
+					.hidden(isReadFiltered == nil)
+					.padding(.top, 8).padding(.trailing)
+					.buttonStyle(PlainButtonStyle())
+					.help(isReadFiltered ?? false ? "Show Read Articles" : "Filter Read Articles")
+				}
+				ScrollViewReader { scrollViewProxy in
+					List(timelineItems.items, selection: $timelineModel.selectedTimelineItemIDs) { timelineItem in
+						let selected = timelineModel.selectedTimelineItemIDs.contains(timelineItem.article.articleID)
+						TimelineItemView(selected: selected, width: geometryReaderProxy.size.width, timelineItem: timelineItem)
+							.background(TimelineItemFramePreferenceView(timelineItem: timelineItem))
 					}
-				}, label: {
-					if timelineModel.isReadFiltered ?? false {
-						AppAssets.filterActiveImage
-					} else {
-						AppAssets.filterInactiveImage
+					.id(timelineModel.listID)
+					.onPreferenceChange(TimelineItemFramePreferenceKey.self) { preferences in
+						for pref in preferences {
+							timelineItemFrames[pref.articleID] = pref.frame
+						}
 					}
-				})
-				.hidden(timelineModel.isReadFiltered == nil)
-				.padding(.top, 8).padding(.trailing)
-				.buttonStyle(PlainButtonStyle())
-				.help(timelineModel.isReadFiltered ?? false ? "Show Read Articles" : "Filter Read Articles")
-			}
-			ZStack {
-				NavigationLink(destination: ArticleContainerView(articles: timelineModel.selectedArticles), isActive: $navigate) {
-					EmptyView()
-				}.hidden()
-				List(timelineModel.timelineItems, selection: $timelineModel.selectedArticleIDs) { timelineItem in
-					TimelineItemView(timelineItem: timelineItem)
+					.onChange(of: timelineModel.selectedTimelineItemIDs) { selectedArticleIDs in
+						let proxyFrame = geometryReaderProxy.frame(in: .global)
+						for articleID in selectedArticleIDs {
+							if let itemFrame = timelineItemFrames[articleID] {
+								if itemFrame.minY < proxyFrame.minY + 3 || itemFrame.maxY > proxyFrame.maxY - 35 {
+									withAnimation {
+										scrollViewProxy.scrollTo(articleID, anchor: .center)
+									}
+								}
+							}
+						}
+					}
 				}
 			}
-			.onChange(of: timelineModel.selectedArticleIDs) { value in
-				navigate = !timelineModel.selectedArticleIDs.isEmpty
+			.navigationTitle(Text(verbatim: timelineModel.nameForDisplay))
+			#else
+			ScrollViewReader { scrollViewProxy in
+				List(timelineItems.items) { timelineItem in
+					ZStack {
+						let selected = timelineModel.selectedTimelineItemID == timelineItem.article.articleID
+						TimelineItemView(selected: selected, width: geometryReaderProxy.size.width, timelineItem: timelineItem)
+							.background(TimelineItemFramePreferenceView(timelineItem: timelineItem))
+						NavigationLink(destination: ArticleContainerView(),
+									   tag: timelineItem.article.articleID,
+									   selection: $timelineModel.selectedTimelineItemID) {
+							EmptyView()
+						}.buttonStyle(PlainButtonStyle())
+					}
+				}
+				.id(timelineModel.listID)
+				.onPreferenceChange(TimelineItemFramePreferenceKey.self) { preferences in
+					for pref in preferences {
+						timelineItemFrames[pref.articleID] = pref.frame
+					}
+				}
+				.onChange(of: timelineModel.selectedTimelineItemID) { selectedArticleID in
+					let proxyFrame = geometryReaderProxy.frame(in: .global)
+					if let articleID = selectedArticleID, let itemFrame = timelineItemFrames[articleID] {
+						if itemFrame.minY < proxyFrame.minY + 3 || itemFrame.maxY > proxyFrame.maxY - 3 {
+							withAnimation {
+								scrollViewProxy.scrollTo(articleID, anchor: .center)
+							}
+						}
+					}
+				}
 			}
+			.navigationBarTitle(Text(verbatim: timelineModel.nameForDisplay), displayMode: .inline)
+			#endif
 		}
-		.navigationTitle(Text(verbatim: timelineModel.nameForDisplay))
-		#else
-		List(timelineModel.timelineItems) { timelineItem in
-			ZStack {
-				TimelineItemView(timelineItem: timelineItem)
-				NavigationLink(destination: ArticleContainerView(articles: timelineModel.selectedArticles),
-							   tag: timelineItem.article.articleID,
-							   selection: $timelineModel.selectedArticleID) {
-					EmptyView()
-				}.buttonStyle(PlainButtonStyle())
-			}
-		}
-		.navigationBarTitle(Text(verbatim: timelineModel.nameForDisplay), displayMode: .inline)
-		#endif
     }
 
+}
+
+struct TimelineItemFramePreferenceKey: PreferenceKey {
+	typealias Value = [TimelineItemFramePreference]
+
+	static var defaultValue: [TimelineItemFramePreference] = []
+	
+	static func reduce(value: inout [TimelineItemFramePreference], nextValue: () -> [TimelineItemFramePreference]) {
+		value.append(contentsOf: nextValue())
+	}
+}
+
+struct TimelineItemFramePreference: Equatable {
+	let articleID: String
+	let frame: CGRect
+}
+
+struct TimelineItemFramePreferenceView: View {
+	let timelineItem: TimelineItem
+	
+	var body: some View {
+		GeometryReader { proxy in
+			Rectangle()
+				.fill(Color.clear)
+				.preference(key: TimelineItemFramePreferenceKey.self,
+							value: [TimelineItemFramePreference(articleID: timelineItem.article.articleID, frame: proxy.frame(in: .global))])
+		}
+	}
 }

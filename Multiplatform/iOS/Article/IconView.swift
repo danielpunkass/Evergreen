@@ -76,7 +76,7 @@ final class IconView: UIView {
 	override func layoutSubviews() {
 		imageView.setFrameIfNotEqual(rectForImageView())
 		if (iconImage != nil && isVerticalBackgroundExposed && !isSymbolImage) || !isDisconcernable {
-			backgroundColor = AppAssets.iconBackgroundColor
+			backgroundColor = AppAssets.uiIconBackgroundColor
 		} else {
 			backgroundColor = nil
 		}
@@ -100,8 +100,7 @@ private extension IconView {
 		let imageSize = image.size
 		let viewSize = bounds.size
 		if imageSize.height == imageSize.width {
-			if imageSize.height >= viewSize.height * 0.75 {
-				// Close enough to viewSize to scale up the image.
+			if imageSize.height >= viewSize.height {
 				return CGRect(x: 0.0, y: 0.0, width: viewSize.width, height: viewSize.height)
 			}
 			let offset = floor((viewSize.height - imageSize.height) / 2.0)

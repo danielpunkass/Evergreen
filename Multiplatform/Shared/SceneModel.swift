@@ -14,8 +14,6 @@ import RSCore
 
 final class SceneModel: ObservableObject {
 	
-	@Published var refreshProgressState = RefreshProgressModel.State.none
-
 	@Published var markAllAsReadButtonState: Bool?
 	@Published var nextUnreadButtonState: Bool?
 	@Published var readButtonState: Bool?
@@ -23,6 +21,7 @@ final class SceneModel: ObservableObject {
 	@Published var extractorButtonState: ArticleExtractorButtonState?
 	@Published var openInBrowserButtonState: Bool?
 	@Published var shareButtonState: Bool?
+	@Published var accountSyncErrors: [AccountSyncError] = []
 
 	var selectedArticles: [Article] {
 		timelineModel.selectedArticles
@@ -32,39 +31,52 @@ final class SceneModel: ObservableObject {
 	private var articleIconSchemeHandler: ArticleIconSchemeHandler? = nil
 	
 	private(set) var webViewProvider: WebViewProvider? = nil
-	private(set) var sidebarModel = SidebarModel()
-	private(set) var timelineModel = TimelineModel()
+	private(set) lazy var sidebarModel = SidebarModel(delegate: self)
+	private(set) lazy var timelineModel = TimelineModel(delegate: self)
 
-	private var selectedArticlesCancellable: AnyCancellable?
+	private var cancellables = Set<AnyCancellable>()
 
 	// MARK: Initialization API
 
 	/// Prepares the SceneModel to be used in the views
 	func startup() {
-		sidebarModel.delegate = self
-		timelineModel.delegate = self
-
-		self.refreshProgressModel = RefreshProgressModel()
-		self.refreshProgressModel!.$state.assign(to: self.$refreshProgressState)
-		
 		self.articleIconSchemeHandler = ArticleIconSchemeHandler(sceneModel: self)
 		self.webViewProvider = WebViewProvider(articleIconSchemeHandler: self.articleIconSchemeHandler!)
-		
-		NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
 
-		selectedArticlesCancellable = timelineModel.$selectedArticles.sink { [weak self] articles in
-			self?.updateArticleButtonsState(articles: articles)
+		subscribeToAccountSyncErrors()
+		subscribeToToolbarChangeEvents()
+	}
+	
+	// MARK: Navigation API
+	
+	/// Goes to the next unread item found in Sidebar and Timeline order, top to bottom
+	func goToNextUnread() {
+		if !timelineModel.goToNextUnread() {
+			timelineModel.selectNextUnreadSubject.send(true)
+			sidebarModel.selectNextUnread.send()
 		}
 	}
 	
 	// MARK: Article Management API
 	
+	/// Marks all the articles in the Timeline as read
+	func markAllAsRead() {
+		timelineModel.markAllAsRead()
+	}
+	
+	/// Toggles the read status for the selected articles
 	func toggleReadStatusForSelectedArticles() {
 		timelineModel.toggleReadStatusForSelectedArticles()
 	}
 	
+	/// Toggles the star status for the selected articles
 	func toggleStarredStatusForSelectedArticles() {
 		timelineModel.toggleStarredStatusForSelectedArticles()
+	}
+
+	/// Opens the selected article in an external browser
+	func openSelectedArticleInBrowser() {
+		timelineModel.openSelectedArticleInBrowser()
 	}
 	
 	/// Retrieves the article before the given article in the Timeline
@@ -99,6 +111,10 @@ extension SceneModel: SidebarModelDelegate {
 
 extension SceneModel: TimelineModelDelegate {
 
+	var selectedFeedsPublisher: AnyPublisher<[Feed], Never>? {
+		return sidebarModel.selectedFeedsPublisher
+	}
+	
 	func timelineRequestedWebFeedSelection(_: TimelineModel, webFeed: WebFeed) {
 	}
 	
@@ -108,42 +124,86 @@ extension SceneModel: TimelineModelDelegate {
 
 private extension SceneModel {
 	
-	// MARK: Notifications
+	// MARK: Subscriptions
+	func subscribeToToolbarChangeEvents() {
+		guard let selectedArticlesPublisher = timelineModel.selectedArticlesPublisher else { return }
+		
+		NotificationCenter.default.publisher(for: .UnreadCountDidChange)
+			.compactMap { $0.object as? AccountManager }
+			.sink {  [weak self] accountManager in
+				self?.updateNextUnreadButtonState(accountManager: accountManager)
+			}.store(in: &cancellables)
+
+		let blankNotification = Notification(name: .StatusesDidChange)
+		let statusesDidChangePublisher = NotificationCenter.default.publisher(for: .StatusesDidChange).prepend(blankNotification)
+
+		statusesDidChangePublisher
+			.combineLatest(selectedArticlesPublisher)
+			.sink { [weak self] _, selectedArticles in
+				self?.updateArticleButtonsState(selectedArticles: selectedArticles)
+			}
+			.store(in: &cancellables)
+
+		statusesDidChangePublisher
+			.combineLatest(timelineModel.articlesSubject)
+			.sink { [weak self] _, articles in
+				self?.updateMarkAllAsReadButtonsState(articles: articles)
+			}
+			.store(in: &cancellables)
+	}
 	
-	@objc func statusesDidChange(_ note: Notification) {
-		guard let articleIDs = note.userInfo?[Account.UserInfoKey.articleIDs] as? Set<String> else {
-			return
-		}
-		let selectedArticleIDs = timelineModel.selectedArticles.map { $0.articleID }
-		if !articleIDs.intersection(selectedArticleIDs).isEmpty {
-			updateArticleButtonsState(articles: timelineModel.selectedArticles)
-		}
+	func subscribeToAccountSyncErrors() {
+		NotificationCenter.default.publisher(for: .AccountsDidFailToSyncWithErrors)
+			.sink { [weak self] notification in
+				guard let syncErrors = notification.userInfo?[Account.UserInfoKey.syncErrors] as? [AccountSyncError] else {
+					return
+				}
+				self?.accountSyncErrors = syncErrors
+			}.store(in: &cancellables)
 	}
 	
 	// MARK: Button State Updates
 	
-	func updateArticleButtonsState(articles: [Article]) {
-		guard !articles.isEmpty else {
+	func updateNextUnreadButtonState(accountManager: AccountManager) {
+		if accountManager.unreadCount > 0 {
+			self.nextUnreadButtonState = false
+		} else {
+			self.nextUnreadButtonState = nil
+		}
+	}
+	
+	func updateMarkAllAsReadButtonsState(articles: [Article]) {
+		if articles.canMarkAllAsRead() {
+			markAllAsReadButtonState = false
+		} else {
+			markAllAsReadButtonState = nil
+		}
+	}
+	
+	func updateArticleButtonsState(selectedArticles: [Article]) {
+		guard !selectedArticles.isEmpty else {
 			readButtonState = nil
 			starButtonState = nil
+			openInBrowserButtonState = nil
+			shareButtonState = nil
 			return
 		}
 		
-		if articles.anyArticleIsUnread() {
+		if selectedArticles.anyArticleIsUnread() {
 			readButtonState = true
-		} else if articles.anyArticleIsReadAndCanMarkUnread() {
+		} else if selectedArticles.anyArticleIsReadAndCanMarkUnread() {
 			readButtonState = false
 		} else {
 			readButtonState = nil
 		}
 		
-		if articles.anyArticleIsUnstarred() {
+		if selectedArticles.anyArticleIsUnstarred() {
 			starButtonState = false
 		} else {
 			starButtonState = true
 		}
 		
-		if articles.count == 1, articles.first?.preferredLink != nil {
+		if selectedArticles.count == 1, selectedArticles.first?.preferredLink != nil {
 			openInBrowserButtonState = true
 			shareButtonState = true
 		} else {

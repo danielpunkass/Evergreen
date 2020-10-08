@@ -2,110 +2,108 @@
 //  ArticleExtractorButton.swift
 //  NetNewsWire
 //
-//  Created by Maurice Parker on 9/18/19.
-//  Copyright © 2019 Ranchero Software. All rights reserved.
+//  Created by Maurice Parker on 8/10/20.
+//  Copyright © 2020 Ranchero Software. All rights reserved.
 //
 
-import Foundation
+import AppKit
+
+enum ArticleExtractorButtonState {
+	case error
+	case animated
+	case on
+	case off
+}
 
 class ArticleExtractorButton: NSButton {
 	
-	var isError = false {
+	private var animatedLayer: CALayer?
+	
+	var buttonState: ArticleExtractorButtonState = .off {
 		didSet {
-			if isError != oldValue {
-				needsDisplay = true
-			}
-		}
-	}
-	
-	var isInProgress = false {
-		didSet {
-			if isInProgress != oldValue {
-				needsDisplay = true
-			}
-		}
-	}
-	
-	override init(frame frameRect: NSRect) {
-		super.init(frame: frameRect)
-		wantsLayer = true
-	}
-	
-	required init?(coder: NSCoder) {
-		super.init(coder: coder)
-		wantsLayer = true
-	}
-
-	override func draw(_ dirtyRect: NSRect) {
-		super.draw(dirtyRect)
-		
-		guard let hostedLayer = self.layer else {
-			return
-		}
-
-		if let imageLayer = hostedLayer.sublayers?[0] {
-			if needsToDraw(imageLayer.bounds) {
-				imageLayer.removeFromSuperlayer()
-			} else {
-				return
-			}
-		}
-
-		let opacity: Float = isEnabled ? 1.0 : 0.5
-		
-		switch true {
-		case isError:
-			addImageSublayer(to: hostedLayer, image: AppAssets.articleExtractorError, opacity: opacity)
-		case isInProgress:
-			addAnimatedSublayer(to: hostedLayer)
-		default:
-			if NSApplication.shared.isActive {
-				addImageSublayer(to: hostedLayer, image: AppAssets.articleExtractor, opacity: opacity)
-			} else {
-				if NSApplication.shared.effectiveAppearance.isDarkMode {
-					addImageSublayer(to: hostedLayer, image: AppAssets.articleExtractorInactiveDark, opacity: opacity)
-				} else {
-					addImageSublayer(to: hostedLayer, image: AppAssets.articleExtractorInactiveLight, opacity: opacity)
+			if buttonState != oldValue {
+				switch buttonState {
+				case .error:
+					stripAnimatedSublayer()
+					image = AppAssets.articleExtractorError
+				case .animated:
+					image = nil
+					needsLayout = true
+				case .on:
+					stripAnimatedSublayer()
+					image = AppAssets.articleExtractorOn
+				case .off:
+					stripAnimatedSublayer()
+					image = AppAssets.articleExtractorOff
 				}
 			}
 		}
 	}
 	
-	private func makeLayerForImage(_ image: NSImage) -> CALayer {
-		let imageLayer = CALayer()
-		imageLayer.bounds = CGRect(x: 0, y: 0, width: image.size.width, height: image.size.height)
-		imageLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-		return imageLayer
+	override func accessibilityLabel() -> String? {
+		switch buttonState {
+		case .error:
+			return NSLocalizedString("Error - Reader View", comment: "Error - Reader View")
+		case .animated:
+			return NSLocalizedString("Processing - Reader View", comment: "Processing - Reader View")
+		case .on:
+			return NSLocalizedString("Selected - Reader View", comment: "Selected - Reader View")
+		case .off:
+			return NSLocalizedString("Reader View", comment: "Reader View")
+		}
+	}
+
+	override init(frame frameRect: NSRect) {
+		super.init(frame: frameRect)
+		commonInit()
 	}
 	
-	private func addImageSublayer(to hostedLayer: CALayer, image: NSImage, opacity: Float = 1.0) {
-		let imageLayer = makeLayerForImage(image)
-		imageLayer.contents = image
-		imageLayer.opacity = opacity
-		hostedLayer.addSublayer(imageLayer)
+	required init?(coder: NSCoder) {
+		super.init(coder: coder)
+		commonInit()
+	}
+	
+	private func commonInit() {
+		wantsLayer = true
+		bezelStyle = .texturedRounded
+		image = AppAssets.articleExtractorOff
+		imageScaling = .scaleProportionallyDown
+		widthAnchor.constraint(equalTo: heightAnchor).isActive = true
+	}
+	
+	override func layout() {
+		super.layout()
+		guard case .animated = buttonState else {
+			return
+		}
+		stripAnimatedSublayer()
+		addAnimatedSublayer(to: layer!)
+	}
+	
+	private func stripAnimatedSublayer() {
+		animatedLayer?.removeFromSuperlayer()
 	}
 	
 	private func addAnimatedSublayer(to hostedLayer: CALayer) {
-		let imageProgress1 = AppAssets.articleExtractorProgress1
-		let imageProgress2 = AppAssets.articleExtractorProgress2
-		let imageProgress3 = AppAssets.articleExtractorProgress3
-		let imageProgress4 = AppAssets.articleExtractorProgress4
-		let images = [imageProgress1, imageProgress2, imageProgress3, imageProgress4, imageProgress3, imageProgress2]
+		let image1 = AppAssets.articleExtractorOff.tinted(with: NSColor.controlTextColor)
+		let image2 = AppAssets.articleExtractorOn.tinted(with: NSColor.controlTextColor)
+		let images = [image1, image2, image1]
 		
-		let imageLayer = CALayer()
-		imageLayer.bounds = CGRect(x: 0, y: 0, width: imageProgress1?.size.width ?? 0, height: imageProgress1?.size.height ?? 0)
-		imageLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+		animatedLayer = CALayer()
+		let imageSize = AppAssets.articleExtractorOff.size
+		animatedLayer!.bounds = CGRect(x: 0, y: 0, width: imageSize.width, height: imageSize.height)
+		animatedLayer!.position = CGPoint(x: bounds.midX, y: bounds.midY)
 		
-		hostedLayer.addSublayer(imageLayer)
+		hostedLayer.addSublayer(animatedLayer!)
 		
 		let animation = CAKeyframeAnimation(keyPath: "contents")
 		animation.calculationMode = CAAnimationCalculationMode.linear
-		animation.keyTimes = [0, 0.2, 0.4, 0.6, 0.8, 1]
+		animation.keyTimes = [0, 0.5, 1]
 		animation.duration = 2
-		animation.values = images as [Any]
+		animation.values = images
 		animation.repeatCount = HUGE
 		
-		imageLayer.add(animation, forKey: "contents")
+		animatedLayer!.add(animation, forKey: "contents")
 	}
 	
 }

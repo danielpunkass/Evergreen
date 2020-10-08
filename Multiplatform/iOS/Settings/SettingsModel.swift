@@ -12,7 +12,7 @@ import Account
 class SettingsModel: ObservableObject {
 	
 	enum HelpSites {
-		case netNewsWireHelp, netNewsWire, supportNetNewsWire, github, bugTracker, technotes, netNewsWireSlack, none
+		case netNewsWireHelp, netNewsWire, supportNetNewsWire, github, bugTracker, technotes, netNewsWireSlack, releaseNotes, none
 		
 		var url: URL? {
 			switch self {
@@ -21,15 +21,17 @@ class SettingsModel: ObservableObject {
 			case .netNewsWire:
 				return URL(string: "https://ranchero.com/netnewswire/")!
 			case .supportNetNewsWire:
-				return URL(string: "https://github.com/brentsimmons/NetNewsWire/blob/master/Technotes/HowToSupportNetNewsWire.markdown")!
+				return URL(string: "https://github.com/brentsimmons/NetNewsWire/blob/main/Technotes/HowToSupportNetNewsWire.markdown")!
 			case .github:
 				return URL(string: "https://github.com/brentsimmons/NetNewsWire")!
 			case .bugTracker:
 				return URL(string: "https://github.com/brentsimmons/NetNewsWire/issues")!
 			case .technotes:
-				return URL(string: "https://github.com/brentsimmons/NetNewsWire/tree/master/Technotes")!
+				return URL(string: "https://github.com/brentsimmons/NetNewsWire/tree/main/Technotes")!
 			case .netNewsWireSlack:
 				return URL(string: "https://ranchero.com/netnewswire/slack")!
+			case .releaseNotes:
+				return URL.releaseNotes
 			case .none:
 				return nil
 			}
@@ -43,6 +45,15 @@ class SettingsModel: ObservableObject {
 		}
 		set {
 
+		}
+	}
+
+	var activeAccounts: [Account] {
+		get {
+			AccountManager.shared.sortedActiveAccounts
+		}
+		set {
+			
 		}
 	}
 

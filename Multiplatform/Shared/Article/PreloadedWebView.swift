@@ -8,11 +8,12 @@
 
 import Foundation
 import WebKit
+import RSWeb
 
 class PreloadedWebView: WKWebView {
 	
 	private var isReady: Bool = false
-	private var readyCompletion: ((PreloadedWebView) -> Void)?
+	private var readyCompletion: (() -> Void)?
 	
 	init(articleIconSchemeHandler: ArticleIconSchemeHandler) {
 		let preferences = WKPreferences()
@@ -28,6 +29,10 @@ class PreloadedWebView: WKWebView {
 		configuration.setURLSchemeHandler(articleIconSchemeHandler, forURLScheme: ArticleRenderer.imageIconScheme)
 		
 		super.init(frame: .zero, configuration: configuration)
+		
+		if let userAgent = UserAgent.fromInfoPlist() {
+			customUserAgent = userAgent
+		}
 	}
 	
 	required init?(coder: NSCoder) {
@@ -39,7 +44,7 @@ class PreloadedWebView: WKWebView {
 		loadFileURL(ArticleRenderer.blank.url, allowingReadAccessTo: ArticleRenderer.blank.baseURL)
 	}
 	
-	func ready(completion: @escaping (PreloadedWebView) -> Void) {
+	func ready(completion: @escaping () -> Void) {
 		if isReady {
 			completeRequest(completion: completion)
 		} else {
@@ -84,10 +89,10 @@ extension PreloadedWebView: WKNavigationDelegate {
 
 private extension PreloadedWebView {
 	
-	func completeRequest(completion: @escaping (PreloadedWebView) -> Void) {
+	func completeRequest(completion: @escaping () -> Void) {
 		isReady = false
 		navigationDelegate = nil
-		completion(self)
+		completion()
 	}
 	
 }

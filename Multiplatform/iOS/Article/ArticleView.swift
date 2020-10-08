@@ -11,13 +11,11 @@ import Articles
 
 struct ArticleView: UIViewControllerRepresentable {
 	
-	var sceneModel: SceneModel
-	var articles: [Article]
+	@EnvironmentObject private var sceneModel: SceneModel
 	
 	func makeUIViewController(context: Context) -> ArticleViewController {
 		let controller = ArticleViewController()
 		controller.sceneModel = sceneModel
-		controller.articles = articles
 		return controller
 	}
 	

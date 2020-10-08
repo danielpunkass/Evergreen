@@ -7,13 +7,16 @@
 //
 
 import SwiftUI
+import Account
+#if os(macOS)
+import AppKit
+#endif
+
 
 struct SceneNavigationView: View {
 
 	@StateObject private var sceneModel = SceneModel()
-	@State private var showSheet = false
-	@State private var showShareSheet = false
-	@State private var sheetToShow: ToolbarSheets = .none
+	@StateObject private var sceneNavigationModel = SceneNavigationModel()
 	
 	#if os(iOS)
 	@Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -25,59 +28,97 @@ struct SceneNavigationView: View {
 			SidebarContainerView()
 				.frame(minWidth: 100, idealWidth: 150, maxHeight: .infinity)
 			#else
-				SidebarContainerView()
+			SidebarContainerView()
 			#endif
 
 			#if os(iOS)
 			if horizontalSizeClass != .compact {
-				Text("Timeline")
-					.frame(maxWidth: .infinity, maxHeight: .infinity)
+				TimelineContainerView()
 			}
 			#else
-			Text("Timeline")
-				.frame(maxWidth: .infinity, maxHeight: .infinity)
+			TimelineContainerView()
 			#endif
 
-			#if os(macOS)
-			Text("None Selected")
-				.frame(maxWidth: .infinity, maxHeight: .infinity)
-				.toolbar { Spacer() }
-			#else
-			Text("None Selected")
-				.frame(maxWidth: .infinity, maxHeight: .infinity)
-			#endif
+			ArticleContainerView()
 		}
 		.environmentObject(sceneModel)
 		.onAppear {
 			sceneModel.startup()
 		}
-		.sheet(isPresented: $showSheet, onDismiss: { sheetToShow = .none }) {
+		.onReceive(sceneModel.$accountSyncErrors) { errors in
+			if errors.count == 0 {
+				sceneNavigationModel.showAccountSyncErrorAlert = false
+			} else {
+				if errors.count > 1 {
+					sceneNavigationModel.showAccountSyncErrorAlert = true
+				} else {
+					sceneNavigationModel.sheetToShow = .fixCredentials
+				}
+			}
+		}
+		.sheet(isPresented: $sceneNavigationModel.showSheet,
+			   onDismiss: {
+				sceneNavigationModel.sheetToShow = .none
+				sceneModel.accountSyncErrors = []
+			   }) {
+					if sceneNavigationModel.sheetToShow == .web {
+						AddWebFeedView(isPresented: $sceneNavigationModel.showSheet)
+					}
+					if sceneNavigationModel.sheetToShow == .folder {
+						AddFolderView(isPresented: $sceneNavigationModel.showSheet)
+					}
+					#if os(iOS)
+					if sceneNavigationModel.sheetToShow == .settings {
+						SettingsView()
+					}
+					#endif
+					if sceneNavigationModel.sheetToShow == .fixCredentials {
+						FixAccountCredentialView(accountSyncError: sceneModel.accountSyncErrors[0])
+					}
+		}
+		.alert(isPresented: $sceneNavigationModel.showAccountSyncErrorAlert, content: {
+			#if os(macOS)
+			return Alert(title: Text("Account Sync Error"),
+						 message: Text("The following accounts failed to sync: ") + Text(sceneModel.accountSyncErrors.map({ $0.account.nameForDisplay }).joined(separator: ", ")) + Text(". You can update credentials in Preferences"),
+						 dismissButton: .default(Text("Dismiss")))
+			#else
+			return Alert(title: Text("Account Sync Error"),
+				  message: Text("The following accounts failed to sync: ") + Text(sceneModel.accountSyncErrors.map({ $0.account.nameForDisplay }).joined(separator: ", ")) + Text(". You can update credentials in Settings"),
+				  primaryButton: .default(Text("Show Settings"), action: {
+					DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: {
+						sceneNavigationModel.sheetToShow = .settings
+					})
+					
+				  }),
+				  secondaryButton: .cancel(Text("Dismiss")))
 			
-			if sheetToShow == .web {
-				AddWebFeedView()
-			}
-			if sheetToShow == .folder {
-				AddFolderView()
-			}
-		}
-		.onChange(of: sheetToShow) { value in
-			value != .none ? (showSheet = true) : (showSheet = false)
-		}
+			#endif
+		})
 		.toolbar {
 			
 			#if os(macOS)
+			ToolbarItem(placement: .navigation) {
+				Button {
+					NSApp.keyWindow?.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: nil)
+				} label: {
+					AppAssets.sidebarToggleImage
+				}
+				.help("Toggle Sidebar")
+			}
 			ToolbarItem() {
 				Menu {
-					Button("Add Web Feed", action: { sheetToShow = .web })
+					Button("Add Web Feed", action: { sceneNavigationModel.sheetToShow = .web })
 					Button("Add Reddit Feed", action:  { })
 					Button("Add Twitter Feed", action:  { })
-					Button("Add Folder", action:  { sheetToShow = .folder})
+					Button("Add Folder", action:  { sceneNavigationModel.sheetToShow = .folder})
 				} label : {
 					AppAssets.addMenuImage
 				}
 			}
 			ToolbarItem {
 				Button {
+					AccountManager.shared.refreshAll(completion: nil)
+					
 				} label: {
 					AppAssets.refreshImage
 				}
@@ -85,21 +126,21 @@ struct SceneNavigationView: View {
 			}
 			ToolbarItem {
 				Button {
+					sceneModel.markAllAsRead()
 				} label: {
-					AppAssets.markAllAsReadImagePDF
-						.resizable()
-						.scaledToFit()
-						.frame(width: 20, height: 20, alignment: .center)
+					AppAssets.markAllAsReadImagePNG
+						.offset(y: 7)
 				}
 				.disabled(sceneModel.markAllAsReadButtonState == nil)
 				.help("Mark All as Read")
 			}
-			ToolbarItem {
-				MacSearchField()
-					.frame(width: 200)
-			}
+//			ToolbarItem {
+//				MacSearchField()
+//					.frame(width: 200)
+//			}
 			ToolbarItem {
 				Button {
+					sceneModel.goToNextUnread()
 				} label: {
 					AppAssets.nextUnreadArticleImage
 				}
@@ -142,6 +183,7 @@ struct SceneNavigationView: View {
 			}
 			ToolbarItem {
 				Button {
+					sceneModel.openSelectedArticleInBrowser()
 				} label: {
 					AppAssets.openInBrowserImage
 				}
@@ -150,12 +192,12 @@ struct SceneNavigationView: View {
 			}
 			ToolbarItem {
 				ZStack {
-					if showShareSheet {
-						SharingServiceView(articles: sceneModel.selectedArticles, showing: $showShareSheet)
+					if sceneNavigationModel.showShareSheet {
+						SharingServiceView(articles: sceneModel.selectedArticles, showing: $sceneNavigationModel.showShareSheet)
 							.frame(width: 20, height: 20)
 					}
 					Button {
-						showShareSheet = true
+						sceneNavigationModel.showShareSheet = true
 					} label: {
 						AppAssets.shareImage
 					}
@@ -166,6 +208,7 @@ struct SceneNavigationView: View {
 			#endif
 		}
 	}
+
 }
 
 struct NavigationView_Previews: PreviewProvider {

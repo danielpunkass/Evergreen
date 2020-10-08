@@ -18,7 +18,7 @@ struct ArticleToolbarModifier: ViewModifier {
 			.toolbar {
 				#if os(iOS)
 				
-				ToolbarItem(placement: .navigation) {
+				ToolbarItem(placement: .primaryAction) {
 					HStack(spacing: 20) {
 						Button {
 						} label: {
@@ -72,6 +72,7 @@ struct ArticleToolbarModifier: ViewModifier {
 				
 				ToolbarItem(placement: .bottomBar) {
 					Button {
+						sceneModel.goToNextUnread()
 					} label: {
 						AppAssets.nextUnreadArticleImage.font(.title3)
 					}

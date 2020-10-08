@@ -10,11 +10,6 @@ import AppKit
 import RSCore
 import Account
 
-extension NSImage.Name {
-	static let star = NSImage.Name("star")
-	static let timelineStar = NSImage.Name("timelineStar")
-}
-
 struct AppAssets {
 
 	static var accountCloudKit: RSImage! = {
@@ -45,38 +40,28 @@ struct AppAssets {
 		return RSImage(named: "accountNewsBlur")
 	}()
 	
-	static var articleExtractor: RSImage! = {
-		return RSImage(named: "articleExtractor")
+	@available(macOS 11.0, *)
+	static var addNewSidebarItemImage: RSImage = {
+		return NSImage(systemSymbolName: "plus", accessibilityDescription: nil)!
 	}()
-	
-	static var articleExtractorError: RSImage! = {
-		return RSImage(named: "articleExtractorError")
+
+	static var articleExtractorError: RSImage = {
+		return RSImage(named: "articleExtractorError")!
 	}()
-	
-	static var articleExtractorInactiveDark: RSImage! = {
-		return RSImage(named: "articleExtractorInactiveDark")
+
+	static var articleExtractorOff: RSImage = {
+		return RSImage(named: "articleExtractorOff")!
 	}()
-	
-	static var articleExtractorInactiveLight: RSImage! = {
-		return RSImage(named: "articleExtractorInactiveLight")
+
+	static var articleExtractorOn: RSImage = {
+		return RSImage(named: "articleExtractorOn")!
 	}()
-	
-	static var articleExtractorProgress1: RSImage! = {
-		return RSImage(named: "articleExtractorProgress1")
+
+	@available(macOS 11.0, *)
+	static var cleanUpImage: RSImage = {
+		return NSImage(systemSymbolName: "wind", accessibilityDescription: nil)!
 	}()
-	
-	static var articleExtractorProgress2: RSImage! = {
-		return RSImage(named: "articleExtractorProgress2")
-	}()
-	
-	static var articleExtractorProgress3: RSImage! = {
-		return RSImage(named: "articleExtractorProgress3")
-	}()
-	
-	static var articleExtractorProgress4: RSImage! = {
-		return RSImage(named: "articleExtractorProgress4")
-	}()
-	
+
 	static var extensionPointMarsEdit: RSImage = {
 		return RSImage(named: "extensionPointMarsEdit")!
 	}()
@@ -93,10 +78,6 @@ struct AppAssets {
 		return RSImage(named: "extensionPointTwitter")!
 	}()
 	
-	static var extensionPreference: RSImage? = {
-		return RSImage(contentsOfFile: "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/KEXT.icns")
-	}()
-		
 	static var faviconTemplateImage: RSImage = {
 		return RSImage(named: "faviconTemplateImage")!
 	}()
@@ -116,33 +97,174 @@ struct AppAssets {
 	static var iconDarkBackgroundColor: NSColor = {
 		return NSColor(named: NSColor.Name("iconDarkBackgroundColor"))!
 	}()
+	
+	static var legacyArticleExtractor: RSImage! = {
+		return RSImage(named: "legacyArticleExtractor")
+	}()
+	
+	static var legacyArticleExtractorError: RSImage! = {
+		return RSImage(named: "legacyArticleExtractorError")
+	}()
+	
+	static var legacyArticleExtractorInactiveDark: RSImage! = {
+		return RSImage(named: "legacyArticleExtractorInactiveDark")
+	}()
+	
+	static var legacyArticleExtractorInactiveLight: RSImage! = {
+		return RSImage(named: "legacyArticleExtractorInactiveLight")
+	}()
+	
+	static var legacyArticleExtractorProgress1: RSImage! = {
+		return RSImage(named: "legacyArticleExtractorProgress1")
+	}()
+	
+	static var legacyArticleExtractorProgress2: RSImage! = {
+		return RSImage(named: "legacyArticleExtractorProgress2")
+	}()
+	
+	static var legacyArticleExtractorProgress3: RSImage! = {
+		return RSImage(named: "legacyArticleExtractorProgress3")
+	}()
+	
+	static var legacyArticleExtractorProgress4: RSImage! = {
+		return RSImage(named: "legacyArticleExtractorProgress4")
+	}()
+	
+	static var masterFolderImage: IconImage {
+		if #available(macOS 11.0, *) {
+			let image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)!
+			let preferredColor = NSColor(named: "AccentColor")!
+			let coloredImage = image.tinted(with: preferredColor)
+			return IconImage(coloredImage, isSymbol: true, preferredColor: preferredColor.cgColor)
+		} else {
+			return IconImage(RSImage(named: NSImage.folderName)!)
+		}
+	}
 
-	static var masterFolderImage: IconImage = {
-		return IconImage(RSImage(named: NSImage.folderName)!)
+	static var markAllAsReadImage: RSImage = {
+		return RSImage(named: "markAllAsRead")!
 	}()
 
+	@available(macOS 11.0, *)
+	static var nextUnreadImage: RSImage = {
+		return NSImage(systemSymbolName: "chevron.down.circle", accessibilityDescription: nil)!
+	}()
+
+	@available(macOS 11.0, *)
+	static var openInBrowserImage: RSImage = {
+		return NSImage(systemSymbolName: "safari", accessibilityDescription: nil)!
+	}()
+
+	static var preferencesToolbarAccountsImage: RSImage = {
+		if #available(macOS 11.0, *) {
+			return NSImage(systemSymbolName: "at", accessibilityDescription: nil)!
+		} else {
+			return NSImage(named: NSImage.userAccountsName)!
+		}
+	}()
+	
+	static var preferencesToolbarExtensionsImage: RSImage = {
+		if #available(macOS 11.0, *) {
+			return NSImage(named: "preferencesToolbarExtensions")!
+		} else {
+			return NSImage(contentsOfFile: "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/KEXT.icns")!
+		}
+	}()
+	
+	static var preferencesToolbarGeneralImage: RSImage = {
+		if #available(macOS 11.0, *) {
+			return NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)!
+		} else {
+			return NSImage(named: NSImage.preferencesGeneralName)!
+		}
+	}()
+	
+	static var preferencesToolbarAdvancedImage: RSImage = {
+		if #available(macOS 11.0, *) {
+			return NSImage(systemSymbolName: "gearshape.2", accessibilityDescription: nil)!
+		} else {
+			return NSImage(named: NSImage.advancedName)!
+		}
+	}()
+
+	@available(macOS 11.0, *)
+	static var readClosedImage: RSImage = {
+		return NSImage(systemSymbolName: "largecircle.fill.circle", accessibilityDescription: nil)!
+	}()
+
+	@available(macOS 11.0, *)
+	static var readOpenImage: RSImage = {
+		return NSImage(systemSymbolName: "circle", accessibilityDescription: nil)!
+	}()
+	
+	@available(macOS 11.0, *)
+	static var refreshImage: RSImage = {
+		return NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)!
+	}()
+	
 	static var searchFeedImage: IconImage = {
-		return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!)
+		return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isSymbol: true)
+	}()
+	
+	@available(macOS 11.0, *)
+	static var shareImage: RSImage = {
+		return NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: nil)!
 	}()
 
-	static var smartFeedImage: RSImage = {
-		return RSImage(named: NSImage.smartBadgeTemplateName)!
+	@available(macOS 11.0, *)
+	static var sidebarToggleImage: RSImage = {
+		return NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: nil)!
+	}()
+	
+	@available(macOS 11.0, *)
+	static var starClosedImage: RSImage = {
+		return NSImage(systemSymbolName: "star.fill", accessibilityDescription: nil)!
+	}()
+
+	@available(macOS 11.0, *)
+	static var starOpenImage: RSImage = {
+		return NSImage(systemSymbolName: "star", accessibilityDescription: nil)!
 	}()
 	
 	static var starredFeedImage: IconImage = {
-		return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!)
+		if #available(macOS 11.0, *) {
+			let image = NSImage(systemSymbolName: "star.fill", accessibilityDescription: nil)!
+			let preferredColor = NSColor(named: "StarColor")!
+			let coloredImage = image.tinted(with: preferredColor)
+			return IconImage(coloredImage, isSymbol: true, preferredColor: preferredColor.cgColor)
+		} else {
+			return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isSymbol: true)
+		}
 	}()
 
-	static var timelineStar: RSImage! = {
-		return RSImage(named: .timelineStar)
+	static var timelineStarSelected: RSImage! = {
+		return RSImage(named: "timelineStar")?.tinted(with: .white)
+	}()
+
+	static var timelineStarUnselected: RSImage! = {
+		return RSImage(named: "timelineStar")?.tinted(with: starColor)
 	}()
 
 	static var todayFeedImage: IconImage = {
-		return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!)
+		if #available(macOS 11.0, *) {
+			let image = NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil)!
+			let preferredColor = NSColor.orange
+			let coloredImage = image.tinted(with: preferredColor)
+			return IconImage(coloredImage, isSymbol: true, preferredColor: preferredColor.cgColor)
+		} else {
+			return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isSymbol: true)
+		}
 	}()
 
 	static var unreadFeedImage: IconImage = {
-		return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!)
+		if #available(macOS 11.0, *) {
+			let image = NSImage(systemSymbolName: "largecircle.fill.circle", accessibilityDescription: nil)!
+			let preferredColor = NSColor(named: "AccentColor")!
+			let coloredImage = image.tinted(with: preferredColor)
+			return IconImage(coloredImage, isSymbol: true, preferredColor: preferredColor.cgColor)
+		} else {
+			return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isSymbol: true)
+		}
 	}()
 
 	static var swipeMarkReadImage: RSImage = {
@@ -161,8 +283,8 @@ struct AppAssets {
 		return RSImage(named: "swipeMarkUnstarred")!
 	}()
 	
-	static var swipeMarkUnstarredColor: NSColor = {
-		return NSColor(named: NSColor.Name("swipeMarkUnstarredColor"))!
+	static var starColor: NSColor = {
+		return NSColor(named: NSColor.Name("StarColor"))!
 	}()
 	
 	static func image(for accountType: AccountType) -> NSImage? {

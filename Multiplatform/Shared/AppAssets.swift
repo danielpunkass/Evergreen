@@ -115,17 +115,29 @@ struct AppAssets {
 	}()
 
 	#if os(macOS)
-	static var iconBackgroundColor: NSColor = {
+	static var nsIconBackgroundColor: NSColor = {
 		return NSColor(named: "IconBackgroundColor")!
 	}()
 	#endif
 
 	#if os(iOS)
-	static var iconBackgroundColor: UIColor = {
+	static var uiIconBackgroundColor: UIColor = {
 		return UIColor(named: "IconBackgroundColor")!
 	}()
 	#endif
 
+	static var iconBackgroundColor: Color = {
+		return Color("IconBackgroundColor")
+	}()
+
+	static var markBelowAsReadImage: Image = {
+		return Image(systemName: "arrowtriangle.down.circle")
+	}()
+	
+	static var markAboveAsReadImage: Image = {
+		return Image(systemName: "arrowtriangle.up.circle")
+	}()
+	
 	static var nextArticleImage: Image = {
 		return Image(systemName: "chevron.down")
 	}()
@@ -146,12 +158,12 @@ struct AppAssets {
 		#if os(macOS)
 		let image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)!
 		let coloredImage = image.tinted(with: NSColor(named: "AccentColor")!)
-		return IconImage(coloredImage)
+		return IconImage(coloredImage, isSymbol: true)
 		#endif
 		#if os(iOS)
 		let image = UIImage(systemName: "folder.fill")!
 		let coloredImage = image.tinted(color: UIColor(named: "AccentColor")!)!
-		return IconImage(coloredImage)
+		return IconImage(coloredImage, isSymbol: true)
 		#endif
 	}
 	
@@ -159,10 +171,10 @@ struct AppAssets {
 		return Image("MarkAllAsRead")
 	}()
 	
-	static var markAllAsReadImagePDF: Image = {
-		return Image("MarkAllAsReadPDF")
+	static var markAllAsReadImagePNG: Image = {
+		return Image("MarkAllAsReadPNG")
 	}()
-	
+
 	static var nextUnreadArticleImage: Image = {
 		return Image(systemName: "chevron.down.circle")
 	}()
@@ -185,10 +197,10 @@ struct AppAssets {
 
 	static var searchFeedImage: IconImage = {
 		#if os(macOS)
-		return IconImage(NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)!)
+		return IconImage(NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)!, isSymbol: true)
 		#endif
 		#if os(iOS)
-		return IconImage(UIImage(systemName: "magnifyingglass")!)
+		return IconImage(UIImage(systemName: "magnifyingglass")!, isSymbol: true)
 		#endif
 	}()
 	
@@ -225,12 +237,12 @@ struct AppAssets {
 		#if os(macOS)
 		let image = NSImage(systemSymbolName: "star.fill", accessibilityDescription: nil)!
 		let coloredImage = image.tinted(with: NSColor(named: "StarColor")!)
-		return IconImage(coloredImage)
+		return IconImage(coloredImage, isSymbol: true)
 		#endif
 		#if os(iOS)
 		let image = UIImage(systemName: "star.fill")!
 		let coloredImage = image.tinted(color: UIColor(named: "StarColor")!)!
-		return IconImage(coloredImage)
+		return IconImage(coloredImage, isSymbol: true)
 		#endif
 	}()
 	
@@ -260,16 +272,20 @@ struct AppAssets {
 		#endif
 	}
 	
+	static var timelineUnreadSelected: Image {
+		return Image(systemName: "circle.fill")
+	}
+
 	static var todayFeedImage: IconImage = {
 		#if os(macOS)
 		let image = NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil)!
 		let coloredImage = image.tinted(with: .orange)
-		return IconImage(coloredImage)
+		return IconImage(coloredImage, isSymbol: true)
 		#endif
 		#if os(iOS)
 		let image = UIImage(systemName: "sun.max.fill")!
 		let coloredImage = image.tinted(color: .orange)!
-		return IconImage(coloredImage)
+		return IconImage(coloredImage, isSymbol: true)
 		#endif
 	}()
 
@@ -277,13 +293,17 @@ struct AppAssets {
 		#if os(macOS)
 		let image = NSImage(systemSymbolName: "largecircle.fill.circle", accessibilityDescription: nil)!
 		let coloredImage = image.tinted(with: NSColor(named: "AccentColor")!)
-		return IconImage(coloredImage)
+		return IconImage(coloredImage, isSymbol: true)
 		#endif
 		#if os(iOS)
 		let image = UIImage(systemName: "largecircle.fill.circle")!
 		let coloredImage = image.tinted(color: UIColor(named: "AccentColor")!)!
-		return IconImage(coloredImage)
+		return IconImage(coloredImage, isSymbol: true)
 		#endif
+	}
+	
+	static var sidebarToggleImage: Image {
+		return Image(systemName: "sidebar.left")
 	}
 
 	#if os(macOS)

@@ -12,6 +12,10 @@ import Articles
 import Account
 import RSCore
 
+extension Notification.Name {
+	static let appleSideBarDefaultIconSizeChanged = Notification.Name("AppleSideBarDefaultIconSizeChanged")
+}
+
 protocol SidebarDelegate: class {
 	func sidebarSelectionDidChange(_: SidebarViewController, selectedObjects: [AnyObject]?)
 	func unreadCount(for: AnyObject) -> Int
@@ -20,7 +24,6 @@ protocol SidebarDelegate: class {
 
 @objc class SidebarViewController: NSViewController, NSOutlineViewDelegate, NSMenuDelegate, UndoableCommandRunner {
     
-	@IBOutlet weak var readFilteredButton: NSButton!
 	@IBOutlet var outlineView: SidebarOutlineView!
 
 	weak var delegate: SidebarDelegate?
@@ -46,7 +49,6 @@ protocol SidebarDelegate: class {
 
     var undoableCommands = [UndoableCommand]()
 	private var animatingChanges = false
-	private var sidebarCellAppearance: SidebarCellAppearance!
 
 	var renameWindowController: RenameWindowController?
 
@@ -54,11 +56,11 @@ protocol SidebarDelegate: class {
 		return selectedNodes.representedObjects()
 	}
 
+	private static let rowViewIdentifier = NSUserInterfaceItemIdentifier(rawValue: "sidebarRow")
+
 	// MARK: - NSViewController
 
 	override func viewDidLoad() {
-		sidebarCellAppearance = SidebarCellAppearance(fontSize: AppDefaults.shared.sidebarFontSize)
-
 		outlineView.dataSource = dataSource
 		outlineView.doubleAction = #selector(doubleClickedSidebar(_:))
 		outlineView.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
@@ -73,8 +75,10 @@ protocol SidebarDelegate: class {
 		NotificationCenter.default.addObserver(self, selector: #selector(userDidAddFeed(_:)), name: .UserDidAddFeed, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(batchUpdateDidPerform(_:)), name: .BatchUpdateDidPerform, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(webFeedIconDidBecomeAvailable(_:)), name: .WebFeedIconDidBecomeAvailable, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(webFeedSettingDidChange(_:)), name: .WebFeedSettingDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange(_:)), name: .DisplayNameDidChange, object: nil)
+		DistributedNotificationCenter.default().addObserver(self, selector: #selector(appleSideBarDefaultIconSizeChanged(_:)), name: .appleSideBarDefaultIconSizeChanged, object: nil)
 
 		outlineView.reloadData()
 
@@ -129,8 +133,6 @@ protocol SidebarDelegate: class {
 		if let readFeedsFilterState = state[UserInfoKey.readFeedsFilterState] as? Bool {
 			isReadFiltered = readFeedsFilterState
 		}
-		
-		updateReadFilterButton()
 	}
 	
 	// MARK: - Notifications
@@ -191,6 +193,11 @@ protocol SidebarDelegate: class {
 		applyToAvailableCells(configureFavicon)
 	}
 
+	@objc func webFeedIconDidBecomeAvailable(_ note: Notification) {
+		guard let webFeed = note.userInfo?[UserInfoKey.webFeed] as? WebFeed else { return }
+		configureCellsForRepresentedObject(webFeed)
+	}
+	
 	@objc func webFeedSettingDidChange(_ note: Notification) {
 		guard let webFeed = note.object as? WebFeed, let key = note.userInfo?[WebFeed.WebFeedSettingUserInfoKey] as? String else {
 			return
@@ -210,24 +217,59 @@ protocol SidebarDelegate: class {
 		restoreSelection(to: savedSelection, sendNotificationIfChanged: true)
 	}
 
-	@objc func userDidRequestSidebarSelection(_ note: Notification) {
-		guard let feed = note.userInfo?[UserInfoKey.webFeed] else {
-			return
+	@objc func appleSideBarDefaultIconSizeChanged(_ note: Notification) {
+		// The outline view doesn't have the new row style size set yet when we get
+		// this notification, so give it half a second to catch up.
+		DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+			let savedSelection = self.selectedNodes
+			self.outlineView.reloadData()
+			self.restoreSelection(to: savedSelection, sendNotificationIfChanged: true)
 		}
-		revealAndSelectRepresentedObject(feed as AnyObject)
 	}
 	
 	// MARK: - Actions
 
 	@IBAction func delete(_ sender: AnyObject?) {
-		if outlineView.selectionIsEmpty {
+		let availableSelectedNodes = selectedNodes.filter { !($0.representedObject is PseudoFeed) }
+		
+		if availableSelectedNodes.isEmpty {
 			return
 		}
-		let firstRow = outlineView.selectedRowIndexes.min()
-		deleteNodes(selectedNodes)
-		if let restoreRow = firstRow, restoreRow < outlineView.numberOfRows {
-			outlineView.selectRow(restoreRow)
+		
+		let alert = NSAlert()
+		alert.alertStyle = .warning
+		
+		if availableSelectedNodes.count == 1 {
+			if let folder = availableSelectedNodes.first?.representedObject as? Folder {
+				alert.messageText = NSLocalizedString("Delete Folder", comment: "Delete Folder")
+				let localizedInformativeText = NSLocalizedString("Are you sure you want to delete the “%@” folder?", comment: "Folder delete text")
+				alert.informativeText = NSString.localizedStringWithFormat(localizedInformativeText as NSString, folder.nameForDisplay) as String
+			} else if let feed = availableSelectedNodes.first?.representedObject as? Feed {
+				alert.messageText = NSLocalizedString("Delete Feed", comment: "Delete Feed")
+				let localizedInformativeText = NSLocalizedString("Are you sure you want to delete the “%@” feed?", comment: "Feed delete text")
+				alert.informativeText = NSString.localizedStringWithFormat(localizedInformativeText as NSString, feed.nameForDisplay) as String
+			}
+		} else {
+			alert.messageText = NSLocalizedString("Delete Items", comment: "Delete Items")
+			let localizedInformativeText = NSLocalizedString("Are you sure you want to delete the %d selected items?", comment: "Items delete text")
+			alert.informativeText = NSString.localizedStringWithFormat(localizedInformativeText as NSString, availableSelectedNodes.count) as String
 		}
+		
+		alert.addButton(withTitle: NSLocalizedString("Delete", comment: "Delete Account"))
+		alert.addButton(withTitle: NSLocalizedString("Cancel", comment: "Cancel Delete Account"))
+			
+		alert.beginSheetModal(for: view.window!) { [weak self] result in
+			if result == NSApplication.ModalResponse.alertFirstButtonReturn {
+				guard let self = self else { return }
+
+				let firstRow = self.outlineView.selectedRowIndexes.min()
+				self.deleteNodes(availableSelectedNodes)
+				if let restoreRow = firstRow, restoreRow < self.outlineView.numberOfRows {
+					self.outlineView.selectRow(restoreRow)
+				}
+			}
+		}
+		
 	}
 	
 	@IBAction func doubleClickedSidebar(_ sender: Any?) {
@@ -453,7 +495,6 @@ protocol SidebarDelegate: class {
 		}
 		delegate?.sidebarInvalidatedRestorationState(self)
 		rebuildTreeAndRestoreSelection()
-		updateReadFilterButton()
 	}
 	
 }
@@ -721,7 +762,7 @@ private extension SidebarViewController {
 	}
 	
 	func configure(_ cell: SidebarCell, _ node: Node) {
-		cell.cellAppearance = sidebarCellAppearance
+		cell.cellAppearance = SidebarCellAppearance(rowSizeStyle: outlineView.effectiveRowSizeStyle)
 		cell.name = nameFor(node)
 		configureUnreadCount(cell, node)
 		configureFavicon(cell, node)
@@ -733,7 +774,7 @@ private extension SidebarViewController {
 	}
 
 	func configureFavicon(_ cell: SidebarCell, _ node: Node) {
-		cell.image = imageFor(node)?.image
+		cell.iconImage = imageFor(node)
 	}
 
 	func configureGroupCell(_ cell: NSTableCellView, _ node: Node) {
@@ -741,6 +782,9 @@ private extension SidebarViewController {
 	}
 
 	func imageFor(_ node: Node) -> IconImage? {
+		if let feed = node.representedObject as? WebFeed, let feedIcon = appDelegate.webFeedIconDownloader.icon(for: feed) {
+			return feedIcon
+		}
 		if let smallIconProvider = node.representedObject as? SmallIconProvider {
 			return smallIconProvider.smallIcon
 		}
@@ -820,13 +864,6 @@ private extension SidebarViewController {
 		return outlineView.revealAndSelectRepresentedObject(representedObject, treeController)
 	}
 	
-	func updateReadFilterButton() {
-		if isReadFiltered {
-			readFilteredButton.image = AppAssets.filterActive
-		} else {
-			readFilteredButton.image = AppAssets.filterInactive
-		}
-	}
 }
 
 private extension Node {

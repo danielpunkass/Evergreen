@@ -43,6 +43,15 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		}
 	}
 	
+	var isCleanUpAvailable: Bool {
+		guard isReadFiltered ?? false else { return false }
+		
+		let readSelectedCount = selectedArticles.filter({ $0.status.read }).count
+		let readArticleCount = articles.count - unreadCount
+		let availableToCleanCount = readArticleCount - readSelectedCount
+		return availableToCleanCount > 0
+	}
+	
 	var representedObjects: [AnyObject]? {
 		didSet {
 			if !representedObjectArraysAreEqual(oldValue, representedObjects) {
@@ -163,6 +172,8 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 			}
 		}
 	}
+
+	private var previouslySelectedArticles: ArticleArray?
 
 	private var oneSelectedArticle: Article? {
 		return selectedArticles.count == 1 ? selectedArticles.first : nil
@@ -816,6 +827,8 @@ extension TimelineViewController: NSTableViewDelegate {
 	}
 
 	private func selectionDidChange(_ selectedArticles: ArticleArray?) {
+		guard selectedArticles != previouslySelectedArticles else { return }
+		previouslySelectedArticles = selectedArticles
 		delegate?.timelineSelectionDidChange(self, selectedArticles: selectedArticles)
 		delegate?.timelineInvalidatedRestorationState(self)
 	}
@@ -897,7 +910,7 @@ extension TimelineViewController: NSTableViewDelegate {
 					self.toggleArticleStarred(article);
 					tableView.rowActionsVisible = false
 				}
-				action.backgroundColor = AppAssets.swipeMarkUnstarredColor
+				action.backgroundColor = AppAssets.starColor
 				action.image = article.status.starred ? AppAssets.swipeMarkUnstarredImage : AppAssets.swipeMarkStarredImage
 				return [action]
 

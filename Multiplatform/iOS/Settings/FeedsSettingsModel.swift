@@ -9,6 +9,7 @@
 import Foundation
 import SwiftUI
 import Account
+import UniformTypeIdentifiers
 
 enum FeedsSettingsError: LocalizedError, Equatable {
 	case none, noActiveAccount, exportFailed(reason: String?), importFailed
@@ -44,8 +45,6 @@ enum FeedsSettingsError: LocalizedError, Equatable {
 }
 
 class FeedsSettingsModel: ObservableObject {
-	@Published var showingImportActionSheet = false
-	@Published var showingExportActionSheet = false
 	@Published var exportingFilePath = ""
 	@Published var feedsSettingsError: FeedsSettingsError? {
 		didSet {
@@ -53,29 +52,32 @@ class FeedsSettingsModel: ObservableObject {
 		}
 	}
 	@Published var showError: Bool = false
+	@Published var isImporting: Bool = false
+	@Published var isExporting: Bool = false
+	@Published var selectedAccount: Account? = nil
 
-	func onTapExportOPML(action: ((Account?) -> Void)) {
-		if AccountManager.shared.accounts.count == 1 {
-			action(AccountManager.shared.accounts.first)
-		}
-		else {
-			showingExportActionSheet = true
-		}
-	}
+	let importingContentTypes: [UTType] = [UTType(filenameExtension: "opml"), UTType("public.xml")].compactMap { $0 }
 
-	func onTapImportOPML(action: ((Account?) -> Void)) {
-		switch AccountManager.shared.activeAccounts.count {
-		case 0:
+	func checkForActiveAccount() -> Bool {
+		if AccountManager.shared.activeAccounts.count == 0 {
 			feedsSettingsError = .noActiveAccount
-			return
-		case 1:
-			action(AccountManager.shared.activeAccounts.first)
-		default:
-			showingImportActionSheet = true
+			return false
 		}
+		return true
 	}
 
-	func generateExportURL(for account: Account) -> URL? {
+	func importOPML(account: Account?) {
+		selectedAccount = account
+		isImporting = true
+	}
+
+	func exportOPML(account: Account?) {
+		selectedAccount = account
+		isExporting = true
+	}
+
+	func generateExportURL() -> URL? {
+		guard let account = selectedAccount else { return nil }
 		let accountName = account.nameForDisplay.replacingOccurrences(of: " ", with: "").trimmingCharacters(in: .whitespaces)
 		let filename = "Subscriptions-\(accountName).opml"
 		let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
@@ -90,9 +92,9 @@ class FeedsSettingsModel: ObservableObject {
 		return tempFile
 	}
 
-	func processImportedFiles(_ urls: [URL],_ account: Account?) {
+	func processImportedFiles(_ urls: [URL]) {
 		urls.forEach{
-			account?.importOPML($0, completion: { [weak self] result in
+			selectedAccount?.importOPML($0, completion: { [weak self] result in
 				switch result {
 				case .success:
 					break

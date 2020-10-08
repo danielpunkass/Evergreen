@@ -7,6 +7,7 @@
 //
 
 import UIKit
+import Combine
 import WebKit
 import Account
 import Articles
@@ -41,6 +42,8 @@ class ArticleViewController: UIViewController {
 		}
 	}
 	
+	private var cancellables = Set<AnyCancellable>()
+
 	override func viewDidLoad() {
 		super.viewDidLoad()
 
@@ -58,8 +61,14 @@ class ArticleViewController: UIViewController {
 			view.bottomAnchor.constraint(equalTo: pageViewController.view.bottomAnchor)
 		])
 				
+		sceneModel?.timelineModel.selectedArticlesPublisher?.sink { [weak self] articles in
+			self?.articles = articles
+		}
+		.store(in: &cancellables)
+		
 		let controller = createWebViewController(currentArticle, updateView: true)
 		self.pageViewController.setViewControllers([controller], direction: .forward, animated: false, completion: nil)
+
 	}
 			
 	// MARK: API
@@ -144,15 +153,6 @@ private extension ArticleViewController {
 		controller.delegate = self
 		controller.setArticle(article, updateView: updateView)
 		return controller
-	}
-	
-	func resetWebViewController() {
-		sceneModel?.webViewProvider?.flushQueue()
-		sceneModel?.webViewProvider?.replenishQueueIfNeeded()
-		if let controller = currentWebViewController {
-			controller.fullReload()
-			self.pageViewController.setViewControllers([controller], direction: .forward, animated: false, completion: nil)
-		}
 	}
 	
 }

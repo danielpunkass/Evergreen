@@ -61,6 +61,9 @@ final class AppDefaults: ObservableObject {
 		static let timelineGroupByFeed = "timelineGroupByFeed"
 		static let timelineIconDimensions = "timelineIconDimensions"
 		static let timelineNumberOfLines = "timelineNumberOfLines"
+		
+		// Sidebar Defaults
+		static let sidebarConfirmDelete = "sidebarConfirmDelete"
 
 		// iOS Defaults
 		static let refreshClearsReadArticles = "refreshClearsReadArticles"
@@ -134,7 +137,24 @@ final class AppDefaults: ObservableObject {
 		}
 		set {
 			AppDefaults.store.set(newValue.rawValue, forKey: Key.userInterfaceColorPalette)
-			objectWillChange.send()
+			#if os(macOS)
+			self.objectWillChange.send()
+			#else
+			DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: {
+				self.objectWillChange.send()
+			})
+			#endif
+		}
+	}
+	
+	static var userInterfaceColorScheme: ColorScheme? {
+		switch AppDefaults.shared.userInterfaceColorPalette {
+		case .light:
+			return ColorScheme.light
+		case .dark:
+			return ColorScheme.dark
+		default:
+			return nil
 		}
 	}
 	
@@ -181,7 +201,7 @@ final class AppDefaults: ObservableObject {
 			objectWillChange.send()
 		}
 	}
-	
+
 	@AppStorage(wrappedValue: 40.0, Key.timelineIconDimensions, store: store) var timelineIconDimensions: Double {
 		didSet {
 			objectWillChange.send()
@@ -194,6 +214,14 @@ final class AppDefaults: ObservableObject {
 			objectWillChange.send()
 		}
 	}
+	
+	// MARK: Sidebar
+	@AppStorage(wrappedValue: true, Key.sidebarConfirmDelete, store: store) var sidebarConfirmDelete: Bool {
+		didSet {
+			objectWillChange.send()
+		}
+	}
+	
 	
 	// MARK: Refresh
 	@AppStorage(wrappedValue: false, Key.refreshClearsReadArticles, store: store) var refreshClearsReadArticles: Bool

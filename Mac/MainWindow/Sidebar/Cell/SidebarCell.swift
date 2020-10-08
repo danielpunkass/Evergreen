@@ -13,16 +13,9 @@ import RSTree
 
 class SidebarCell : NSTableCellView {
 
-	var image: NSImage? {
+	var iconImage: IconImage? {
 		didSet {
-			if let image = image {
-				faviconImageView.image = shouldShowImage ? image : nil
-				faviconImageView.alphaValue = image.isTemplate ? 0.75 : 1.0
-			}
-			else {
-				faviconImageView.image = nil
-				faviconImageView.alphaValue = 1.0
-			}
+			updateFaviconImage()
 		}
 	}
 
@@ -31,10 +24,9 @@ class SidebarCell : NSTableCellView {
 			if shouldShowImage != oldValue {
 				needsLayout = true
 			}
-			faviconImageView.image = shouldShowImage ? image : nil
+			faviconImageView.iconImage = shouldShowImage ? iconImage : nil
 		}
 	}
-
 
 	var cellAppearance: SidebarCellAppearance? {
 		didSet {
@@ -80,17 +72,15 @@ class SidebarCell : NSTableCellView {
 		return textField
 	}()
 
-	private let faviconImageView: NSImageView = {
-		let imageView = NSImageView(frame: NSRect.zero)
-		imageView.animates = false
-		imageView.imageAlignment = .alignCenter
-		imageView.imageScaling = .scaleProportionallyDown
-		imageView.wantsLayer = true
-		return imageView
-	}()
-
+	private let faviconImageView = IconView()
 	private let unreadCountView = UnreadCountView(frame: NSZeroRect)
 
+	override var backgroundStyle: NSView.BackgroundStyle {
+		didSet {
+			updateFaviconImage()
+		}
+	}
+	
 	override var isFlipped: Bool {
 		return true
 	}
@@ -146,5 +136,31 @@ private extension SidebarCell {
 		titleView.setFrame(ifNotEqualTo: layout.titleRect)
 		unreadCountView.setFrame(ifNotEqualTo: layout.unreadCountRect)
 	}
+	
+	func updateFaviconImage() {
+		var updatedIconImage = iconImage
+		
+		if let iconImage = iconImage, iconImage.isSymbol {
+			if backgroundStyle != .normal {
+				let image = iconImage.image.tinted(with: .white)
+				updatedIconImage = IconImage(image, isSymbol: true)
+			} else {
+				if let preferredColor = iconImage.preferredColor {
+					let image = iconImage.image.tinted(with: NSColor(cgColor: preferredColor)!)
+					updatedIconImage = IconImage(image, isSymbol: true)
+				} else {
+					let image = iconImage.image.tinted(with: .controlAccentColor)
+					updatedIconImage = IconImage(image, isSymbol: true)
+				}
+			}
+		}
+
+		if let image = updatedIconImage {
+			faviconImageView.iconImage = shouldShowImage ? image : nil
+		} else {
+			faviconImageView.iconImage = nil
+		}
+	}
+	
 }
 

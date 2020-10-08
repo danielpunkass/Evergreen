@@ -13,6 +13,8 @@ import RSTree
 import RSWeb
 import Account
 import RSCore
+import RSCoreResources
+import Secrets
 
 // If we're not going to import Sparkle, provide dummy protocols to make it easy
 // for AppDelegate to comply
@@ -38,6 +40,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	var imageDownloader: ImageDownloader!
 	var authorAvatarDownloader: AuthorAvatarDownloader!
 	var webFeedIconDownloader: WebFeedIconDownloader!
+	var extensionContainersFile: ExtensionContainersFile!
+	var extensionFeedAddRequestFile: ExtensionFeedAddRequestFile!
+
 	var appName: String!
 	
 	var refreshTimer: AccountRefreshTimer?
@@ -103,6 +108,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		NSWindow.allowsAutomaticWindowTabbing = false
 		super.init()
 
+		SecretsManager.provider = Secrets()
 		AccountManager.shared = AccountManager(accountsFolder: Platform.dataSubfolder(forApplication: nil, folderName: "Accounts")!)
 		FeedProviderManager.shared.delegate = ExtensionPointManager.shared
 
@@ -228,11 +234,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 			self.toggleInspectorWindow(self)
 		}
 
+		extensionContainersFile = ExtensionContainersFile()
+		extensionFeedAddRequestFile = ExtensionFeedAddRequestFile()
+
 		refreshTimer = AccountRefreshTimer()
 		syncTimer = ArticleStatusSyncTimer()
 		
-		UNUserNotificationCenter.current().requestAuthorization(options:[.badge, .sound, .alert]) { (granted, error) in }
-        NSApplication.shared.registerForRemoteNotifications()
+		UNUserNotificationCenter.current().getNotificationSettings { (settings) in
+			if settings.authorizationStatus == .authorized {
+				DispatchQueue.main.async {
+					NSApplication.shared.registerForRemoteNotifications()
+				}
+			}
+		}
 
 		UNUserNotificationCenter.current().delegate = self
 		userNotificationManager = UserNotificationManager()
@@ -342,7 +356,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	// MARK: Main Window
 	
 	func createMainWindowController() -> MainWindowController {
-		let controller = windowControllerWithName("MainWindow") as! MainWindowController
+		let controller: MainWindowController
+		if #available(macOS 11.0, *) {
+			let storyboard = NSStoryboard(name: NSStoryboard.Name("MainWindow"), bundle: nil)
+			controller = storyboard.instantiateController(withIdentifier: "UnifiedWindowController") as! MainWindowController
+		} else {
+			controller = windowControllerWithName("MainWindow") as! MainWindowController
+		}
+		
 		if !(mainWindowController?.isOpen ?? false) {
 			mainWindowControllers.removeAll()
 		}
@@ -390,6 +411,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		}
 
 		let isDisplayingSheet = mainWindowController?.isDisplayingSheet ?? false
+		let isSpecialAccountAvailable = AccountManager.shared.activeAccounts.contains(where: { $0.type == .onMyMac || $0.type == .cloudKit })
 
 		if item.action == #selector(refreshAll(_:)) {
 			return !AccountManager.shared.refreshInProgress && !AccountManager.shared.activeAccounts.isEmpty
@@ -404,13 +426,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 			return !isDisplayingSheet && !AccountManager.shared.activeAccounts.isEmpty
 		}
 		if item.action == #selector(showAddRedditFeedWindow(_:)) {
-			guard !isDisplayingSheet && !AccountManager.shared.activeAccounts.isEmpty else {
+			guard !isDisplayingSheet && isSpecialAccountAvailable && ExtensionPointManager.shared.isRedditEnabled else {
 				return false
 			}
 			return ExtensionPointManager.shared.isRedditEnabled
 		}
 		if item.action == #selector(showAddTwitterFeedWindow(_:)) {
-			guard !isDisplayingSheet && !AccountManager.shared.activeAccounts.isEmpty else {
+			guard !isDisplayingSheet && isSpecialAccountAvailable && ExtensionPointManager.shared.isTwitterEnabled else {
 				return false
 			}
 			return ExtensionPointManager.shared.isTwitterEnabled
@@ -566,10 +588,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 		Browser.open("https://ranchero.com/netnewswire/", inBackground: false)
 	}
+	
+	@IBAction func openReleaseNotes(_ sender: Any?) {
+		Browser.open(URL.releaseNotes.absoluteString, inBackground: false)
+	}
+	
 
 	@IBAction func openHowToSupport(_ sender: Any?) {
 		
-		Browser.open("https://github.com/brentsimmons/NetNewsWire/blob/master/Technotes/HowToSupportNetNewsWire.markdown", inBackground: false)
+		Browser.open("https://github.com/brentsimmons/NetNewsWire/blob/main/Technotes/HowToSupportNetNewsWire.markdown", inBackground: false)
 	}
 	
 	@IBAction func openRepository(_ sender: Any?) {
@@ -588,7 +615,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@IBAction func openTechnotes(_ sender: Any?) {
 
-		Browser.open("https://github.com/brentsimmons/NetNewsWire/tree/master/Technotes", inBackground: false)
+		Browser.open("https://github.com/brentsimmons/NetNewsWire/tree/main/Technotes", inBackground: false)
 	}
 
 	@IBAction func showHelp(_ sender: Any?) {

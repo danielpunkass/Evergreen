@@ -25,9 +25,13 @@ final class IconImage {
 	}()
 	
 	let image: RSImage
-	
-	init(_ image: RSImage) {
+	let isSymbol: Bool
+	let preferredColor: CGColor?
+
+	init(_ image: RSImage, isSymbol: Bool = false, preferredColor: CGColor? = nil) {
 		self.image = image
+		self.isSymbol = isSymbol
+		self.preferredColor = preferredColor
 	}
 	
 }

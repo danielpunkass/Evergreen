@@ -6,6 +6,101 @@
         <description>Most recent NetNewsWire releases (not test builds). Well, we’re including test builds up until 5.0 ships, but after that it won’t be test builds.</description>
         <language>en</language>
 
+<item>
+	<title>NetNewsWire 5.1.1</title>
+	<description><![CDATA[
+<p>Fixed a crash handling a specific type of weird URL</p>
+<p>Preferences: restored ability to set default RSS reader</p>
+<p>Fixed bug where o key wouldn’t mark older as read</p>
+<p>Fixed an Open System Preferences button in an alert that didn’t work</p>
+<p>Fixed a possible hang when adding a feed to Feedly (and the feed isn’t found)</p>
+<p>Fixed some UI issues to do with adding a Feedly account</p>
+<p>Fixed contrast in footnotes indicator</p>
+<p>Fixed bug where duplicate accounts (same username and service) could be made</p>
+<p>Fixed bug where open in Safari in background might not open in the background</p>
+	]]></description>
+	<pubDate>Mon, 05 Oct 2020 11:45:00 -0700</pubDate>
+	<enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-5.1.1/NetNewsWire5.1.1.zip" sparkle:version="3012" sparkle:shortVersionString="5.1.1" length="6582076" type="application/zip" />
+	<sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
+</item>
+
+<item>
+	<title>NetNewsWire 5.1</title>
+	<description><![CDATA[
+<p>Changes since 5.0.4:</p>
+<p>Feedly syncing</p>
+<p>Reader view</p>
+<p>Notifications (configure per feed in the Info window)</p>
+<p>Multiple windows - File > New Window</p>
+<p>View > Hide Read Feeds</p>
+<p>View > Hide Read Articles (also a filter button above timeline for this)</p>
+<p>Clean Up command (to immediately hide read articles when hide-read-articles is on)</p>
+<p>Feeds view: remember expansion state between runs</p>
+<p>Timeline: more compact rows (source and date on same line)</p>
+<p>Timeline: sort menu on top</p>
+<p>Timeline: swipe actions</p>
+<p>Article view: shift-space scrolls backwards</p>
+<p>Articles with non-ASCII URLs can now open in browser</p>
+<p>Adding feeds with non-ASCII URLs now works</p>
+<p>AppleScript: article now has a feed property</p>
+<p>Hold down shift to temporarily toggle open-in-browser in background preference</p>
+<p>Article > Mark Above as Read, Mark Below as Read</p>
+<p>Preferences: Choose preferred browser (for viewing web pages)</p>
+<p>Inspector: window title now matches name of thing being inspected</p>
+	]]></description>
+	<pubDate>Sat, 19 Sep 2020 12:45:00 -0700</pubDate>
+	<enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-5.1/NetNewsWire5.1.zip" sparkle:version="3007" sparkle:shortVersionString="5.1" length="6561360" type="application/zip" />
+	<sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
+</item>
+
+	<item>
+         <title>NetNewsWire 5.0.4</title>
+            <description><![CDATA[
+<p>Performance enhancement: fetching articles is faster and uses less memory</p>
+
+<p>Changed the retention policy to match iOS</p>
+
+<p>Feeds view: fixed bug where multiple sequential deletes could mess up the current selection index</p>
+
+<p>Article view: dealt with Twitter change that caused Twitter embeds to get cut off</p>
+
+<p>Article view: properly size emojis that are actually graphics (from Wordpress, for instance)</p>
+
+<p>Article view: stop playing any audio if the window is closed</p>
+
+<p>Article view: don’t let line lengths get too long</p>
+
+<p>Article view: fixed display of BandCamp widgets</p>
+
+<p>OPML export: use an accessory view instead of an intermediate sheet</p>
+
+<p>Add Folder: disable Add Folder button when text field is empty</p>
+
+<p>Feed icons: get more icons from Feedbin; get favicons from some tricky cases</p>
+
+<p>Add Feed: now allows IPv6 literal URLs</p>
+
+<p>Feed discovery: give less weight to feeds with the word “podcast” in them, because they’re probably not what we want</p>
+
+<p>Refreshing: fixed bug where automatic refreshing might not happening after the computer wakes from sleep</p>
+
+<p>Preferences > Accounts: Renamed “Create” account button to “Add Account”</p>
+
+<p>Fixed bug where a Feedbin article could stay unread right after you select it</p>
+
+<p>Fixed bug where folder names with double quotes would have the quotes replaced with the HTML entity for quote</p>
+
+<p>When importing from NNW 3, the app now ignores script feeds (since we don’t have that feature yet)</p>
+
+<p>Fixed bug where, right after initial launch, the spacebar might not work to go to next unread article</p>
+
+<p>Pressing return now opens the selected article in your browser</p>
+		]]></description>
+            <pubDate>Sat, 08 Aug 2020 11:40:00 -0700</pubDate>
+            <enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-5.0.4/NetNewsWire5.0.4.zip" sparkle:version="2622" sparkle:shortVersionString="5.0.4" length="5130054" type="application/zip" />
+            <sparkle:minimumSystemVersion>10.14.4</sparkle:minimumSystemVersion>
+        </item>
+
 	<item>
          <title>NetNewsWire 5.0.3</title>
             <description><![CDATA[

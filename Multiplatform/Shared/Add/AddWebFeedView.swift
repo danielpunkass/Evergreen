@@ -13,10 +13,10 @@ import RSCore
 
 struct AddWebFeedView: View {
 	
-	@Environment(\.presentationMode) private var presentationMode
 	@StateObject private var viewModel = AddWebFeedModel()
+	@Binding var isPresented: Bool
 	
-    @ViewBuilder var body: some View {
+    var body: some View {
 		#if os(iOS)
 			iosForm
 				.onAppear {
@@ -24,7 +24,7 @@ struct AddWebFeedView: View {
 				}
 				.onReceive(viewModel.$shouldDismiss, perform: { dismiss in
 					if dismiss == true {
-						presentationMode.wrappedValue.dismiss()
+						isPresented = false
 					}
 				})
 		#else
@@ -37,9 +37,10 @@ struct AddWebFeedView: View {
 						  dismissButton: Alert.Button.cancel({
 							viewModel.addFeedError = AddWebFeedError.none
 					}))
-				}.onReceive(viewModel.$shouldDismiss, perform: { dismiss in
+				}
+				.onChange(of: viewModel.shouldDismiss, perform: { dismiss in
 					if dismiss == true {
-						presentationMode.wrappedValue.dismiss()
+						isPresented = false
 					}
 				})
 		#endif
@@ -80,7 +81,7 @@ struct AddWebFeedView: View {
 	#endif
 	
 	#if os(iOS)
-	@ViewBuilder var iosForm: some View {
+	var iosForm: some View {
 		NavigationView {
 			List {
 				urlTextField
@@ -92,7 +93,7 @@ struct AddWebFeedView: View {
 			.navigationBarTitleDisplayMode(.inline)
 			.navigationBarItems(leading:
 				Button("Cancel", action: {
-					presentationMode.wrappedValue.dismiss()
+					isPresented = false
 				})
 				.help("Cancel Add Feed")
 				, trailing:
@@ -129,25 +130,25 @@ struct AddWebFeedView: View {
 	@ViewBuilder var folderPicker: some View {
 		#if os(iOS)
 		Picker("Folder", selection: $viewModel.selectedFolderIndex, content: {
-			ForEach(0..<viewModel.containers.count, id: \.self, content: { index in
-				if let containerName = (viewModel.containers[index] as? DisplayNameProvider)?.nameForDisplay {
-					if viewModel.containers[index] is Folder {
+			ForEach(0..<viewModel.containers.count, id: \.self, content: { position in
+				if let containerName = (viewModel.containers[position] as? DisplayNameProvider)?.nameForDisplay {
+					if viewModel.containers[position] is Folder {
 						HStack(alignment: .top) {
-							if let image = viewModel.smallIconImage(for: viewModel.containers[index]) {
+							if let image = viewModel.smallIconImage(for: viewModel.containers[position]) {
 								Image(rsImage: image)
 									.foregroundColor(Color("AccentColor"))
 							}
 							Text("\(containerName)")
-								.tag(index)
+								.tag(position)
 						}.padding(.leading, 16)
 					} else {
 						HStack(alignment: .top) {
-							if let image = viewModel.smallIconImage(for: viewModel.containers[index]) {
+							if let image = viewModel.smallIconImage(for: viewModel.containers[position]) {
 								Image(rsImage: image)
 									.foregroundColor(Color("AccentColor"))
 							}
 							Text(containerName)
-								.tag(index)
+								.tag(position)
 						}
 					}
 				}
@@ -188,7 +189,7 @@ struct AddWebFeedView: View {
 			}
 			Spacer()
 			Button("Cancel", action: {
-				presentationMode.wrappedValue.dismiss()
+				isPresented = false
 			})
 			.help("Cancel Add Feed")
 			
@@ -205,8 +206,4 @@ struct AddWebFeedView: View {
 	
 }
 
-struct AddFeedView_Previews: PreviewProvider {
-    static var previews: some View {
-        AddWebFeedView()
-    }
-}
+

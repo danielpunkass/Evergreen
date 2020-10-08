@@ -1,22 +1,4 @@
-[submodule "submodules/RSCore"]
-	path = submodules/RSCore
-	url = https://github.com/brentsimmons/RSCore
-[submodule "submodules/RSWeb"]
-	path = submodules/RSWeb
-	url = https://github.com/brentsimmons/RSWeb
-[submodule "submodules/RSParser"]
-	path = submodules/RSParser
-	url = https://github.com/brentsimmons/RSParser
-[submodule "submodules/RSTree"]
-	path = submodules/RSTree
-	url = https://github.com/brentsimmons/RSTree
-[submodule "submodules/RSDatabase"]
-	path = submodules/RSDatabase
-	url = https://github.com/brentsimmons/RSDatabase
 [submodule "submodules/Sparkle"]
 	path = submodules/Sparkle
 	url = https://github.com/brentsimmons/Sparkle
 	branch = ui-separation-and-xpc
-[submodule "submodules/OAuthSwift"]
-	path = submodules/OAuthSwift
-	url = https://github.com/Ranchero-Software/OAuthSwift

@@ -7,9 +7,7 @@
 //
 
 import AppKit
-import Articles
-
-import AppKit
+import Combine
 import RSCore
 import Articles
 
@@ -49,8 +47,16 @@ class WebViewController: NSViewController {
 	var sceneModel: SceneModel?
 	weak var delegate: WebViewControllerDelegate?
 	
-	var articles: [Article]?
+	var articles: [Article]? {
+		didSet {
+			if oldValue != articles {
+				loadWebView()
+			}
+		}
+	}
 	
+	private var cancellables = Set<AnyCancellable>()
+
 	override func loadView() {
 		view = NSView()
 	}
@@ -73,8 +79,11 @@ class WebViewController: NSViewController {
 			self.view.bottomAnchor.constraint(equalTo: statusBarView.bottomAnchor, constant: 2),
 			statusBarView.heightAnchor.constraint(equalToConstant: 20)
 		])
-		
-		loadWebView()
+
+		sceneModel?.timelineModel.selectedArticlesPublisher?.sink { [weak self] articles in
+			self?.articles = articles
+		}
+		.store(in: &cancellables)
 	}
 
 	// MARK: Notifications
@@ -207,6 +216,24 @@ extension WebViewController: WKScriptMessageHandler {
 	
 }
 
+extension WebViewController: WKNavigationDelegate {
+
+	public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+		if navigationAction.navigationType == .linkActivated {
+			if let url = navigationAction.request.url {
+				let flags = navigationAction.modifierFlags
+				let invert = flags.contains(.shift) || flags.contains(.command)
+				Browser.open(url.absoluteString, invertPreference: invert)
+			}
+			decisionHandler(.cancel)
+			return
+		}
+
+		decisionHandler(.allow)
+	}
+	
+}
+
 // MARK: Private
 
 private extension WebViewController {
@@ -219,24 +246,31 @@ private extension WebViewController {
 		
 		sceneModel?.webViewProvider?.dequeueWebView() { webView in
 			
-			// Add the webview
-			webView.translatesAutoresizingMaskIntoConstraints = false
-			self.view.addSubview(webView, positioned: .below, relativeTo: self.statusBarView)
-			NSLayoutConstraint.activate([
-				self.view.leadingAnchor.constraint(equalTo: webView.leadingAnchor),
-				self.view.trailingAnchor.constraint(equalTo: webView.trailingAnchor),
-				self.view.topAnchor.constraint(equalTo: webView.topAnchor),
-				self.view.bottomAnchor.constraint(equalTo: webView.bottomAnchor)
-			])
-		
-			webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasClicked)
-			webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasShown)
-			webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.mouseDidEnter)
-			webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.mouseDidExit)
-			webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.showFeedInspector)
-
-			self.renderPage(webView)
+			webView.ready {
+				
+				// Add the webview
+				self.webView = webView
+				
+				webView.translatesAutoresizingMaskIntoConstraints = false
+				self.view.addSubview(webView, positioned: .below, relativeTo: self.statusBarView)
+				NSLayoutConstraint.activate([
+					self.view.leadingAnchor.constraint(equalTo: webView.leadingAnchor),
+					self.view.trailingAnchor.constraint(equalTo: webView.trailingAnchor),
+					self.view.topAnchor.constraint(equalTo: webView.topAnchor),
+					self.view.bottomAnchor.constraint(equalTo: webView.bottomAnchor)
+				])
+				
+				webView.navigationDelegate = self
 			
+				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasClicked)
+				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasShown)
+				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.mouseDidEnter)
+				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.mouseDidExit)
+				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.showFeedInspector)
+
+				self.renderPage(webView)
+			
+			}
 		}
 		
 	}

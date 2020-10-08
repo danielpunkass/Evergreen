@@ -23,10 +23,6 @@ class WebViewProvider: NSObject {
 		super.init()
 		replenishQueueIfNeeded()
 	}
-	
-	func flushQueue() {
-		operationQueue.add(WebViewProviderFlushQueueOperation(queue: queue))
-	}
 
 	func replenishQueueIfNeeded() {
 		operationQueue.add(WebViewProviderReplenishQueueOperation(queue: queue, articleIconSchemeHandler: articleIconSchemeHandler))
@@ -35,28 +31,6 @@ class WebViewProvider: NSObject {
 	func dequeueWebView(completion: @escaping (PreloadedWebView) -> ()) {
 		operationQueue.add(WebViewProviderDequeueOperation(queue: queue, articleIconSchemeHandler: articleIconSchemeHandler, completion: completion))
 		operationQueue.add(WebViewProviderReplenishQueueOperation(queue: queue, articleIconSchemeHandler: articleIconSchemeHandler))
-	}
-	
-}
-
-class WebViewProviderFlushQueueOperation: MainThreadOperation {
-	
-	// MainThreadOperation
-	public var isCanceled = false
-	public var id: Int?
-	public weak var operationDelegate: MainThreadOperationDelegate?
-	public var name: String? = "WebViewProviderFlushQueueOperation"
-	public var completionBlock: MainThreadOperation.MainThreadOperationCompletionBlock?
-
-	private var queue: NSMutableArray
-	
-	init(queue: NSMutableArray) {
-		self.queue = queue
-	}
-	
-	func run() {
-		queue.removeAllObjects()
-		self.operationDelegate?.operationDidComplete(self)
 	}
 	
 }
@@ -83,8 +57,8 @@ class WebViewProviderReplenishQueueOperation: MainThreadOperation {
 	func run() {
 		while queue.count < minimumQueueDepth {
 			let webView = PreloadedWebView(articleIconSchemeHandler: articleIconSchemeHandler)
-			queue.insert(webView, at: 0)
 			webView.preload()
+			queue.insert(webView, at: 0)
 		}
 		self.operationDelegate?.operationDidComplete(self)
 	}
@@ -112,10 +86,8 @@ class WebViewProviderDequeueOperation: MainThreadOperation {
 	
 	func run() {
 		if let webView = queue.lastObject as? PreloadedWebView {
-			webView.ready { preloadedWebView in
-				self.completion(preloadedWebView)
-				self.queue.remove(webView)
-			}
+			self.completion(webView)
+			self.queue.remove(webView)
 			self.operationDelegate?.operationDidComplete(self)
 			return
 		}
@@ -124,9 +96,7 @@ class WebViewProviderDequeueOperation: MainThreadOperation {
 		
 		let webView = PreloadedWebView(articleIconSchemeHandler: articleIconSchemeHandler)
 		webView.preload()
-		webView.ready { preloadedWebView in
-			self.completion(preloadedWebView)
-		}
+		self.completion(webView)
 		self.operationDelegate?.operationDidComplete(self)
 	}
 	

@@ -10,6 +10,7 @@ import Foundation
 import Combine
 import RSCore
 import Account
+import Articles
 
 protocol SidebarModelDelegate: class {
 	func unreadCount(for: Feed) -> Int
@@ -17,74 +18,238 @@ protocol SidebarModelDelegate: class {
 
 class SidebarModel: ObservableObject, UndoableCommandRunner {
 	
-	weak var delegate: SidebarModelDelegate?
-	
-	@Published var sidebarItems = [SidebarItem]()
 	@Published var selectedFeedIdentifiers = Set<FeedIdentifier>()
 	@Published var selectedFeedIdentifier: FeedIdentifier? = .none
-	@Published var selectedFeeds = [Feed]()
 	@Published var isReadFiltered = false
+	@Published var expandedContainers = SidebarExpandedContainers()
+	@Published var showDeleteConfirmation: Bool = false 
 	
-	private var selectedFeedIdentifiersCancellable: AnyCancellable?
-	private var selectedFeedIdentifierCancellable: AnyCancellable?
-	private var selectedReadFilteredCancellable: AnyCancellable?
+	weak var delegate: SidebarModelDelegate?
 
-	private let rebuildSidebarItemsQueue = CoalescingQueue(name: "Rebuild The Sidebar Items", interval: 0.5)
+	var sidebarItemsPublisher: AnyPublisher<[SidebarItem], Never>?
+	var selectedFeedsPublisher: AnyPublisher<[Feed], Never>?
+	
+	var selectNextUnread = PassthroughSubject<Void, Never>()
+	var markAllAsReadInFeed = PassthroughSubject<Feed, Never>()
+	var markAllAsReadInAccount = PassthroughSubject<Account, Never>()
+	var deleteFromAccount = PassthroughSubject<Feed, Never>()
+
+	var sidebarItemToDelete: Feed?
+	
+	private var cancellables = Set<AnyCancellable>()
 
 	var undoManager: UndoManager?
 	var undoableCommands = [UndoableCommand]()
 
-	init() {
-		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidInitialize(_:)), name: .UnreadCountDidInitialize, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(containerChildrenDidChange(_:)), name: .ChildrenDidChange, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(batchUpdateDidPerform(_:)), name: .BatchUpdateDidPerform, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange(_:)), name: .DisplayNameDidChange, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(accountStateDidChange(_:)), name: .AccountStateDidChange, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(userDidAddAccount(_:)), name: .UserDidAddAccount, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(userDidDeleteAccount(_:)), name: .UserDidDeleteAccount, object: nil)
-		
-		// TODO: This should be rewritten to use Combine correctly
-		selectedFeedIdentifiersCancellable = $selectedFeedIdentifiers.sink { [weak self] feedIDs in
-			guard let self = self else { return }
-			self.selectedFeeds = feedIDs.compactMap { self.findFeed($0) }
-		}
-		
-		// TODO: This should be rewritten to use Combine correctly
-		selectedFeedIdentifierCancellable = $selectedFeedIdentifier.sink { [weak self] feedID in
-			guard let self = self else { return }
-			if let feedID = feedID, let feed = self.findFeed(feedID) {
-				self.selectedFeeds = [feed]
-			}
-		}
-
-		selectedReadFilteredCancellable = $isReadFiltered.sink { [weak self] filter in
-			guard let self = self else { return }
-			self.rebuildSidebarItems(isReadFiltered: filter)
-		}
+	init(delegate: SidebarModelDelegate) {
+		self.delegate = delegate
+		subscribeToSelectedFeedChanges()
+		subscribeToRebuildSidebarItemsEvents()
+		subscribeToNextUnread()
+		subscribeToMarkAllAsReadInFeed()
+		subscribeToMarkAllAsReadInAccount()
+		subscribeToDeleteFromAccount()
 	}
 	
-	// MARK: API
-	
-	/// Rebuilds the sidebar items to cause the sidebar to rebuild itself
-	func rebuildSidebarItems() {
-		rebuildSidebarItemsWithCurrentValues()
-	}
+}
 
+
+extension SidebarModel {
+	
+	func countOfFeedsToDelete() -> Int {
+		var selectedFeeds = selectedFeedIdentifiers
+		
+		if sidebarItemToDelete != nil {
+			selectedFeeds.insert(sidebarItemToDelete!.feedID!)
+		}
+		
+		return selectedFeeds.count
+	}
+	
+	
+	func namesOfFeedsToDelete() -> String {
+		var selectedFeeds = selectedFeedIdentifiers
+		
+		if sidebarItemToDelete != nil {
+			selectedFeeds.insert(sidebarItemToDelete!.feedID!)
+		}
+		
+		let feeds: [Feed] = selectedFeeds
+			.compactMap({ AccountManager.shared.existingFeed(with: $0) })
+		
+		return feeds
+			.map({ $0.nameForDisplay })
+			.joined(separator: ", ")
+	}
+	
 }
 
 // MARK: Private
 
 private extension SidebarModel {
 	
-	func findFeed(_ feedID: FeedIdentifier) -> Feed? {
-		switch feedID {
-		case .smartFeed:
-			return SmartFeedsController.shared.find(by: feedID)
-		default:
-			return AccountManager.shared.existingFeed(with: feedID)
-		}
+	// MARK: Subscriptions
+	
+	func subscribeToSelectedFeedChanges() {
+		
+		let selectedFeedIdentifersPublisher = $selectedFeedIdentifiers
+			.map { [weak self] feedIDs -> [Feed] in
+				return feedIDs.compactMap { self?.findFeed($0) }
+			}
+			
+		
+		let selectedFeedIdentiferPublisher = $selectedFeedIdentifier
+			.compactMap { [weak self] feedID -> [Feed]? in
+				if let feedID = feedID, let feed = self?.findFeed(feedID) {
+					return [feed]
+				} else {
+					return nil
+				}
+			}
+		
+		selectedFeedsPublisher = selectedFeedIdentifersPublisher
+			.merge(with: selectedFeedIdentiferPublisher)
+			.removeDuplicates(by: { previousFeeds, currentFeeds in
+				return previousFeeds.elementsEqual(currentFeeds, by: { $0.feedID == $1.feedID })
+			})
+			.share()
+			.eraseToAnyPublisher()
 	}
+	
+	func subscribeToRebuildSidebarItemsEvents() {
+		guard let selectedFeedsPublisher = selectedFeedsPublisher else { return }
+		
+		let chidrenDidChangePublisher = NotificationCenter.default.publisher(for: .ChildrenDidChange)
+		let batchUpdateDidPerformPublisher = NotificationCenter.default.publisher(for: .BatchUpdateDidPerform)
+		let displayNameDidChangePublisher = NotificationCenter.default.publisher(for: .DisplayNameDidChange)
+		let accountStateDidChangePublisher = NotificationCenter.default.publisher(for: .AccountStateDidChange)
+		let userDidAddAccountPublisher = NotificationCenter.default.publisher(for: .UserDidAddAccount)
+		let userDidDeleteAccountPublisher = NotificationCenter.default.publisher(for: .UserDidDeleteAccount)
+		let unreadCountDidInitializePublisher = NotificationCenter.default.publisher(for: .UnreadCountDidInitialize)
+		let unreadCountDidChangePublisher = NotificationCenter.default.publisher(for: .UnreadCountDidChange)
+
+		let sidebarRebuildPublishers = chidrenDidChangePublisher.merge(with: batchUpdateDidPerformPublisher,
+																	   displayNameDidChangePublisher,
+																	   accountStateDidChangePublisher,
+																	   userDidAddAccountPublisher,
+																	   userDidDeleteAccountPublisher,
+																	   unreadCountDidInitializePublisher,
+																	   unreadCountDidChangePublisher)
+		
+		let kickStarter = Notification(name: Notification.Name(rawValue: "Kick Starter"))
+		
+		sidebarItemsPublisher = sidebarRebuildPublishers
+			.prepend(kickStarter)
+			.debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+			.combineLatest($isReadFiltered, selectedFeedsPublisher)
+			.compactMap {  [weak self] _, readFilter, selectedFeeds in
+				self?.rebuildSidebarItems(isReadFiltered: readFilter, selectedFeeds: selectedFeeds)
+			}
+			.share()
+			.eraseToAnyPublisher()
+	}
+	
+	func subscribeToNextUnread() {
+		guard let sidebarItemsPublisher = sidebarItemsPublisher, let selectedFeedsPublisher = selectedFeedsPublisher else { return }
+
+		selectNextUnread
+			.withLatestFrom(sidebarItemsPublisher, selectedFeedsPublisher)
+			.compactMap { [weak self] (sidebarItems, selectedFeeds) in
+				return self?.nextUnread(sidebarItems: sidebarItems, selectedFeeds: selectedFeeds)
+			}
+			.sink { [weak self] nextFeedID in
+				self?.select(nextFeedID)
+			}
+			.store(in: &cancellables)
+	}
+	
+	func subscribeToMarkAllAsReadInFeed() {
+		guard let selectedFeedsPublisher = selectedFeedsPublisher else { return }
+
+		markAllAsReadInFeed
+			.withLatestFrom(selectedFeedsPublisher, resultSelector: { givenFeed, selectedFeeds -> [Feed] in
+				if selectedFeeds.contains(where: { $0.feedID == givenFeed.feedID }) {
+					return selectedFeeds
+				} else {
+					return [givenFeed]
+				}
+			})
+			.map { feeds in
+				var articles = [Article]()
+				for feed in feeds {
+					articles.append(contentsOf: (try? feed.fetchUnreadArticles()) ?? Set<Article>())
+				}
+				return articles
+			}
+			.sink { [weak self] allArticles in
+				self?.markAllAsRead(allArticles)
+			}
+			.store(in: &cancellables)
+	}
+	
+	func subscribeToMarkAllAsReadInAccount() {
+		markAllAsReadInAccount
+			.map { account in
+				var articles = [Article]()
+				for feed in account.flattenedWebFeeds() {
+					articles.append(contentsOf: (try? feed.fetchUnreadArticles()) ?? Set<Article>())
+				}
+				return articles
+			}
+			.sink { [weak self] articles in
+				self?.markAllAsRead(articles)
+			}
+			.store(in: &cancellables)
+	}
+	
+	func subscribeToDeleteFromAccount() {
+		guard let selectedFeedsPublisher = selectedFeedsPublisher else { return }
+		
+		deleteFromAccount
+			.withLatestFrom(selectedFeedsPublisher.prepend([Feed]()), resultSelector: { givenFeed, selectedFeeds -> [Feed] in
+				if selectedFeeds.contains(where: { $0.feedID == givenFeed.feedID }) {
+					return selectedFeeds
+				} else {
+					return [givenFeed]
+				}
+			})
+			.sink { feeds in
+				for feed in feeds {
+					if let webFeed = feed as? WebFeed {
+						guard let account = webFeed.account,
+							  let containerID = account.containerID,
+							  let container = AccountManager.shared.existingContainer(with: containerID) else {
+							return
+						}
+						account.removeWebFeed(webFeed, from: container, completion: { result in
+							switch result {
+							case .success:
+								break
+							case .failure(let err):
+								print(err)
+							}
+						})
+					}
+					if let folder = feed as? Folder {
+						folder.account?.removeFolder(folder) { _ in }
+					}
+				}
+			}
+			.store(in: &cancellables)
+	}
+	
+	/// Marks provided artices as read.
+	/// - Parameter articles: An array of `Article`s.
+	/// - Warning: An `UndoManager` is created here as the `Environment`'s undo manager appears to be `nil`.
+	func markAllAsRead(_ articles: [Article]) {
+		guard let undoManager = undoManager ?? UndoManager(),
+			  let markAsReadCommand = MarkStatusCommand(initialArticles: articles, markingRead: true, undoManager: undoManager) else {
+			return
+		}
+		runCommand(markAsReadCommand)
+	}
+	
+	// MARK: Sidebar Building
 	
 	func sort(_ folders: Set<Folder>) -> [Folder] {
 		return folders.sorted(by: { $0.nameForDisplay.localizedStandardCompare($1.nameForDisplay) == .orderedAscending })
@@ -94,17 +259,9 @@ private extension SidebarModel {
 		return feeds.sorted(by: { $0.nameForDisplay.localizedStandardCompare($1.nameForDisplay) == .orderedAscending })
 	}
 	
-	func queueRebuildSidebarItems() {
-		rebuildSidebarItemsQueue.add(self, #selector(rebuildSidebarItemsWithCurrentValues))
-	}
-	
-	@objc func rebuildSidebarItemsWithCurrentValues() {
-		rebuildSidebarItems(isReadFiltered: isReadFiltered)
-	}
-	
-	func rebuildSidebarItems(isReadFiltered: Bool) {
-		guard let delegate = delegate else { return }
+	func rebuildSidebarItems(isReadFiltered: Bool, selectedFeeds: [Feed]) -> [SidebarItem] {
 		var items = [SidebarItem]()
+		guard let delegate = delegate else { return items }
 		
 		var smartFeedControllerItem = SidebarItem(SmartFeedsController.shared)
 		for feed in SmartFeedsController.shared.smartFeeds {
@@ -116,20 +273,22 @@ private extension SidebarModel {
 		}
 		items.append(smartFeedControllerItem)
 
+		let selectedFeedIDs = Set(selectedFeeds.map { $0.feedID })
+		
 		for account in AccountManager.shared.sortedActiveAccounts {
 			var accountItem = SidebarItem(account)
 			
 			for webFeed in sort(account.topLevelWebFeeds) {
-				if !isReadFiltered || webFeed.unreadCount > 0 {
+				if !isReadFiltered || !(webFeed.unreadCount < 1 && !selectedFeedIDs.contains(webFeed.feedID)) {
 					accountItem.addChild(SidebarItem(webFeed, unreadCount: delegate.unreadCount(for: webFeed)))
 				}
 			}
 			
 			for folder in sort(account.folders ?? Set<Folder>()) {
-				if !isReadFiltered || folder.unreadCount > 0 {
+				if !isReadFiltered || !(folder.unreadCount < 1 && !selectedFeedIDs.contains(folder.feedID)) {
 					var folderItem = SidebarItem(folder, unreadCount: delegate.unreadCount(for: folder))
 					for webFeed in sort(folder.topLevelWebFeeds) {
-						if !isReadFiltered || webFeed.unreadCount > 0 {
+						if !isReadFiltered || !(webFeed.unreadCount < 1 && !selectedFeedIDs.contains(webFeed.feedID)) {
 							folderItem.addChild(SidebarItem(webFeed, unreadCount: delegate.unreadCount(for: webFeed)))
 						}
 					}
@@ -140,48 +299,59 @@ private extension SidebarModel {
 			items.append(accountItem)
 		}
 		
-		sidebarItems = items
+		return items
 	}
 	
-	// MARK: Notifications
+	// MARK:
 	
-	@objc func unreadCountDidInitialize(_ notification: Notification) {
-		guard notification.object is AccountManager else {
-			return
+	func findFeed(_ feedID: FeedIdentifier) -> Feed? {
+		switch feedID {
+		case .smartFeed:
+			return SmartFeedsController.shared.find(by: feedID)
+		default:
+			return AccountManager.shared.existingFeed(with: feedID)
 		}
-		rebuildSidebarItems(isReadFiltered: isReadFiltered)
+	}
+	
+	func nextUnread(sidebarItems: [SidebarItem], selectedFeeds: [Feed]) -> FeedIdentifier? {
+		guard let startFeed = selectedFeeds.first ?? sidebarItems.first?.children.first?.feed else { return nil }
+
+		if let feedID = nextUnread(sidebarItems: sidebarItems, startingAt: startFeed) {
+			return feedID
+		} else {
+			return nextUnread(sidebarItems: sidebarItems, startingAt: nil)
+		}
+	}
+	
+	@discardableResult
+	func nextUnread(sidebarItems: [SidebarItem], startingAt: Feed?) -> FeedIdentifier? {
+		var foundStartFeed = startingAt == nil ? true : false
+		var nextSidebarItem: SidebarItem? = nil
+		
+		for section in sidebarItems {
+			if nextSidebarItem == nil  {
+				section.visit { sidebarItem in
+					if !foundStartFeed && sidebarItem.feed?.feedID == startingAt?.feedID {
+						foundStartFeed = true
+						return false
+					}
+					if foundStartFeed && sidebarItem.unreadCount > 0 {
+						nextSidebarItem = sidebarItem
+						return true
+					}
+					return false
+				}
+			}
+		}
+
+		return nextSidebarItem?.feed?.feedID
 	}
 
-	@objc func unreadCountDidChange(_ note: Notification) {
-		// We will handle the filtering of unread feeds in unreadCountDidInitialize after they have all be calculated
-		guard AccountManager.shared.isUnreadCountsInitialized else {
-			return
-		}
-		queueRebuildSidebarItems()
+	func select(_ feedID: FeedIdentifier) {
+		selectedFeedIdentifiers = Set([feedID])
+		selectedFeedIdentifier = feedID
 	}
 	
-	@objc func containerChildrenDidChange(_ notification: Notification) {
-		rebuildSidebarItems(isReadFiltered: isReadFiltered)
-	}
 	
-	@objc func batchUpdateDidPerform(_ notification: Notification) {
-		rebuildSidebarItems(isReadFiltered: isReadFiltered)
-	}
-	
-	@objc func displayNameDidChange(_ note: Notification) {
-		rebuildSidebarItems(isReadFiltered: isReadFiltered)
-	}
-	
-	@objc func accountStateDidChange(_ note: Notification) {
-		rebuildSidebarItems(isReadFiltered: isReadFiltered)
-	}
-	
-	@objc func userDidAddAccount(_ note: Notification) {
-		rebuildSidebarItems(isReadFiltered: isReadFiltered)
-	}
-	
-	@objc func userDidDeleteAccount(_ note: Notification) {
-		rebuildSidebarItems(isReadFiltered: isReadFiltered)
-	}
 	
 }

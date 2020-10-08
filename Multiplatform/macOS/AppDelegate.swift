@@ -10,10 +10,10 @@ import AppKit
 import os.log
 import UserNotifications
 import Articles
-import RSTree
 import RSWeb
 import Account
 import RSCore
+import Secrets
 
 // If we're not going to import Sparkle, provide dummy protocols to make it easy
 // for AppDelegate to comply
@@ -65,13 +65,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 	private let appNewsURLString = "https://nnw.ranchero.com/feed.json"
 	private let appMovementMonitor = RSAppMovementMonitor()
 	#if !MAC_APP_STORE && !TEST
-	private var softwareUpdater: SPUUpdater!
+	var softwareUpdater: SPUUpdater!
 	#endif
 
 	override init() {
-		NSWindow.allowsAutomaticWindowTabbing = false
 		super.init()
 
+		SecretsManager.provider = Secrets()
 		AccountManager.shared = AccountManager(accountsFolder: Platform.dataSubfolder(forApplication: nil, folderName: "Accounts")!)
 		FeedProviderManager.shared.delegate = ExtensionPointManager.shared
 

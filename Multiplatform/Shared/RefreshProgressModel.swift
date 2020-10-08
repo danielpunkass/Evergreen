@@ -6,10 +6,10 @@
 //  Copyright © 2020 Ranchero Software. All rights reserved.
 //
 
-import Account
-import Combine
-import Foundation
 import SwiftUI
+import Combine
+import RSCore
+import Account
 
 class RefreshProgressModel: ObservableObject {
 	
@@ -28,19 +28,11 @@ class RefreshProgressModel: ObservableObject {
 		return formatter
 	}()
 		
-	private let lastRefreshDate: () -> Date?
-	private let combinedRefreshProgress: () -> CombinedRefreshProgress
-	
 	private static let lastRefreshDateTextUpdateInterval = 60
 	private static let lastRefreshDateTextRelativeDateFormattingThreshold = 60.0
 	
-	init(lastRefreshDateProvider: @escaping () -> Date?,
-		 combinedRefreshProgressProvider: @escaping () -> CombinedRefreshProgress) {
-		self.lastRefreshDate = lastRefreshDateProvider
-		self.combinedRefreshProgress = combinedRefreshProgressProvider
-		
+	func startup() {
 		updateState()
-		
 		observeRefreshProgress()
 		scheduleLastRefreshDateTextUpdate()
 	}
@@ -48,18 +40,22 @@ class RefreshProgressModel: ObservableObject {
 	// MARK: Observing account changes
 	
 	private func observeRefreshProgress() {
-		NotificationCenter.default.addObserver(self, selector: #selector(updateState), name: .AccountRefreshProgressDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(accountRefreshProgressDidChange), name: .AccountRefreshProgressDidChange, object: nil)
 	}
 	
 	// MARK: Refreshing state
 	
+	@objc private func accountRefreshProgressDidChange() {
+		CoalescingQueue.standard.add(self, #selector(updateState))
+	}
+	
 	@objc private func updateState() {
-		let progress = combinedRefreshProgress()
+		let progress = AccountManager.shared.combinedRefreshProgress
 		
 		if !progress.isComplete {
 			let fractionCompleted = Float(progress.numberCompleted) / Float(progress.numberOfTasks)
 			self.state = .refreshProgress(fractionCompleted)
-		} else if let lastRefreshDate = self.lastRefreshDate() {
+		} else if let lastRefreshDate = AccountManager.shared.lastArticleFetchEndTime {
 			let text = localizedLastRefreshText(lastRefreshDate: lastRefreshDate)
 			self.state = .lastRefreshDateText(text)
 		} else {
@@ -85,17 +81,6 @@ class RefreshProgressModel: ObservableObject {
 		} else {
 			return NSLocalizedString("Updated Just Now", comment: "Updated Just Now")
 		}
-	}
-		
-}
-
-extension RefreshProgressModel {
-	
-	convenience init() {
-		self.init(
-			lastRefreshDateProvider: { AccountManager.shared.lastArticleFetchEndTime },
-			combinedRefreshProgressProvider: { AccountManager.shared.combinedRefreshProgress }
-		)
 	}
 		
 }

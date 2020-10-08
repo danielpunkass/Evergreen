@@ -233,21 +233,24 @@ class SettingsViewController: UITableViewController {
 				openURL("https://ranchero.com/netnewswire/")
 				tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
 			case 2:
-				openURL("https://github.com/brentsimmons/NetNewsWire/blob/master/Technotes/HowToSupportNetNewsWire.markdown")
+				openURL(URL.releaseNotes.absoluteString)
 				tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
 			case 3:
-				openURL("https://github.com/brentsimmons/NetNewsWire")
+				openURL("https://github.com/brentsimmons/NetNewsWire/blob/main/Technotes/HowToSupportNetNewsWire.markdown")
 				tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
 			case 4:
-				openURL("https://github.com/brentsimmons/NetNewsWire/issues")
+				openURL("https://github.com/brentsimmons/NetNewsWire")
 				tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
 			case 5:
-				openURL("https://github.com/brentsimmons/NetNewsWire/tree/master/Technotes")
+				openURL("https://github.com/brentsimmons/NetNewsWire/issues")
 				tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
 			case 6:
-				openURL("https://ranchero.com/netnewswire/slack")
+				openURL("https://github.com/brentsimmons/NetNewsWire/tree/main/Technotes")
 				tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
 			case 7:
+				openURL("https://ranchero.com/netnewswire/slack")
+				tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
+			case 8:
 				let timeline = UIStoryboard.settings.instantiateController(ofType: AboutViewController.self)
 				self.navigationController?.pushViewController(timeline, animated: true)
 			default:
@@ -371,14 +374,13 @@ private extension SettingsViewController {
 	
 	func addFeed() {
 		self.dismiss(animated: true)
-		
-		let addNavViewController = UIStoryboard.add.instantiateInitialViewController() as! UINavigationController
-		let addViewController = addNavViewController.topViewController as! AddContainerViewController
-		addNavViewController.modalPresentationStyle = .formSheet
-		addNavViewController.preferredContentSize = AddContainerViewController.preferredContentSizeForFormSheetDisplay
-		addViewController.initialControllerType = .feed
+
+		let addNavViewController = UIStoryboard.add.instantiateViewController(withIdentifier: "AddWebFeedViewControllerNav") as! UINavigationController
+		let addViewController = addNavViewController.topViewController as! AddFeedViewController
 		addViewController.initialFeed = appNewsURLString
-		addViewController.initialFeedName = "NetNewsWire News"
+		addViewController.initialFeedName = NSLocalizedString("NetNewsWire News", comment: "NetNewsWire News")
+		addNavViewController.modalPresentationStyle = .formSheet
+		addNavViewController.preferredContentSize = AddFeedViewController.preferredContentSizeForFormSheetDisplay
 		
 		presentingParentController?.present(addNavViewController, animated: true)
 	}

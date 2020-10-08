@@ -8,19 +8,18 @@
 
 import Foundation
 
-enum ToolbarSheets {
-	case none, web, twitter, reddit, folder, settings
+enum SidebarSheets {
+	case none, web, twitter, reddit, folder, settings, fixCredentials
 }
 
 class SidebarToolbarModel: ObservableObject {
 	
 	@Published var showSheet: Bool = false
-	@Published var sheetToShow: ToolbarSheets = .none {
+	@Published var sheetToShow: SidebarSheets = .none {
 		didSet {
 			sheetToShow != .none ? (showSheet = true) : (showSheet = false)
 		}
 	}
-	@Published var showActionSheet: Bool = false
 	@Published var showAddSheet: Bool = false
 	
 }

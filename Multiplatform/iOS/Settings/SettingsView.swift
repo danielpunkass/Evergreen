@@ -8,13 +8,10 @@
 
 import SwiftUI
 import Account
-import UniformTypeIdentifiers
 
 struct SettingsView: View {
 	
 	@Environment(\.presentationMode) var presentationMode
-	@Environment(\.exportFiles) var exportAction
-	@Environment(\.importFiles) var importAction
 
 	@StateObject private var viewModel = SettingsModel()
 	@StateObject private var feedsSettingsModel = FeedsSettingsModel()
@@ -41,6 +38,18 @@ struct SettingsView: View {
 				}
 			)
 		}
+		.fileImporter(
+			isPresented: $feedsSettingsModel.isImporting,
+			allowedContentTypes: feedsSettingsModel.importingContentTypes,
+			allowsMultipleSelection: true,
+			onCompletion: { result in
+				if let urls = try? result.get() {
+					feedsSettingsModel.processImportedFiles(urls)
+				}
+			}
+		)
+		.fileMover(isPresented: $feedsSettingsModel.isExporting,
+				   file: feedsSettingsModel.generateExportURL()) { _ in }
 		.sheet(isPresented: $viewModel.presentSheet, content: {
 			SafariView(url: viewModel.selectedWebsite.url!)
 		})
@@ -75,20 +84,33 @@ struct SettingsView: View {
 	
 	var importExport: some View {
 		Section(header: Text("Feeds"), content: {
-			Button(action:{
-				feedsSettingsModel.onTapImportOPML(action: importOPML)
-			}) {
-				Text("Import Subscriptions")
-					.actionSheet(isPresented: $feedsSettingsModel.showingImportActionSheet, content: importActionSheet)
-					.foregroundColor(.primary)
+			if viewModel.activeAccounts.count > 1 {
+				NavigationLink("Import Subscriptions", destination: importOptions)
 			}
-			Button(action:{
-				feedsSettingsModel.onTapExportOPML(action: exportOPML)
-			}) {
-				Text("Export Subscriptions")
-					.actionSheet(isPresented: $feedsSettingsModel.showingExportActionSheet, content: exportActionSheet)
-					.foregroundColor(.primary)
+			else {
+				Button(action:{
+					if feedsSettingsModel.checkForActiveAccount() {
+						feedsSettingsModel.importOPML(account: viewModel.activeAccounts.first)
+					}
+				}) {
+					Text("Import Subscriptions")
+						.foregroundColor(.primary)
+				}
 			}
+
+			if viewModel.accounts.count > 1 {
+				NavigationLink("Export Subscriptions", destination: exportOptions)
+			}
+			else {
+				Button(action:{
+					feedsSettingsModel.exportOPML(account: viewModel.accounts.first)
+				}) {
+					Text("Export Subscriptions")
+						.foregroundColor(.primary)
+				}
+			}
+			Toggle("Confirm When Deleting", isOn: $settings.sidebarConfirmDelete)
+				.toggleStyle(SwitchToggleStyle(tint: .accentColor))
 		})
 		.alert(isPresented: $feedsSettingsModel.showError) {
 			Alert(
@@ -98,35 +120,43 @@ struct SettingsView: View {
 					feedsSettingsModel.feedsSettingsError = FeedsSettingsError.none
 				}))
 		}
-
 	}
 
-	private func importActionSheet() -> ActionSheet {
-		var buttons = viewModel.accounts.map { (account) -> ActionSheet.Button in
-			ActionSheet.Button.default(Text(account.nameForDisplay)) {
-				importOPML(account: account)
-			}
+	var importOptions: some View {
+		List {
+			Section(header: Text("Choose an account to receive the imported feeds and folders"), content: {
+				ForEach(0..<viewModel.activeAccounts.count, id: \.hashValue , content: { i in
+					Button {
+						feedsSettingsModel.importOPML(account: viewModel.activeAccounts[i])
+					} label: {
+						Text(viewModel.activeAccounts[i].nameForDisplay)
+					}
+				})
+			})
 		}
-		buttons.append(.cancel())
-		return ActionSheet(
-			title: Text("Choose an account to receive the imported feeds and folders"),
-			buttons: buttons
-		)
+		.listStyle(InsetGroupedListStyle())
+		.navigationBarTitle("Import Subscriptions", displayMode: .inline)
 	}
 
-	private func exportActionSheet() -> ActionSheet {
-		var buttons = viewModel.accounts.map { (account) -> ActionSheet.Button in
-			ActionSheet.Button.default(Text(account.nameForDisplay)) {
-				exportOPML(account: account)
-			}
+	var exportOptions: some View {
+		List {
+			Section(header: Text("Choose an account with the subscriptions to export"), content: {
+				ForEach(0..<viewModel.accounts.count, id: \.hashValue , content: { i in
+					Button {
+						feedsSettingsModel.exportOPML(account: viewModel.accounts[i])
+					} label: {
+						Text(viewModel.accounts[i].nameForDisplay)
+					}
+				})
+				
+			})
 		}
-		buttons.append(.cancel())
-		return ActionSheet(
-			title: Text("Choose an account with the subscriptions to export"),
-			buttons: buttons
-		)
+		.listStyle(InsetGroupedListStyle())
+		.navigationBarTitle("Export Subscriptions", displayMode: .inline)
 	}
-
+	
+	
+	
 	var timeline: some View {
 		Section(header: Text("Timeline"), content: {
 			Toggle("Sort Oldest to Newest", isOn: $settings.timelineSortDirection)
@@ -187,6 +217,9 @@ struct SettingsView: View {
 			Button("NetNewsWire Slack", action: {
 				viewModel.selectedWebsite = .netNewsWireSlack
 			}).foregroundColor(.primary)
+			Button("Release Notes", action: {
+				viewModel.selectedWebsite = .releaseNotes
+			}).foregroundColor(.primary)
 			NavigationLink(
 				destination: SettingsAboutView(),
 				label: {
@@ -197,29 +230,11 @@ struct SettingsView: View {
 	}
 	
 	private func appVersion() -> String {
-		let dict = NSDictionary(contentsOf: Bundle.main.url(forResource: "Info", withExtension: "plist")!)
-		let version = dict?.object(forKey: "CFBundleShortVersionString") as? String ?? ""
-		let build = dict?.object(forKey: "CFBundleVersion") as? String ?? ""
+		let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+		let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
 		return "NetNewsWire \(version) (Build \(build))"
 	}
 
-	private func exportOPML(account: Account?) {
-		guard let account = account,
-			  let url = feedsSettingsModel.generateExportURL(for: account) else {
-			return
-		}
-
-		exportAction(moving: url) { _ in }
-	}
-
-	private func importOPML(account: Account?) {
-		let types = [UTType(filenameExtension: "opml"), UTType("public.xml")].compactMap { $0 }
-		importAction(multipleOfType: types) { (result: Result<[URL], Error>?) in
-			if let urls = try? result?.get() {
-				feedsSettingsModel.processImportedFiles(urls, account)
-			}
-		}
-	}
 }
 
 struct SettingsView_Previews: PreviewProvider {

@@ -11,13 +11,22 @@ import Account
 
 struct SidebarView: View {
 	
+	@Binding var sidebarItems: [SidebarItem]
+	
+	@EnvironmentObject private var refreshProgress: RefreshProgressModel
+	@EnvironmentObject private var sceneModel: SceneModel
+	@EnvironmentObject private var sidebarModel: SidebarModel
+
 	// I had to comment out SceneStorage because it blows up if used on macOS
 	//	@SceneStorage("expandedContainers") private var expandedContainerData = Data()
-	@StateObject private var expandedContainers = SidebarExpandedContainers()
-	@EnvironmentObject private var sidebarModel: SidebarModel
-	@State var navigate = false
 
-	@ViewBuilder var body: some View {
+	private let threshold: CGFloat = 80
+	@State private var previousScrollOffset: CGFloat = 0
+	@State private var scrollOffset: CGFloat = 0
+	@State var pulling: Bool = false
+	@State var refreshing: Bool = false
+
+	var body: some View {
 		#if os(macOS)
 		VStack {
 			HStack {
@@ -37,24 +46,72 @@ struct SidebarView: View {
 				.buttonStyle(PlainButtonStyle())
 				.help(sidebarModel.isReadFiltered ? "Show Read Feeds" : "Filter Read Feeds")
 			}
-			ZStack {
-				NavigationLink(destination: TimelineContainerView(feeds: sidebarModel.selectedFeeds), isActive: $navigate) {
-					EmptyView()
-				}.hidden()
-				List(selection: $sidebarModel.selectedFeedIdentifiers) {
-					rows
+			List(selection: $sidebarModel.selectedFeedIdentifiers) {
+				rows
+			}
+			if case .refreshProgress(let percent) = refreshProgress.state {
+				HStack(alignment: .center) {
+					Spacer()
+					ProgressView(value: percent).frame(width: 100)
+					Spacer()
 				}
-			}
-			.onChange(of: sidebarModel.selectedFeedIdentifiers) { value in
-				navigate = !sidebarModel.selectedFeedIdentifiers.isEmpty
+				.padding(8)
+				.background(Color(NSColor.windowBackgroundColor))
+				.frame(height: 30)
+				.animation(.easeInOut(duration: 0.5))
+				.transition(.move(edge: .bottom))
 			}
 		}
+		.alert(isPresented: $sidebarModel.showDeleteConfirmation, content: {
+			Alert(title: sidebarModel.countOfFeedsToDelete() > 1 ?
+							(Text("Delete multiple items?")) :
+							(Text("Delete \(sidebarModel.namesOfFeedsToDelete())?")),
+						 message: Text("Are you sure you wish to delete \(sidebarModel.namesOfFeedsToDelete())?"),
+				  primaryButton: .destructive(Text("Delete"),
+											  action: {
+												sidebarModel.deleteFromAccount.send(sidebarModel.sidebarItemToDelete!)
+												sidebarModel.sidebarItemToDelete = nil
+												sidebarModel.selectedFeedIdentifiers.removeAll()
+												sidebarModel.showDeleteConfirmation = false
+				  }),
+				  secondaryButton: .cancel(Text("Cancel"), action: {
+						sidebarModel.sidebarItemToDelete = nil
+						sidebarModel.showDeleteConfirmation = false
+				  }))
+		})
 		#else
-		List {
-			rows
+		ZStack(alignment: .top) {
+			List {
+				rows
+			}
+			.background(RefreshFixedView())
+			.navigationTitle(Text("Feeds"))
+			.onPreferenceChange(RefreshKeyTypes.PrefKey.self) { values in
+				refreshLogic(values: values)
+			}
+			if pulling {
+				ProgressView().offset(y: -40)
+			}
 		}
-		.navigationTitle(Text("Feeds"))
+		.alert(isPresented: $sidebarModel.showDeleteConfirmation, content: {
+			Alert(title: sidebarModel.countOfFeedsToDelete() > 1 ?
+							(Text("Delete multiple items?")) :
+							(Text("Delete \(sidebarModel.namesOfFeedsToDelete())?")),
+						 message: Text("Are you sure you wish to delete \(sidebarModel.namesOfFeedsToDelete())?"),
+				  primaryButton: .destructive(Text("Delete"),
+											  action: {
+												sidebarModel.deleteFromAccount.send(sidebarModel.sidebarItemToDelete!)
+												sidebarModel.sidebarItemToDelete = nil
+												sidebarModel.selectedFeedIdentifiers.removeAll()
+												sidebarModel.showDeleteConfirmation = false
+				  }),
+				  secondaryButton: .cancel(Text("Cancel"), action: {
+						sidebarModel.sidebarItemToDelete = nil
+						sidebarModel.showDeleteConfirmation = false
+				  }))
+		})
 		#endif
+		
 //		.onAppear {
 //			expandedContainers.data = expandedContainerData
 //		}
@@ -63,47 +120,118 @@ struct SidebarView: View {
 //		}
 	}
 	
+	func refreshLogic(values: [RefreshKeyTypes.PrefData]) {
+		DispatchQueue.main.async {
+			let movingBounds = values.first { $0.vType == .movingView }?.bounds ?? .zero
+			let fixedBounds = values.first { $0.vType == .fixedView }?.bounds ?? .zero
+			scrollOffset = movingBounds.minY - fixedBounds.minY
+
+			// Crossing the threshold on the way down, we start the refresh process
+			if !pulling && (scrollOffset > threshold && previousScrollOffset <= threshold) {
+				pulling = true
+				AccountManager.shared.refreshAll()
+			}
+
+			// Crossing the threshold on the way UP, we end the refresh
+			if pulling && previousScrollOffset > threshold && scrollOffset <= threshold {
+				pulling = false
+			}
+			
+			// Update last scroll offset
+			self.previousScrollOffset = self.scrollOffset
+		}
+	}
+	
+	struct RefreshFixedView: View {
+		var body: some View {
+			GeometryReader { proxy in
+				Color.clear.preference(key: RefreshKeyTypes.PrefKey.self, value: [RefreshKeyTypes.PrefData(vType: .fixedView, bounds: proxy.frame(in: .global))])
+			}
+		}
+	}
+
+	struct RefreshKeyTypes {
+		enum ViewType: Int {
+			case movingView
+			case fixedView
+		}
+
+		struct PrefData: Equatable {
+			let vType: ViewType
+			let bounds: CGRect
+		}
+
+		struct PrefKey: PreferenceKey {
+			static var defaultValue: [PrefData] = []
+
+			static func reduce(value: inout [PrefData], nextValue: () -> [PrefData]) {
+				value.append(contentsOf: nextValue())
+			}
+
+			typealias Value = [PrefData]
+		}
+	}
+	
 	var rows: some View {
-		ForEach(sidebarModel.sidebarItems) { sidebarItem in
+		ForEach(sidebarItems) { sidebarItem in
 			if let containerID = sidebarItem.containerID {
-				DisclosureGroup(isExpanded: $expandedContainers[containerID]) {
+				DisclosureGroup(isExpanded: $sidebarModel.expandedContainers[containerID]) {
 					ForEach(sidebarItem.children) { sidebarItem in
 						if let containerID = sidebarItem.containerID {
-							DisclosureGroup(isExpanded: $expandedContainers[containerID]) {
+							DisclosureGroup(isExpanded: $sidebarModel.expandedContainers[containerID]) {
 								ForEach(sidebarItem.children) { sidebarItem in
-									buildSidebarItemNavigation(sidebarItem)
+									SidebarItemNavigation(sidebarItem: sidebarItem)
 								}
 							} label: {
-								buildSidebarItemNavigation(sidebarItem)
+								SidebarItemNavigation(sidebarItem: sidebarItem)
 							}
 						} else {
-							buildSidebarItemNavigation(sidebarItem)
+							SidebarItemNavigation(sidebarItem: sidebarItem)
 						}
 					}
 				} label: {
 					#if os(macOS)
-					SidebarItemView(sidebarItem: sidebarItem).padding(.leading, 4)
-					#else
 					SidebarItemView(sidebarItem: sidebarItem)
+						.padding(.leading, 4)
+						.environmentObject(sidebarModel)
+					#else
+					if sidebarItem.representedType == .smartFeedController {
+						GeometryReader { proxy in
+							SidebarItemView(sidebarItem: sidebarItem)
+								.preference(key: RefreshKeyTypes.PrefKey.self, value: [RefreshKeyTypes.PrefData(vType: .movingView, bounds: proxy.frame(in: .global))])
+								.environmentObject(sidebarModel)
+						}
+					} else {
+						SidebarItemView(sidebarItem: sidebarItem)
+							.environmentObject(sidebarModel)
+					}
 					#endif
 				}
 			}
 		}
 	}
-	
-	func buildSidebarItemNavigation(_ sidebarItem: SidebarItem) -> some View {
-		#if os(macOS)
-		return SidebarItemView(sidebarItem: sidebarItem).tag(sidebarItem.feed!.feedID!)
-		#else
-		return ZStack {
+
+	struct SidebarItemNavigation: View {
+		
+		@EnvironmentObject private var sidebarModel: SidebarModel
+		var sidebarItem: SidebarItem
+		
+		var body: some View {
+			#if os(macOS)
 			SidebarItemView(sidebarItem: sidebarItem)
-			NavigationLink(destination: TimelineContainerView(feeds: sidebarModel.selectedFeeds),
-						   tag: sidebarItem.feed!.feedID!,
-						   selection: $sidebarModel.selectedFeedIdentifier) {
-				EmptyView()
-			}.buttonStyle(PlainButtonStyle())
+				.tag(sidebarItem.feed!.feedID!)
+			#else
+			ZStack {
+				SidebarItemView(sidebarItem: sidebarItem)
+				NavigationLink(destination: TimelineContainerView(),
+							   tag: sidebarItem.feed!.feedID!,
+							   selection: $sidebarModel.selectedFeedIdentifier) {
+					EmptyView()
+				}.buttonStyle(PlainButtonStyle())
+			}
+			#endif
 		}
-		#endif
+		
 	}
 	
 }

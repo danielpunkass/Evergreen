@@ -10,8 +10,9 @@ import SwiftUI
 
 struct SidebarToolbarModifier: ViewModifier {
     
-	@EnvironmentObject private var sidebarModel: SidebarModel
+	@EnvironmentObject private var refreshProgress: RefreshProgressModel
 	@EnvironmentObject private var defaults: AppDefaults
+	@EnvironmentObject private var sidebarModel: SidebarModel
 	@StateObject private var viewModel = SidebarToolbarModel()
 
 	@ViewBuilder func body(content: Content) -> some View {
@@ -19,7 +20,7 @@ struct SidebarToolbarModifier: ViewModifier {
 		content
 			.toolbar {
 				
-				ToolbarItem(placement: .navigation) {
+				ToolbarItem(placement: .primaryAction) {
 					Button {
 						withAnimation {
 							sidebarModel.isReadFiltered.toggle()
@@ -34,7 +35,7 @@ struct SidebarToolbarModifier: ViewModifier {
 					.help(sidebarModel.isReadFiltered ? "Show Read Feeds" : "Filter Read Feeds")
 				}
 				
-				ToolbarItem(placement: .automatic) {
+				ToolbarItem(placement: .bottomBar) {
 					Button {
 						viewModel.sheetToShow = .settings
 					} label: {
@@ -43,46 +44,51 @@ struct SidebarToolbarModifier: ViewModifier {
 					.help("Settings")
 				}
 				
-				ToolbarItem {
+				ToolbarItem(placement: .bottomBar) {
 					Spacer()
 				}
 				
-				ToolbarItem(placement: .automatic) {
-					RefreshProgressView()
+				ToolbarItem(placement: .bottomBar) {
+					switch refreshProgress.state {
+					case .refreshProgress(let progress):
+						ProgressView(value: progress)
+							.frame(width: 100)
+					case .lastRefreshDateText(let text):
+						Text(text)
+							.lineLimit(1)
+							.font(.caption)
+							.foregroundColor(.secondary)
+					case .none:
+						EmptyView()
+					}
 				}
 				
-				ToolbarItem {
+				ToolbarItem(placement: .bottomBar) {
 					Spacer()
 				}
 				
-				ToolbarItem(placement: .automatic, content: {
-					Button {
-						viewModel.showActionSheet = true
-					} label: {
+				ToolbarItem(placement: .bottomBar, content: {
+					Menu(content: {
+						Button { viewModel.sheetToShow = .web } label: { Text("Add Web Feed") }
+						Button { viewModel.sheetToShow = .twitter } label: { Text("Add Twitter Feed") }
+						Button { viewModel.sheetToShow = .reddit } label: { Text("Add Reddit Feed") }
+						Button { viewModel.sheetToShow = .folder } label: { Text("Add Folder") }
+					}, label: {
 						AppAssets.addMenuImage.font(.title3)
-					}
-					.help("Add")
-					.actionSheet(isPresented: $viewModel.showActionSheet) {
-						ActionSheet(title: Text("Add"), buttons: [
-							.cancel(),
-							.default(Text("Add Web Feed"), action: { viewModel.sheetToShow = .web }),
-							.default(Text("Add Twitter Feed")),
-							.default(Text("Add Reddit Feed")),
-							.default(Text("Add Folder"), action: { viewModel.sheetToShow = .folder })
-						])
-					}
+					})
 				})
 				
 			}
 			.sheet(isPresented: $viewModel.showSheet, onDismiss: { viewModel.sheetToShow = .none }) {
 				if viewModel.sheetToShow == .web {
-					AddWebFeedView()
+					AddWebFeedView(isPresented: $viewModel.showSheet)
 				}
 				if viewModel.sheetToShow == .folder {
-					AddFolderView()
+					AddFolderView(isPresented: $viewModel.showSheet)
 				}
 				if viewModel.sheetToShow == .settings {
-					SettingsView().modifier(PreferredColorSchemeModifier(preferredColorScheme: defaults.userInterfaceColorPalette))
+					SettingsView()
+						.preferredColorScheme(AppDefaults.userInterfaceColorScheme)
 				}
 			}
 		#else
