@@ -42,7 +42,9 @@ public enum AccountType: Int, Codable {
 	case feedWrangler = 18
 	case newsBlur = 19
 	case freshRSS = 20
-	// TODO: more
+	case inoreader = 21
+	case bazQux = 22
+	case theOldReader = 23
 }
 
 public enum FetchType {
@@ -250,7 +252,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		return delegate.refreshProgress
 	}
 
-	init?(dataFolder: String, type: AccountType, accountID: String, transport: Transport? = nil) {
+	init(dataFolder: String, type: AccountType, accountID: String, transport: Transport? = nil) {
 		switch type {
 		case .onMyMac:
 			self.delegate = LocalAccountDelegate()
@@ -258,14 +260,20 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			self.delegate = CloudKitAccountDelegate(dataFolder: dataFolder)
 		case .feedbin:
 			self.delegate = FeedbinAccountDelegate(dataFolder: dataFolder, transport: transport)
-		case .freshRSS:
-			self.delegate = ReaderAPIAccountDelegate(dataFolder: dataFolder, transport: transport)
 		case .feedly:
 			self.delegate = FeedlyAccountDelegate(dataFolder: dataFolder, transport: transport, api: FeedlyAccountDelegate.environment)
 		case .feedWrangler:
 			self.delegate = FeedWranglerAccountDelegate(dataFolder: dataFolder, transport: transport)
 		case .newsBlur:
 			self.delegate = NewsBlurAccountDelegate(dataFolder: dataFolder, transport: transport)
+		case .freshRSS:
+			self.delegate = ReaderAPIAccountDelegate(dataFolder: dataFolder, transport: transport, variant: .freshRSS)
+		case .inoreader:
+			self.delegate = ReaderAPIAccountDelegate(dataFolder: dataFolder, transport: transport, variant: .inoreader)
+		case .bazQux:
+			self.delegate = ReaderAPIAccountDelegate(dataFolder: dataFolder, transport: transport, variant: .bazQux)
+		case .theOldReader:
+			self.delegate = ReaderAPIAccountDelegate(dataFolder: dataFolder, transport: transport, variant: .theOldReader)
 		}
 
 		self.delegate.accountMetadata = metadata
@@ -282,17 +290,23 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		case .onMyMac:
 			defaultName = Account.defaultLocalAccountName
 		case .cloudKit:
-			defaultName = "iCloud"
+			defaultName = NSLocalizedString("iCloud", comment: "iCloud")
 		case .feedly:
-			defaultName = "Feedly"
+			defaultName = NSLocalizedString("Feedly", comment: "Feedly")
 		case .feedbin:
-			defaultName = "Feedbin"
+			defaultName = NSLocalizedString("Feedbin", comment: "Feedbin")
 		case .feedWrangler:
-			defaultName = "FeedWrangler"
+			defaultName = NSLocalizedString("FeedWrangler", comment: "FeedWrangler")
 		case .newsBlur:
-			defaultName = "NewsBlur"
+			defaultName = NSLocalizedString("NewsBlur", comment: "NewsBlur")
 		case .freshRSS:
-			defaultName = "FreshRSS"
+			defaultName = NSLocalizedString("FreshRSS", comment: "FreshRSS")
+		case .inoreader:
+			defaultName = NSLocalizedString("Inoreader", comment: "Inoreader")
+		case .bazQux:
+			defaultName = NSLocalizedString("BazQux", comment: "BazQux")
+		case .theOldReader:
+			defaultName = NSLocalizedString("The Old Reader", comment: "The Old Reader")
 		}
 
 		NotificationCenter.default.addObserver(self, selector: #selector(downloadProgressDidChange(_:)), name: .DownloadProgressDidChange, object: nil)
@@ -355,12 +369,12 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		switch type {
 		case .feedbin:
 			FeedbinAccountDelegate.validateCredentials(transport: transport, credentials: credentials, completion: completion)
-		case .freshRSS:
-			ReaderAPIAccountDelegate.validateCredentials(transport: transport, credentials: credentials, endpoint: endpoint, completion: completion)
 		case .feedWrangler:
 			FeedWranglerAccountDelegate.validateCredentials(transport: transport, credentials: credentials, completion: completion)
 		case .newsBlur:
 			NewsBlurAccountDelegate.validateCredentials(transport: transport, credentials: credentials, completion: completion)
+		case .freshRSS, .inoreader, .bazQux, .theOldReader:
+			ReaderAPIAccountDelegate.validateCredentials(transport: transport, credentials: credentials, endpoint: endpoint, completion: completion)
 		default:
 			break
 		}
@@ -506,8 +520,8 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		addOPMLItems(OPMLNormalizer.normalize(items))		
 	}
 	
-	public func markArticles(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) -> Set<Article>? {
-		return delegate.markArticles(for: self, articles: articles, statusKey: statusKey, flag: flag)
+	public func markArticles(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) {
+		delegate.markArticles(for: self, articles: articles, statusKey: statusKey, flag: flag)
 	}
 
 	func existingContainer(withExternalID externalID: String) -> Container? {
@@ -780,18 +794,24 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		}
 	}
 
-	@discardableResult
-	func update(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) throws -> Set<Article>? {
+	func update(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping ArticleSetResultBlock) {
 		// Returns set of Articles whose statuses did change.
-		guard !articles.isEmpty, let updatedStatuses = try database.mark(articles, statusKey: statusKey, flag: flag) else {
-			return nil
+		guard !articles.isEmpty else {
+			completion(.success(Set<Article>()))
+			return
 		}
 		
-		let updatedArticleIDs = updatedStatuses.articleIDs()
-		let updatedArticles = Set(articles.filter{ updatedArticleIDs.contains($0.articleID) })
-		
-		noteStatusesForArticlesDidChange(updatedArticles)
-		return updatedArticles
+		database.mark(articles, statusKey: statusKey, flag: flag) { result in
+			switch result {
+			case .success(let updatedStatuses):
+				let updatedArticleIDs = updatedStatuses.articleIDs()
+				let updatedArticles = Set(articles.filter{ updatedArticleIDs.contains($0.articleID) })
+				self.noteStatusesForArticlesDidChange(updatedArticles)
+				completion(.success(updatedArticles))
+			case .failure(let error):
+				completion(.failure(error))
+			}
+		}
 	}
 
 	/// Make sure statuses exist. Any existing statuses won’t be touched.

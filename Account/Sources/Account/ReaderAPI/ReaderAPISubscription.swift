@@ -1,5 +1,5 @@
 //
-//  ReaderAPIFeed.swift
+//  ReaderAPISubscription.swift
 //  Account
 //
 //  Created by Jeremy Beker on 5/28/19.
@@ -59,7 +59,7 @@ struct ReaderAPISubscription: Codable {
 	let feedID: String
 	let name: String?
 	let categories: [ReaderAPICategory]
-	let url: String
+	let feedURL: String?
 	let homePageURL: String?
 	let iconURL: String?
 
@@ -67,11 +67,18 @@ struct ReaderAPISubscription: Codable {
 		case feedID = "id"
 		case name = "title"
 		case categories = "categories"
-		case url = "url"
+		case feedURL = "url"
 		case homePageURL = "htmlUrl"
 		case iconURL = "iconUrl"
 	}
 
+	var url: String {
+		if let feedURL = feedURL {
+			return feedURL
+		} else {
+			return feedID.stripping(prefix: "feed/")
+		}
+	}
 }
 
 struct ReaderAPICategory: Codable {

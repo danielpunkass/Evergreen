@@ -17,7 +17,9 @@ import ArticlesDatabase
 public final class AccountManager: UnreadCountProvider {
 
 	public static var shared: AccountManager!
-	
+	public static let netNewsWireNewsURL = "https://nnw.ranchero.com/feed.xml"
+	private static let jsonNetNewsWireNewsURL = "https://nnw.ranchero.com/feed.json"
+
 	public let defaultAccount: Account
 
 	private let accountsFolder: String
@@ -104,7 +106,7 @@ public final class AccountManager: UnreadCountProvider {
 			abort()
 		}
 
-		defaultAccount = Account(dataFolder: localAccountFolder, type: .onMyMac, accountID: defaultAccountIdentifier)!
+		defaultAccount = Account(dataFolder: localAccountFolder, type: .onMyMac, accountID: defaultAccountIdentifier)
         accountsDictionary[defaultAccount.accountID] = defaultAccount
 
 		readAccountsFromDisk()
@@ -131,7 +133,7 @@ public final class AccountManager: UnreadCountProvider {
 			abort()
 		}
 		
-		let account = Account(dataFolder: accountFolder, type: type, accountID: accountID)!
+		let account = Account(dataFolder: accountFolder, type: type, accountID: accountID)
 		accountsDictionary[accountID] = account
 		
 		var userInfo = [String: Any]()
@@ -164,6 +166,18 @@ public final class AccountManager: UnreadCountProvider {
 		var userInfo = [String: Any]()
 		userInfo[Account.UserInfoKey.account] = account
 		NotificationCenter.default.post(name: .UserDidDeleteAccount, object: self, userInfo: userInfo)
+	}
+	
+	public func duplicateServiceAccount(type: AccountType, username: String?) -> Bool {
+		guard type != .onMyMac else {
+			return false
+		}
+		for account in accounts {
+			if account.type == type && username == account.username {
+				return true
+			}
+		}
+		return false
 	}
 	
 	public func existingAccount(with accountID: String) -> Account? {
@@ -307,6 +321,10 @@ public final class AccountManager: UnreadCountProvider {
 
 		return false
 	}
+	
+	public func anyAccountHasNetNewsWireNewsSubscription() -> Bool {
+		return anyAccountHasFeedWithURL(Self.netNewsWireNewsURL) || anyAccountHasFeedWithURL(Self.jsonNetNewsWireNewsURL)
+	}
 
 	public func anyAccountHasFeedWithURL(_ urlString: String) -> Bool {
 		for account in activeAccounts {
@@ -423,15 +441,23 @@ private extension AccountManager {
 			print("Error reading Accounts folder: \(error)")
 			return
 		}
+		
+		filenames = filenames?.sorted()
 
 		filenames?.forEach { (oneFilename) in
 			guard oneFilename != defaultAccountFolderName else {
 				return
 			}
 			if let oneAccount = loadAccount(oneFilename) {
-				accountsDictionary[oneAccount.accountID] = oneAccount
+				if !duplicateServiceAccount(oneAccount) {
+					accountsDictionary[oneAccount.accountID] = oneAccount
+				}
 			}
 		}
+	}
+	
+	func duplicateServiceAccount(_ account: Account) -> Bool {
+		return duplicateServiceAccount(type: account.type, username: account.username)
 	}
 
 	func sortByName(_ accounts: [Account]) -> [Account] {

@@ -98,7 +98,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	private var inspectorWindowController: InspectorWindowController?
 	private var crashReportWindowController: CrashReportWindowController? // For testing only
 	private let log = Log()
-	private let appNewsURLString = "https://nnw.ranchero.com/feed.json"
 	private let appMovementMonitor = RSAppMovementMonitor()
 	#if !MAC_APP_STORE && !TEST
 	private var softwareUpdater: SPUUpdater!
@@ -240,6 +239,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		refreshTimer = AccountRefreshTimer()
 		syncTimer = ArticleStatusSyncTimer()
 		
+		UNUserNotificationCenter.current().requestAuthorization(options:[.badge]) { (granted, error) in }
+
 		UNUserNotificationCenter.current().getNotificationSettings { (settings) in
 			if settings.authorizationStatus == .authorized {
 				DispatchQueue.main.async {
@@ -416,32 +417,43 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		if item.action == #selector(refreshAll(_:)) {
 			return !AccountManager.shared.refreshInProgress && !AccountManager.shared.activeAccounts.isEmpty
 		}
-		if item.action == #selector(addAppNews(_:)) {
-			return !isDisplayingSheet && !AccountManager.shared.anyAccountHasFeedWithURL(appNewsURLString) && !AccountManager.shared.activeAccounts.isEmpty
+		
+		if item.action == #selector(importOPMLFromFile(_:)) {
+			return AccountManager.shared.activeAccounts.contains(where: { !$0.behaviors.contains(where: { $0 == .disallowOPMLImports }) })
 		}
+		
+		if item.action == #selector(addAppNews(_:)) {
+			return !isDisplayingSheet && !AccountManager.shared.anyAccountHasNetNewsWireNewsSubscription() && !AccountManager.shared.activeAccounts.isEmpty
+		}
+		
 		if item.action == #selector(sortByNewestArticleOnTop(_:)) || item.action == #selector(sortByOldestArticleOnTop(_:)) {
 			return mainWindowController?.isOpen ?? false
 		}
+		
 		if item.action == #selector(showAddWebFeedWindow(_:)) || item.action == #selector(showAddFolderWindow(_:)) {
 			return !isDisplayingSheet && !AccountManager.shared.activeAccounts.isEmpty
 		}
+		
 		if item.action == #selector(showAddRedditFeedWindow(_:)) {
 			guard !isDisplayingSheet && isSpecialAccountAvailable && ExtensionPointManager.shared.isRedditEnabled else {
 				return false
 			}
 			return ExtensionPointManager.shared.isRedditEnabled
 		}
+		
 		if item.action == #selector(showAddTwitterFeedWindow(_:)) {
 			guard !isDisplayingSheet && isSpecialAccountAvailable && ExtensionPointManager.shared.isTwitterEnabled else {
 				return false
 			}
 			return ExtensionPointManager.shared.isTwitterEnabled
 		}
+		
 		#if !MAC_APP_STORE
 		if item.action == #selector(toggleWebInspectorEnabled(_:)) {
 			(item as! NSMenuItem).state = AppDefaults.shared.webInspectorEnabled ? .on : .off
 		}
 		#endif
+		
 		return true
 	}
 
@@ -578,10 +590,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 	
 	@IBAction func addAppNews(_ sender: Any?) {
-		if AccountManager.shared.anyAccountHasFeedWithURL(appNewsURLString) {
+		if AccountManager.shared.anyAccountHasNetNewsWireNewsSubscription() {
 			return
 		}
-		addWebFeed(appNewsURLString, name: "NetNewsWire News")
+		addWebFeed(AccountManager.netNewsWireNewsURL, name: "NetNewsWire News")
 	}
 
 	@IBAction func openWebsite(_ sender: Any?) {
@@ -620,7 +632,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@IBAction func showHelp(_ sender: Any?) {
 
-		Browser.open("https://ranchero.com/netnewswire/help/mac/5.0/en/", inBackground: false)
+		Browser.open("https://ranchero.com/netnewswire/help/mac/5.1/en/", inBackground: false)
 	}
 
 	@IBAction func donateToAppCampForGirls(_ sender: Any?) {
