@@ -17,7 +17,15 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 
 	@IBOutlet weak var filterButton: UIBarButtonItem!
 	private var refreshProgressView: RefreshProgressView?
-	@IBOutlet weak var addNewItemButton: UIBarButtonItem!
+	@IBOutlet weak var addNewItemButton: UIBarButtonItem! {
+		didSet {
+			if #available(iOS 14, *) {
+				addNewItemButton.primaryAction = nil
+			} else {
+				addNewItemButton.action = #selector(MasterFeedViewController.add(_:))
+			}
+		}
+	}
 
 	private let operationQueue = MainThreadOperationQueue()
 	lazy var dataSource = makeDataSource()
@@ -62,6 +70,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		NotificationCenter.default.addObserver(self, selector: #selector(webFeedSettingDidChange(_:)), name: .WebFeedSettingDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(contentSizeCategoryDidChange), name: UIContentSizeCategory.didChangeNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground(_:)), name: UIApplication.willEnterForegroundNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(configureContextMenu(_:)), name: .ActiveExtensionPointsDidChange, object: nil)
 
 		refreshControl = UIRefreshControl()
 		refreshControl!.addTarget(self, action: #selector(refreshAccounts(_:)), for: .valueChanged)
@@ -337,8 +346,8 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 			return proposedDestinationIndexPath
 		}
 		
-		// If this is a folder and isn't expanded or doesn't have any entries, let the users drop on it
-		if destNode.representedObject is Folder && (destNode.numberOfChildNodes == 0 || !coordinator.isExpanded(destNode)) {
+		// If this is a folder, let the users drop on it
+		if destNode.representedObject is Folder {
 			return proposedDestinationIndexPath
 		}
 		
@@ -361,22 +370,28 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 				return IndexPath(row: 0, section: destIndexPath.section)
 			} else {
 				let identifier = makeIdentifier(sortedNodes[index])
-				let candidateIndexPath = dataSource.indexPath(for: identifier)!
-				let movementAdjustment = sourceIndexPath < destIndexPath ? 1 : 0
-				return IndexPath(row: candidateIndexPath.row - movementAdjustment, section: candidateIndexPath.section)
+				if let candidateIndexPath = dataSource.indexPath(for: identifier) {
+					let movementAdjustment = sourceIndexPath < destIndexPath ? 1 : 0
+					return IndexPath(row: candidateIndexPath.row - movementAdjustment, section: candidateIndexPath.section)
+				} else {
+					return sourceIndexPath
+				}
 			}
 			
 		} else {
 			
 			if index >= sortedNodes.count {
 				let identifier = makeIdentifier(sortedNodes[sortedNodes.count - 1])
-				let lastSortedIndexPath = dataSource.indexPath(for: identifier)!
-				let movementAdjustment = sourceIndexPath > destIndexPath ? 1 : 0
-				return IndexPath(row: lastSortedIndexPath.row + movementAdjustment, section: lastSortedIndexPath.section)
+				if let lastSortedIndexPath = dataSource.indexPath(for: identifier) {
+					let movementAdjustment = sourceIndexPath > destIndexPath ? 1 : 0
+					return IndexPath(row: lastSortedIndexPath.row + movementAdjustment, section: lastSortedIndexPath.section)
+				} else {
+					return sourceIndexPath
+				}
 			} else {
 				let movementAdjustment = sourceIndexPath < destIndexPath ? 1 : 0
 				let identifer = makeIdentifier(sortedNodes[index - movementAdjustment])
-				return dataSource.indexPath(for: identifer)!
+				return dataSource.indexPath(for: identifer) ?? sourceIndexPath
 			}
 			
 		}
@@ -394,49 +409,56 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 	}
 	
 	@IBAction func add(_ sender: UIBarButtonItem) {
-		let title = NSLocalizedString("Add Item", comment: "Add Item")
-		let alertController = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
 		
-		let cancelTitle = NSLocalizedString("Cancel", comment: "Cancel")
-		let cancelAction = UIAlertAction(title: cancelTitle, style: .cancel)
-		
-		let addWebFeedActionTitle = NSLocalizedString("Add Web Feed", comment: "Add Web Feed")
-		let addWebFeedAction = UIAlertAction(title: addWebFeedActionTitle, style: .default) { _ in
-			self.coordinator.showAddWebFeed()
-		}
-		
-		let addRedditFeedActionTitle = NSLocalizedString("Add Reddit Feed", comment: "Add Reddit Feed")
-		let addRedditFeedAction = UIAlertAction(title: addRedditFeedActionTitle, style: .default) { _ in
-			self.coordinator.showAddRedditFeed()
-		}
-		
-		let addTwitterFeedActionTitle = NSLocalizedString("Add Twitter Feed", comment: "Add Twitter Feed")
-		let addTwitterFeedAction = UIAlertAction(title: addTwitterFeedActionTitle, style: .default) { _ in
-			self.coordinator.showAddTwitterFeed()
-		}
-		
-		let addWebFolderdActionTitle = NSLocalizedString("Add Folder", comment: "Add Folder")
-		let addWebFolderAction = UIAlertAction(title: addWebFolderdActionTitle, style: .default) { _ in
-			self.coordinator.showAddFolder()
-		}
-		
-		alertController.addAction(addWebFeedAction)
-		
-		if AccountManager.shared.activeAccounts.contains(where: { $0.type == .onMyMac || $0.type == .cloudKit }) {
-			if ExtensionPointManager.shared.isRedditEnabled {
-				alertController.addAction(addRedditFeedAction)
+		if #available(iOS 14, *) {
+			
+		} else {
+			let title = NSLocalizedString("Add Item", comment: "Add Item")
+			let alertController = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
+			
+			let cancelTitle = NSLocalizedString("Cancel", comment: "Cancel")
+			let cancelAction = UIAlertAction(title: cancelTitle, style: .cancel)
+			
+			let addWebFeedActionTitle = NSLocalizedString("Add Web Feed", comment: "Add Web Feed")
+			let addWebFeedAction = UIAlertAction(title: addWebFeedActionTitle, style: .default) { _ in
+				self.coordinator.showAddWebFeed()
 			}
-			if ExtensionPointManager.shared.isTwitterEnabled {
-				alertController.addAction(addTwitterFeedAction)
+			
+			let addRedditFeedActionTitle = NSLocalizedString("Add Reddit Feed", comment: "Add Reddit Feed")
+			let addRedditFeedAction = UIAlertAction(title: addRedditFeedActionTitle, style: .default) { _ in
+				self.coordinator.showAddRedditFeed()
 			}
-		}
-		
-		alertController.addAction(addWebFolderAction)
-		alertController.addAction(cancelAction)
-		
-		alertController.popoverPresentationController?.barButtonItem = sender
+			
+			let addTwitterFeedActionTitle = NSLocalizedString("Add Twitter Feed", comment: "Add Twitter Feed")
+			let addTwitterFeedAction = UIAlertAction(title: addTwitterFeedActionTitle, style: .default) { _ in
+				self.coordinator.showAddTwitterFeed()
+			}
+			
+			let addWebFolderdActionTitle = NSLocalizedString("Add Folder", comment: "Add Folder")
+			let addWebFolderAction = UIAlertAction(title: addWebFolderdActionTitle, style: .default) { _ in
+				self.coordinator.showAddFolder()
+			}
+			
+			alertController.addAction(addWebFeedAction)
+			
+			if AccountManager.shared.activeAccounts.contains(where: { $0.type == .onMyMac || $0.type == .cloudKit }) {
+				if ExtensionPointManager.shared.isRedditEnabled {
+					alertController.addAction(addRedditFeedAction)
+				}
+				if ExtensionPointManager.shared.isTwitterEnabled {
+					alertController.addAction(addTwitterFeedAction)
+				}
+			}
+			
+			alertController.addAction(addWebFolderAction)
+			alertController.addAction(cancelAction)
+			
+			alertController.popoverPresentationController?.barButtonItem = sender
 
-		present(alertController, animated: true)
+			present(alertController, animated: true)
+		}
+		
+		
 	}
 	
 	@objc func toggleSectionHeader(_ sender: UITapGestureRecognizer) {
@@ -566,6 +588,58 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		}
 		refreshProgressView?.update()
 		addNewItemButton?.isEnabled = !AccountManager.shared.activeAccounts.isEmpty
+
+		configureContextMenu()
+	}
+	
+	@objc
+	func configureContextMenu(_: Any? = nil) {
+		if #available(iOS 14.0, *) {
+			
+			/*
+				Context Menu Order:
+				1. Add Web Feed
+				2. Add Reddit Feed
+				3. Add Twitter Feed
+				4. Add Folder
+			*/
+			
+			var menuItems: [UIAction] = []
+			
+			let addWebFeedActionTitle = NSLocalizedString("Add Web Feed", comment: "Add Web Feed")
+			let addWebFeedAction = UIAction(title: addWebFeedActionTitle, image: AppAssets.plus) { _ in
+				self.coordinator.showAddWebFeed()
+			}
+			menuItems.append(addWebFeedAction)
+			
+			if AccountManager.shared.activeAccounts.contains(where: { $0.type == .onMyMac || $0.type == .cloudKit }) {
+				if ExtensionPointManager.shared.isRedditEnabled {
+					let addRedditFeedActionTitle = NSLocalizedString("Add Reddit Feed", comment: "Add Reddit Feed")
+					let addRedditFeedAction = UIAction(title: addRedditFeedActionTitle, image: AppAssets.contextMenuReddit.tinted(color: .label)) { _ in
+						self.coordinator.showAddRedditFeed()
+					}
+					menuItems.append(addRedditFeedAction)
+				}
+				if ExtensionPointManager.shared.isTwitterEnabled {
+					let addTwitterFeedActionTitle = NSLocalizedString("Add Twitter Feed", comment: "Add Twitter Feed")
+					let addTwitterFeedAction = UIAction(title: addTwitterFeedActionTitle, image: AppAssets.contextMenuTwitter.tinted(color: .label)) { _ in
+						self.coordinator.showAddTwitterFeed()
+					}
+					menuItems.append(addTwitterFeedAction)
+				}
+			}
+						
+			let addWebFolderActionTitle = NSLocalizedString("Add Folder", comment: "Add Folder")
+			let addWebFolderAction = UIAction(title: addWebFolderActionTitle, image: AppAssets.folderOutlinePlus) { _ in
+				self.coordinator.showAddFolder()
+			}
+			
+			menuItems.append(addWebFolderAction)
+			
+			let contextMenu = UIMenu(title: NSLocalizedString("Add Item", comment: "Add Item"), image: nil, identifier: nil, options: [], children: menuItems.reversed())
+			
+			self.addNewItemButton.menu = contextMenu
+		}
 	}
 	
 	func focus() {
@@ -594,16 +668,17 @@ extension MasterFeedViewController: UIContextMenuInteractionDelegate {
 		}
 		
 		return UIContextMenuConfiguration(identifier: sectionIndex as NSCopying, previewProvider: nil) { suggestedActions in
-			let accountInfoAction = self.getAccountInfoAction(account: account)
-			let deactivateAction = self.deactivateAccountAction(account: account)
 
-			var actions = [accountInfoAction, deactivateAction]
+			var menuElements = [UIMenuElement]()
+			menuElements.append(UIMenu(title: "", options: .displayInline, children: [self.getAccountInfoAction(account: account)]))
 
 			if let markAllAction = self.markAllAsReadAction(account: account, contentView: interaction.view) {
-				actions.insert(markAllAction, at: 1)
+				menuElements.append(UIMenu(title: "", options: .displayInline, children: [markAllAction]))
 			}
 
-            return UIMenu(title: "", children: actions)
+			menuElements.append(UIMenu(title: "", options: .displayInline, children: [self.deactivateAccountAction(account: account)]))
+			
+            return UIMenu(title: "", children: menuElements)
         }
     }
 	
@@ -891,34 +966,41 @@ private extension MasterFeedViewController {
 			
 			guard let self = self else { return nil }
 			
-			var actions = [UIAction]()
+			var menuElements = [UIMenuElement]()
 			
 			if let inspectorAction = self.getInfoAction(indexPath: indexPath) {
-				actions.append(inspectorAction)
+				menuElements.append(UIMenu(title: "", options: .displayInline, children: [inspectorAction]))
 			}
 			
 			if let homePageAction = self.homePageAction(indexPath: indexPath) {
-				actions.append(homePageAction)
+				menuElements.append(UIMenu(title: "", options: .displayInline, children: [homePageAction]))
 			}
 			
+			var pageActions = [UIAction]()
 			if let copyFeedPageAction = self.copyFeedPageAction(indexPath: indexPath) {
-				actions.append(copyFeedPageAction)
+				pageActions.append(copyFeedPageAction)
 			}
-			
 			if let copyHomePageAction = self.copyHomePageAction(indexPath: indexPath) {
-				actions.append(copyHomePageAction)
+				pageActions.append(copyHomePageAction)
+			}
+			if !pageActions.isEmpty {
+				menuElements.append(UIMenu(title: "", options: .displayInline, children: pageActions))
 			}
 
 			if let markAllAction = self.markAllAsReadAction(indexPath: indexPath) {
-				actions.append(markAllAction)
+				menuElements.append(UIMenu(title: "", options: .displayInline, children: [markAllAction]))
 			}
 			
 			if includeDeleteRename {
-				actions.append(self.renameAction(indexPath: indexPath))
-				actions.append(self.deleteAction(indexPath: indexPath))
+				menuElements.append(UIMenu(title: "",
+										   options: .displayInline,
+										   children: [
+											self.renameAction(indexPath: indexPath),
+											self.deleteAction(indexPath: indexPath)
+										   ]))
 			}
 			
-			return UIMenu(title: "", children: actions)
+			return UIMenu(title: "", children: menuElements)
 			
 		})
 		
@@ -929,15 +1011,20 @@ private extension MasterFeedViewController {
 
 			guard let self = self else { return nil }
 			
-			var actions = [UIAction]()
-			actions.append(self.deleteAction(indexPath: indexPath))
-			actions.append(self.renameAction(indexPath: indexPath))
+			var menuElements = [UIMenuElement]()
 
 			if let markAllAction = self.markAllAsReadAction(indexPath: indexPath) {
-				actions.append(markAllAction)
+				menuElements.append(UIMenu(title: "", options: .displayInline, children: [markAllAction]))
 			}
 			
-			return UIMenu(title: "", children: actions)
+			menuElements.append(UIMenu(title: "",
+									   options: .displayInline,
+									   children: [
+										self.renameAction(indexPath: indexPath),
+										self.deleteAction(indexPath: indexPath)
+									   ]))
+
+			return UIMenu(title: "", children: menuElements)
 
 		})
 	}
@@ -1154,7 +1241,7 @@ private extension MasterFeedViewController {
 		let title = NSString.localizedStringWithFormat(localizedMenuText as NSString, account.nameForDisplay) as String
 		let action = UIAction(title: title, image: AppAssets.markAllAsReadImage) { [weak self] action in
 			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: title, sourceType: contentView) { [weak self] in
-				if let articles = try? account.fetchArticles(.unread) {
+				if let articles = try? account.fetchArticles(.unread()) {
 					self?.coordinator.markAllAsRead(Array(articles))
 				}
 			}
@@ -1206,6 +1293,7 @@ private extension MasterFeedViewController {
 		}
 		
 		alertController.addAction(renameAction)
+		alertController.preferredAction = renameAction
 		
 		alertController.addTextField() { textField in
 			textField.text = name
@@ -1243,6 +1331,7 @@ private extension MasterFeedViewController {
 			self?.delete(indexPath: indexPath, feedID: feedID)
 		}
 		alertController.addAction(deleteAction)
+		alertController.preferredAction = deleteAction
 		
 		self.present(alertController, animated: true)
 	}

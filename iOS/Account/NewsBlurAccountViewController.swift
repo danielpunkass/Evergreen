@@ -10,6 +10,7 @@ import UIKit
 import Account
 import Secrets
 import RSWeb
+import SafariServices
 
 class NewsBlurAccountViewController: UITableViewController {
 
@@ -19,13 +20,14 @@ class NewsBlurAccountViewController: UITableViewController {
 	@IBOutlet weak var passwordTextField: UITextField!
 	@IBOutlet weak var showHideButton: UIButton!
 	@IBOutlet weak var actionButton: UIButton!
+	@IBOutlet weak var footerLabel: UILabel!
 
 	weak var account: Account?
 	weak var delegate: AddAccountDismissDelegate?
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
-
+		setupFooter()
 		activityIndicator.isHidden = true
 		usernameTextField.delegate = self
 		passwordTextField.delegate = self
@@ -43,6 +45,10 @@ class NewsBlurAccountViewController: UITableViewController {
 		NotificationCenter.default.addObserver(self, selector: #selector(textDidChange(_:)), name: UITextField.textDidChangeNotification, object: passwordTextField)
 
 		tableView.register(ImageHeaderView.self, forHeaderFooterViewReuseIdentifier: "SectionHeader")
+	}
+	
+	private func setupFooter() {
+		footerLabel.text = NSLocalizedString("Sign in to your NewsBlur account and sync your subscriptions across your devices. Your username and password will be encrypted and stored in Keychain.\n\nDon't have a NewsBlur account?", comment: "NewsBlur")
 	}
 
 	override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
@@ -102,10 +108,9 @@ class NewsBlurAccountViewController: UITableViewController {
 			switch result {
 			case .success(let sessionCredentials):
 				if let sessionCredentials = sessionCredentials {
-					var newAccount = false
+
 					if self.account == nil {
 						self.account = AccountManager.shared.createAccount(type: .newsBlur)
-						newAccount = true
 					}
 
 					do {
@@ -117,14 +122,12 @@ class NewsBlurAccountViewController: UITableViewController {
 						try self.account?.storeCredentials(basicCredentials)
 						try self.account?.storeCredentials(sessionCredentials)
 
-						if newAccount {
-							self.account?.refreshAll() { result in
-								switch result {
-								case .success:
-									break
-								case .failure(let error):
-									self.presentError(error)
-								}
+						self.account?.refreshAll() { result in
+							switch result {
+							case .success:
+								break
+							case .failure(let error):
+								self.presentError(error)
 							}
 						}
 
@@ -141,6 +144,13 @@ class NewsBlurAccountViewController: UITableViewController {
 			}
 
 		}
+	}
+	
+	@IBAction func signUpWithProvider(_ sender: Any) {
+		let url = URL(string: "https://newsblur.com")!
+		let safari = SFSafariViewController(url: url)
+		safari.modalPresentationStyle = .currentContext
+		self.present(safari, animated: true, completion: nil)
 	}
 
 	@objc func textDidChange(_ note: Notification) {

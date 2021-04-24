@@ -145,6 +145,24 @@ final class FeedlyAccountDelegate: AccountDelegate {
 		operationQueue.add(syncAllOperation)
 	}
 	
+	func syncArticleStatus(for account: Account, completion: ((Result<Void, Error>) -> Void)? = nil) {
+		sendArticleStatus(for: account) { result in
+			switch result {
+			case .success:
+				self.refreshArticleStatus(for: account) { result in
+					switch result {
+					case .success:
+						completion?(.success(()))
+					case .failure(let error):
+						completion?(.failure(error))
+					}
+				}
+			case .failure(let error):
+				completion?(.failure(error))
+			}
+		}
+	}
+	
 	func sendArticleStatus(for account: Account, completion: @escaping ((Result<Void, Error>) -> Void)) {
 		// Ensure remote articles have the same status as they do locally.
 		let send = FeedlySendArticleStatusesOperation(database: database, service: caller, log: log)
@@ -296,7 +314,7 @@ final class FeedlyAccountDelegate: AccountDelegate {
 		}
 	}
 		
-	func createWebFeed(for account: Account, url: String, name: String?, container: Container, completion: @escaping (Result<WebFeed, Error>) -> Void) {
+	func createWebFeed(for account: Account, url: String, name: String?, container: Container, validateFeed: Bool, completion: @escaping (Result<WebFeed, Error>) -> Void) {
 		
 		do {
 			guard let credentials = credentials else {
@@ -450,7 +468,7 @@ final class FeedlyAccountDelegate: AccountDelegate {
 				}
 			}
 		} else {
-			createWebFeed(for: account, url: feed.url, name: feed.editedName, container: container) { result in
+			createWebFeed(for: account, url: feed.url, name: feed.editedName, container: container, validateFeed: true) { result in
 				switch result {
 				case .success:
 					completion(.success(()))
@@ -487,7 +505,7 @@ final class FeedlyAccountDelegate: AccountDelegate {
 		}
 	}
 	
-	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) {
+	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
 		account.update(articles, statusKey: statusKey, flag: flag) { result in
 			switch result {
 			case .success(let articles):
@@ -500,10 +518,11 @@ final class FeedlyAccountDelegate: AccountDelegate {
 						if let count = try? result.get(), count > 100 {
 							self.sendArticleStatus(for: account) { _ in }
 						}
+						completion(.success(()))
 					}
 				}
 			case .failure(let error):
-				os_log(.error, log: self.log, "Error marking article status: %@", error.localizedDescription)
+				completion(.failure(error))
 			}
 		}
 	}

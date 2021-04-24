@@ -35,6 +35,7 @@ final class WebFeedInspectorViewController: NSViewController, Inspector {
 	let isFallbackInspector = false
 	var objects: [Any]? {
 		didSet {
+			renameWebFeedIfNecessary()
 			updateFeed()
 		}
 	}
@@ -49,10 +50,15 @@ final class WebFeedInspectorViewController: NSViewController, Inspector {
 	override func viewDidLoad() {
 		updateUI()
 		NotificationCenter.default.addObserver(self, selector: #selector(imageDidBecomeAvailable(_:)), name: .ImageDidBecomeAvailable, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(updateUI), name: .DidUpdateFeedPreferencesFromContextMenu, object: nil)
 	}
 	
 	override func viewDidAppear() {
 		updateNotificationSettings()
+	}
+	
+	override func viewDidDisappear() {
+		renameWebFeedIfNecessary()
 	}
 	
 	// MARK: Actions
@@ -108,12 +114,8 @@ final class WebFeedInspectorViewController: NSViewController, Inspector {
 
 extension WebFeedInspectorViewController: NSTextFieldDelegate {
 
-	func controlTextDidChange(_ note: Notification) {
-		guard let feed = feed, let nameTextField = nameTextField else {
-			return
-		}
-		feed.editedName = nameTextField.stringValue
-		windowTitle = feed.editedName ?? NSLocalizedString("Feed Inspector", comment: "Feed Inspector window title")
+	func controlTextDidEndEditing(_ note: Notification) {
+		renameWebFeedIfNecessary()
 	}
 	
 }
@@ -128,7 +130,8 @@ private extension WebFeedInspectorViewController {
 		feed = singleFeed
 	}
 
-	func updateUI() {
+	
+	@objc func updateUI() {
 		updateImage()
 		updateName()
 		updateHomePageURL()
@@ -137,6 +140,9 @@ private extension WebFeedInspectorViewController {
 		updateIsReaderViewAlwaysOn()
 		windowTitle = feed?.nameForDisplay ?? NSLocalizedString("Feed Inspector", comment: "Feed Inspector window title")
 		view.needsLayout = true
+		if let webfeed = feed {
+			webfeed.isFeedProvider ? (isReaderViewAlwaysOnCheckBox?.isEnabled = false) : (isReaderViewAlwaysOnCheckBox?.isEnabled = true)
+		}
 	}
 
 	func updateImage() {
@@ -177,6 +183,7 @@ private extension WebFeedInspectorViewController {
 	}
 
 	func updateNotifyAboutNewArticles() {
+		isNotifyAboutNewArticlesCheckBox?.title = feed?.notificationDisplayName ?? NSLocalizedString("Show notifications for new articles", comment: "Show notifications for new articles")
 		isNotifyAboutNewArticlesCheckBox?.state = (feed?.isNotifyAboutNewArticles ?? false) ? .on : .off
 	}
 
@@ -208,4 +215,21 @@ private extension WebFeedInspectorViewController {
 		}
 	}
 
+	func renameWebFeedIfNecessary() {
+		guard let feed = feed,
+			  let account = feed.account,
+			  let nameTextField = nameTextField,
+			  feed.nameForDisplay != nameTextField.stringValue else {
+			return
+		}
+		
+		account.renameWebFeed(feed, to: nameTextField.stringValue) { [weak self] result in
+			if case .failure(let error) = result {
+				self?.presentError(error)
+			} else {
+				self?.windowTitle = feed.nameForDisplay
+			}
+		}
+	}
+	
 }

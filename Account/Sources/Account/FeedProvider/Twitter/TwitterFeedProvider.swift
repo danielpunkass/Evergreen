@@ -17,7 +17,7 @@ public enum TwitterFeedProviderError: LocalizedError {
 	case screenNameNotFound
 	case unknown
 	
-	public var localizedDescription: String {
+	public var errorDescription: String? {
 		switch self {
 		case .rateLimitExceeded:
 			return NSLocalizedString("Twitter API rate limit has been exceeded.  Please wait a short time and try again.", comment: "Rate Limit")
@@ -39,13 +39,14 @@ public enum TwitterFeedType: Int {
 public final class TwitterFeedProvider: FeedProvider {
 
 	private static let homeURL = "https://www.twitter.com"
+	private static let iconURL = "https://abs.twimg.com/favicons/twitter.ico"
 	private static let server = "api.twitter.com"
 	private static let apiBase = "https://api.twitter.com/1.1/"
 	private static let userAgentHeaders = UserAgent.headers() as! [String: String]
 	private static let dateFormat = "EEE MMM dd HH:mm:ss Z yyyy"
 	
-	private static let userPaths = ["/home", "/notifications"]
-	private static let reservedPaths = ["/search", "/explore", "/messages", "/i", "/compose"]
+	private static let userPaths = ["/", "/home", "/notifications"]
+	private static let reservedPaths = ["/search", "/explore", "/messages", "/i", "/compose", "/notifications/mentions"]
 	
 	private var parsingQueue = DispatchQueue(label: "TwitterFeedProvider parse queue")
 
@@ -130,7 +131,7 @@ public final class TwitterFeedProvider: FeedProvider {
 				}
 			}
 		} else {
-			completion(.failure(TwitterFeedProviderError.screenNameNotFound))
+			completion(.success(Self.iconURL))
 		}
 	}
 
@@ -205,13 +206,14 @@ public final class TwitterFeedProvider: FeedProvider {
 		var parameters = [String: Any]()
 		var isSearch = false
 		
-		if let sinceToken = webFeed.sinceToken, let sinceID = Int(sinceToken) {
-			parameters["since_id"] = sinceID
-		}
-		
+		parameters["count"] = 20
+
 		switch urlComponents.path {
 		case "", "/", "/home":
 			parameters["count"] = 100
+			if let sinceToken = webFeed.sinceToken, let sinceID = Int(sinceToken) {
+				parameters["since_id"] = sinceID
+			}
 			api = "statuses/home_timeline.json"
 		case "/notifications/mentions":
 			api = "statuses/mentions_timeline.json"
@@ -397,6 +399,7 @@ private extension TwitterFeedProvider {
 				
 				let decoder = JSONDecoder()
 				let dateFormatter = DateFormatter()
+				dateFormatter.locale = Locale.init(identifier: "en_US_POSIX")
 				dateFormatter.dateFormat = Self.dateFormat
 				decoder.dateDecodingStrategy = .formatted(dateFormatter)
 
@@ -431,7 +434,12 @@ private extension TwitterFeedProvider {
 				}
 				
 			case .failure(let error):
-				completion(.failure(error))
+				if error.errorCode == -11 {
+					// Eat these errors.  They are old or invalid URL requests.
+					completion(.success([TwitterStatus]()))
+				} else {
+					completion(.failure(error))
+				}
 			}
 		}
 	}

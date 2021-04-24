@@ -96,11 +96,13 @@ class SidebarCell : NSTableCellView {
 	}
 
 	override func layout() {
+		if let cellAppearance = cellAppearance {
+			titleView.font = cellAppearance.textFieldFont
+		}
 		resizeSubviews(withOldSize: NSZeroSize)
 	}
 
 	override func resizeSubviews(withOldSize oldSize: NSSize) {
-
 		guard let cellAppearance = cellAppearance else {
 			return
 		}
@@ -143,14 +145,14 @@ private extension SidebarCell {
 		if let iconImage = iconImage, iconImage.isSymbol {
 			if backgroundStyle != .normal {
 				let image = iconImage.image.tinted(with: .white)
-				updatedIconImage = IconImage(image, isSymbol: true)
+				updatedIconImage = IconImage(image, isSymbol: iconImage.isSymbol, isBackgroundSupressed: iconImage.isBackgroundSupressed)
 			} else {
 				if let preferredColor = iconImage.preferredColor {
 					let image = iconImage.image.tinted(with: NSColor(cgColor: preferredColor)!)
-					updatedIconImage = IconImage(image, isSymbol: true)
+					updatedIconImage = IconImage(image, isSymbol: iconImage.isSymbol, isBackgroundSupressed: iconImage.isBackgroundSupressed)
 				} else {
 					let image = iconImage.image.tinted(with: .controlAccentColor)
-					updatedIconImage = IconImage(image, isSymbol: true)
+					updatedIconImage = IconImage(image, isSymbol: iconImage.isSymbol, isBackgroundSupressed: iconImage.isBackgroundSupressed)
 				}
 			}
 		}

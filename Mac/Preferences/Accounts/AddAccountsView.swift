@@ -8,12 +8,14 @@
 
 import SwiftUI
 import Account
+import RSCore
 
-private enum AddAccountSections: Int, CaseIterable {
+enum AddAccountSections: Int, CaseIterable {
 	case local = 0
 	case icloud
 	case web
 	case selfhosted
+	case allOrdered
 	
 	var sectionHeader: String {
 		switch self {
@@ -25,6 +27,8 @@ private enum AddAccountSections: Int, CaseIterable {
 			return NSLocalizedString("Web", comment: "Web Account")
 		case .selfhosted:
 			return NSLocalizedString("Self-hosted", comment: "Self hosted Account")
+		case .allOrdered:
+			return ""
 		}
 	}
 	
@@ -38,6 +42,8 @@ private enum AddAccountSections: Int, CaseIterable {
 			return NSLocalizedString("Web accounts sync your subscriptions across all your devices.", comment: "Web Account")
 		case .selfhosted:
 			return NSLocalizedString("Self-hosted accounts sync your subscriptions across all your devices.", comment: "Self hosted Account")
+		case .allOrdered:
+			return ""
 		}
 	}
 	
@@ -48,17 +54,31 @@ private enum AddAccountSections: Int, CaseIterable {
 		case .icloud:
 			return [.cloudKit]
 		case .web:
-			return [.bazQux, .feedbin, .feedly, .feedWrangler, .inoreader, .newsBlur, .theOldReader]
+			if AppDefaults.shared.isDeveloperBuild {
+				return [.bazQux, .feedbin, .feedly, .inoreader, .newsBlur, .theOldReader].filter({ $0.isDeveloperRestricted == false })
+			} else {
+				return [.bazQux, .feedbin, .feedly, .inoreader, .newsBlur, .theOldReader]
+			}
 		case .selfhosted:
 			return [.freshRSS]
+		case .allOrdered:
+			return AddAccountSections.local.sectionContent +
+			AddAccountSections.icloud.sectionContent +
+				AddAccountSections.web.sectionContent +
+				AddAccountSections.selfhosted.sectionContent
 		}
 	}
+	
+	
+	
+	
 }
 
 struct AddAccountsView: View {
     
 	weak var parent: NSHostingController<AddAccountsView>? // required because presentationMode.dismiss() doesn't work
 	var addAccountDelegate: AccountsPreferencesAddAccountDelegate?
+	private let chunkLimit = 4 // use this to control number of accounts in each web account column
 	@State private var selectedAccount: AccountType = .onMyMac
 	
 	init(delegate: AccountsPreferencesAddAccountDelegate?) {
@@ -72,7 +92,11 @@ struct AddAccountsView: View {
 				.padding()
 			
 			localAccount
-			icloudAccount
+			
+			if !AppDefaults.shared.isDeveloperBuild {
+				icloudAccount
+			}
+			
 			webAccounts
 			selfhostedAccounts
 			
@@ -83,7 +107,7 @@ struct AddAccountsView: View {
 						parent?.dismiss(nil)
 					}, label: {
 						Text("Cancel")
-							.frame(width: 80)
+							.frame(width: 76)
 					})
 					.help("Cancel")
 					.keyboardShortcut(.cancelAction)
@@ -93,7 +117,7 @@ struct AddAccountsView: View {
 						parent?.dismiss(nil)
 					}, label: {
 						Text("Cancel")
-							.frame(width: 80)
+							.frame(width: 76)
 					})
 					.accessibility(label: Text("Add Account"))
 				}
@@ -103,7 +127,7 @@ struct AddAccountsView: View {
 						parent?.dismiss(nil)
 					}, label: {
 						Text("Continue")
-							.frame(width: 80)
+							.frame(width: 76)
 					})
 					.help("Add Account")
 					.keyboardShortcut(.defaultAction)
@@ -114,7 +138,7 @@ struct AddAccountsView: View {
 						parent?.dismiss(nil)
 					}, label: {
 						Text("Continue")
-							.frame(width: 80)
+							.frame(width: 76)
 					})
 				}
 			}
@@ -139,10 +163,8 @@ struct AddAccountsView: View {
 						account.image()
 							.resizable()
 							.aspectRatio(contentMode: .fit)
-							.frame(width: 25, height: 25, alignment: .center)
+							.frame(width: 20, height: 20, alignment: .center)
 							.padding(.leading, 4)
-						
-							
 						Text(account.localizedAccountName())
 					}
 					.tag(account)
@@ -152,8 +174,9 @@ struct AddAccountsView: View {
 			.offset(x: 7.5, y: 0)
 			
 			Text(AddAccountSections.local.sectionFooter).foregroundColor(.gray)
-				.font(.caption)
 				.padding(.horizontal)
+				.lineLimit(3)
+				.fixedSize(horizontal: false, vertical: true)
 			
 		}
 		
@@ -172,7 +195,7 @@ struct AddAccountsView: View {
 						account.image()
 							.resizable()
 							.aspectRatio(contentMode: .fit)
-							.frame(width: 25, height: 25, alignment: .center)
+							.frame(width: 20, height: 20, alignment: .center)
 							.padding(.leading, 4)
 						
 						Text(account.localizedAccountName())
@@ -184,11 +207,13 @@ struct AddAccountsView: View {
 			.disabled(isCloudInUse())
 			
 			Text(AddAccountSections.icloud.sectionFooter).foregroundColor(.gray)
-				.font(.caption)
 				.padding(.horizontal)
+				.lineLimit(3)
+				.fixedSize(horizontal: false, vertical: true)
 		}
 	}
 	
+	@ViewBuilder
 	var webAccounts: some View {
 		VStack(alignment: .leading) {
 			Text("Web")
@@ -196,27 +221,34 @@ struct AddAccountsView: View {
 				.padding(.horizontal)
 				.padding(.top, 8)
 			
-			Picker(selection: $selectedAccount, label: Text(""), content: {
-				ForEach(AddAccountSections.web.sectionContent.filter({ isRestricted($0) != true }), id: \.self, content: { account in
-					
-					HStack(alignment: .center) {
-						account.image()
-							.resizable()
-							.aspectRatio(contentMode: .fit)
-							.frame(width: 25, height: 25, alignment: .center)
-							.padding(.leading, 4)
-							
-						Text(account.localizedAccountName())
+			HStack {
+				ForEach(0..<chunkedWebAccounts().count, content: { chunk in
+					VStack {
+						Picker(selection: $selectedAccount, label: Text(""), content: {
+							ForEach(chunkedWebAccounts()[chunk], id: \.self, content: { account in
+		
+								HStack(alignment: .center) {
+									account.image()
+										.resizable()
+										.aspectRatio(contentMode: .fit)
+										.frame(width: 20, height: 20, alignment: .center)
+										.padding(.leading, 4)
+									Text(account.localizedAccountName())
+								}
+								.tag(account)
+								
+							})
+						})
+						Spacer()
 					}
-					.tag(account)
-					
 				})
-			})
+			}
 			.offset(x: 7.5, y: 0)
 			
 			Text(AddAccountSections.web.sectionFooter).foregroundColor(.gray)
-				.font(.caption)
 				.padding(.horizontal)
+				.lineLimit(3)
+				.fixedSize(horizontal: false, vertical: true)
 		}
 	}
 	
@@ -233,7 +265,7 @@ struct AddAccountsView: View {
 						account.image()
 							.resizable()
 							.aspectRatio(contentMode: .fit)
-							.frame(width: 25, height: 25, alignment: .center)
+							.frame(width: 20, height: 20, alignment: .center)
 							.padding(.leading, 4)
 			
 						Text(account.localizedAccountName())
@@ -243,8 +275,9 @@ struct AddAccountsView: View {
 			.offset(x: 7.5, y: 0)
 			
 			Text(AddAccountSections.selfhosted.sectionFooter).foregroundColor(.gray)
-				.font(.caption)
 				.padding(.horizontal)
+				.lineLimit(3)
+				.fixedSize(horizontal: false, vertical: true)
 		}
 	}
 	
@@ -252,12 +285,10 @@ struct AddAccountsView: View {
 		AccountManager.shared.accounts.contains(where: { $0.type == .cloudKit })
 	}
 	
-	private func isRestricted(_ accountType: AccountType) -> Bool {
-		if AppDefaults.shared.isDeveloperBuild && (accountType == .feedly || accountType == .feedWrangler || accountType == .inoreader) {
-			return true
-		}
-		return false
+	private func chunkedWebAccounts() -> [[AccountType]] {
+		AddAccountSections.web.sectionContent.chunked(into: chunkLimit)
 	}
+
 }
 
 

@@ -38,6 +38,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>feed</string>
+				<string>feeds</string>
 			</array>
 		</dict>
 		<dict>
@@ -53,6 +54,10 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>mailto</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -171,6 +176,6 @@
 		</dict>
 	</array>
 	<key>UserAgent</key>
-	<string>NetNewsWire (RSS Reader; https://ranchero.com/netnewswire/)</string>
+	<string>NetNewsWire (RSS Reader; https://netnewswire.com/)</string>
 </dict>
 </plist>

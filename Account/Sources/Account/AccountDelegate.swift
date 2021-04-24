@@ -26,6 +26,7 @@ protocol AccountDelegate {
 	func receiveRemoteNotification(for account: Account, userInfo: [AnyHashable : Any], completion: @escaping () -> Void)
 
 	func refreshAll(for account: Account, completion: @escaping (Result<Void, Error>) -> Void)
+	func syncArticleStatus(for account: Account, completion: ((Result<Void, Error>) -> Void)?)
 	func sendArticleStatus(for account: Account, completion: @escaping ((Result<Void, Error>) -> Void))
 	func refreshArticleStatus(for account: Account, completion: @escaping ((Result<Void, Error>) -> Void))
 	
@@ -35,7 +36,7 @@ protocol AccountDelegate {
 	func renameFolder(for account: Account, with folder: Folder, to name: String, completion: @escaping (Result<Void, Error>) -> Void)
 	func removeFolder(for account: Account, with folder: Folder, completion: @escaping (Result<Void, Error>) -> Void)
 
-	func createWebFeed(for account: Account, url: String, name: String?, container: Container, completion: @escaping (Result<WebFeed, Error>) -> Void)
+	func createWebFeed(for account: Account, url: String, name: String?, container: Container, validateFeed: Bool, completion: @escaping (Result<WebFeed, Error>) -> Void)
 	func renameWebFeed(for account: Account, with feed: WebFeed, to name: String, completion: @escaping (Result<Void, Error>) -> Void)
 	func addWebFeed(for account: Account, with: WebFeed, to container: Container, completion: @escaping (Result<Void, Error>) -> Void)
 	func removeWebFeed(for account: Account, with feed: WebFeed, from container: Container, completion: @escaping (Result<Void, Error>) -> Void)
@@ -44,7 +45,7 @@ protocol AccountDelegate {
 	func restoreWebFeed(for account: Account, feed: WebFeed, container: Container, completion: @escaping (Result<Void, Error>) -> Void)
 	func restoreFolder(for account: Account, folder: Folder, completion: @escaping (Result<Void, Error>) -> Void)
 
-	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool)
+	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping (Result<Void, Error>) -> Void)
 
 	// Called at the end of account’s init method.
 	func accountDidInitialize(_ account: Account)

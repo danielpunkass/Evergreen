@@ -14,7 +14,7 @@ import Articles
 import SafariServices
 import MessageUI
 
-protocol WebViewControllerDelegate: class {
+protocol WebViewControllerDelegate: AnyObject {
 	func webViewController(_: WebViewController, articleExtractorButtonStateDidUpdate: ArticleExtractorButtonState)
 }
 
@@ -239,7 +239,7 @@ class WebViewController: UIViewController {
 			return
 		}
 
-		let activityViewController = UIActivityViewController(url: url, title: article?.title, applicationActivities: [FindInArticleActivity(), OpenInSafariActivity()])
+		let activityViewController = UIActivityViewController(url: url, title: article?.title, applicationActivities: [FindInArticleActivity(), OpenInBrowserActivity()])
 		activityViewController.popoverPresentationController?.barButtonItem = popOverBarButtonItem
 		present(activityViewController, animated: true)
 	}
@@ -282,25 +282,35 @@ extension WebViewController: UIContextMenuInteractionDelegate {
 	
 		return UIContextMenuConfiguration(identifier: nil, previewProvider: contextMenuPreviewProvider) { [weak self] suggestedActions in
 			guard let self = self else { return nil }
-			var actions = [UIAction]()
+
+			var menus = [UIMenu]()
 			
+			var navActions = [UIAction]()
 			if let action = self.prevArticleAction() {
-				actions.append(action)
+				navActions.append(action)
 			}
 			if let action = self.nextArticleAction() {
-				actions.append(action)
+				navActions.append(action)
 			}
-			if let action = self.toggleReadAction() {
-				actions.append(action)
+			if !navActions.isEmpty {
+				menus.append(UIMenu(title: "", options: .displayInline, children: navActions))
 			}
-			actions.append(self.toggleStarredAction())
-			if let action = self.nextUnreadArticleAction() {
-				actions.append(action)
-			}
-			actions.append(self.toggleArticleExtractorAction())
-			actions.append(self.shareAction())
 			
-			return UIMenu(title: "", children: actions)
+			var toggleActions = [UIAction]()
+			if let action = self.toggleReadAction() {
+				toggleActions.append(action)
+			}
+			toggleActions.append(self.toggleStarredAction())
+			menus.append(UIMenu(title: "", options: .displayInline, children: toggleActions))
+
+			if let action = self.nextUnreadArticleAction() {
+				menus.append(UIMenu(title: "", options: .displayInline, children: [action]))
+			}
+
+			menus.append(UIMenu(title: "", options: .displayInline, children: [self.toggleArticleExtractorAction()]))
+			menus.append(UIMenu(title: "", options: .displayInline, children: [self.shareAction()]))
+			
+			return UIMenu(title: "", children: menus)
         }
     }
 	
@@ -346,16 +356,12 @@ extension WebViewController: WKNavigationDelegate {
 			} else if components?.scheme == "mailto" {
 				decisionHandler(.cancel)
 				
-				guard let emailAddress = url.emailAddress else {
+				guard let emailAddress = url.percentEncodedEmailAddress else {
 					return
 				}
 				
-				if MFMailComposeViewController.canSendMail() {
-					let mailComposeViewController = MFMailComposeViewController()
-					mailComposeViewController.setToRecipients([emailAddress])
-					mailComposeViewController.setSubject(url.valueFor("subject") ?? "")
-					mailComposeViewController.mailComposeDelegate = self
-					self.present(mailComposeViewController, animated: true, completion: {})
+				if UIApplication.shared.canOpenURL(emailAddress) {
+					UIApplication.shared.open(emailAddress, options: [.universalLinksOnly : false], completionHandler: nil)
 				} else {
 					let alert = UIAlertController(title: NSLocalizedString("Error", comment: "Error"), message: NSLocalizedString("This device cannot send emails.", comment: "This device cannot send emails."), preferredStyle: .alert)
 					alert.addAction(.init(title: NSLocalizedString("Dismiss", comment: "Dismiss"), style: .cancel, handler: nil))
@@ -449,14 +455,7 @@ extension WebViewController: UIScrollViewDelegate {
 	
 }
 
-// MARK: MFMailComposeViewControllerDelegate
-extension WebViewController: MFMailComposeViewControllerDelegate {
-	
-	func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
-		self.dismiss(animated: true, completion: nil)
-	}
-	
-}
+
 
 // MARK: JSON
 

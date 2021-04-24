@@ -72,7 +72,7 @@
 		<string>remote-notification</string>
 	</array>
 	<key>UserAgent</key>
-	<string>NetNewsWire (RSS Reader; https://ranchero.com/netnewswire/)</string>
+	<string>NetNewsWire (RSS Reader; https://netnewswire.com/)</string>
 	<key>OrganizationIdentifier</key>
 	<string>$(ORGANIZATION_IDENTIFIER)</string>
 	<key>DeveloperEntitlements</key>
@@ -81,5 +81,9 @@
 	<string>group.$(ORGANIZATION_IDENTIFIER).NetNewsWire.iOS</string>
 	<key>AppIdentifierPrefix</key>
 	<string>$(AppIdentifierPrefix)</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>mailto</string>
+	</array>
 </dict>
 </plist>

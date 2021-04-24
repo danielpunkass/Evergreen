@@ -13,6 +13,7 @@ import Account
 import BackgroundTasks
 import os.log
 import Secrets
+import WidgetKit
 
 var appDelegate: AppDelegate!
 
@@ -183,15 +184,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 		}
 	}
 	
-	func logMessage(_ message: String, type: LogItem.ItemType) {
-		print("logMessage: \(message) - \(type)")
-		
-	}
-	
-	func logDebugMessage(_ message: String) {
-		logMessage(message, type: .debug)
-	}
-	
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.alert, .badge, .sound])
     }
@@ -199,10 +191,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
 		defer { completionHandler() }
 		
-		if let sceneDelegate = response.targetScene?.delegate as? SceneDelegate {
-			sceneDelegate.handle(response)
+		let userInfo = response.notification.request.content.userInfo
+		
+		switch response.actionIdentifier {
+		case "MARK_AS_READ":
+			handleMarkAsRead(userInfo: userInfo)
+		case "MARK_AS_STARRED":
+			handleMarkAsStarred(userInfo: userInfo)
+		default:
+			if let sceneDelegate = response.targetScene?.delegate as? SceneDelegate {
+				sceneDelegate.handle(response)
+			}
 		}
-        
+		
     }
 	
 }
@@ -384,6 +385,9 @@ private extension AppDelegate {
 			}
 			AccountManager.shared.refreshAll(errorHandler: ErrorHandler.log) { [unowned self] in
 				if !AccountManager.shared.isSuspended {
+					if #available(iOS 14, *) {
+						try? WidgetDataEncoder.shared.encodeWidgetData()
+					}
 					self.suspendApplication()
 					os_log("Account refresh operation completed.", log: self.log, type: .info)
 					task.setTaskCompleted(success: true)
@@ -401,4 +405,68 @@ private extension AppDelegate {
 		}
 	}
 	
+}
+
+// Handle Notification Actions
+
+private extension AppDelegate {
+	
+	func handleMarkAsRead(userInfo: [AnyHashable: Any]) {
+		guard let articlePathUserInfo = userInfo[UserInfoKey.articlePath] as? [AnyHashable : Any],
+			let accountID = articlePathUserInfo[ArticlePathKey.accountID] as? String,
+			let articleID = articlePathUserInfo[ArticlePathKey.articleID] as? String else {
+				return
+		}
+		resumeDatabaseProcessingIfNecessary()
+		let account = AccountManager.shared.existingAccount(with: accountID)
+		guard account != nil else {
+			os_log(.debug, "No account found from notification.")
+			return
+		}
+		let article = try? account!.fetchArticles(.articleIDs([articleID]))
+		guard article != nil else {
+			os_log(.debug, "No article found from search using %@", articleID)
+			return
+		}
+		account!.markArticles(article!, statusKey: .read, flag: true) { _ in }
+		self.prepareAccountsForBackground()
+		account!.syncArticleStatus(completion: { [weak self] _ in
+			if !AccountManager.shared.isSuspended {
+				if #available(iOS 14, *) {
+					try? WidgetDataEncoder.shared.encodeWidgetData()
+				}
+				self?.prepareAccountsForBackground()
+				self?.suspendApplication()
+			}
+		})
+	}
+	
+	func handleMarkAsStarred(userInfo: [AnyHashable: Any]) {
+		guard let articlePathUserInfo = userInfo[UserInfoKey.articlePath] as? [AnyHashable : Any],
+			let accountID = articlePathUserInfo[ArticlePathKey.accountID] as? String,
+			let articleID = articlePathUserInfo[ArticlePathKey.articleID] as? String else {
+				return
+		}
+		resumeDatabaseProcessingIfNecessary()
+		let account = AccountManager.shared.existingAccount(with: accountID)
+		guard account != nil else {
+			os_log(.debug, "No account found from notification.")
+			return
+		}
+		let article = try? account!.fetchArticles(.articleIDs([articleID]))
+		guard article != nil else {
+			os_log(.debug, "No article found from search using %@", articleID)
+			return
+		}
+		account!.markArticles(article!, statusKey: .starred, flag: true) { _ in }
+		account!.syncArticleStatus(completion: { [weak self] _ in
+			if !AccountManager.shared.isSuspended {
+				if #available(iOS 14, *) {
+					try? WidgetDataEncoder.shared.encodeWidgetData()
+				}
+				self?.prepareAccountsForBackground()
+				self?.suspendApplication()
+			}
+		})
+	}
 }

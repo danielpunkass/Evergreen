@@ -13,7 +13,8 @@ import RSCore
 final class FolderInspectorViewController: NSViewController, Inspector {
 
 	@IBOutlet var nameTextField: NSTextField?
-
+	@IBOutlet weak var folderImageView: NSImageView!
+	
 	private var folder: Folder? {
 		didSet {
 			if folder != oldValue {
@@ -27,6 +28,7 @@ final class FolderInspectorViewController: NSViewController, Inspector {
 	let isFallbackInspector = false
 	var objects: [Any]? {
 		didSet {
+			renameFolderIfNecessary()
 			updateFolder()
 		}
 	}
@@ -43,16 +45,24 @@ final class FolderInspectorViewController: NSViewController, Inspector {
 	// MARK: NSViewController
 
 	override func viewDidLoad() {
-
 		updateUI()
-
+		
+		if #available(macOS 11.0, *) {
+			let image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)!
+			folderImageView.image = image
+			folderImageView.contentTintColor = NSColor.controlAccentColor
+		}
+		
 		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange(_:)), name: .DisplayNameDidChange, object: nil)
 	}
 
+	override func viewDidDisappear() {
+		renameFolderIfNecessary()
+	}
+	
 	// MARK: Notifications
 
 	@objc func displayNameDidChange(_ note: Notification) {
-
 		guard let updatedFolder = note.object as? Folder, updatedFolder == folder else {
 			return
 		}
@@ -63,19 +73,9 @@ final class FolderInspectorViewController: NSViewController, Inspector {
 extension FolderInspectorViewController: NSTextFieldDelegate {
 
 	func controlTextDidEndEditing(_ obj: Notification) {
-
-		guard let folder = folder, let nameTextField = nameTextField else {
-			return
-		}
-		folder.rename(to: nameTextField.stringValue) { result in
-			switch result {
-			case .success:
-				break
-			case .failure(let error):
-				NSApplication.shared.presentError(error)
-			}
-		}
+		renameFolderIfNecessary()
 	}
+	
 }
 
 private extension FolderInspectorViewController {
@@ -106,4 +106,22 @@ private extension FolderInspectorViewController {
 		}
 		windowTitle = folder?.nameForDisplay ?? NSLocalizedString("Folder Inspector", comment: "Folder Inspector window title")
 	}
+	
+	func renameFolderIfNecessary() {
+		guard let folder = folder,
+			  let account = folder.account,
+			  let nameTextField = nameTextField,
+			  folder.nameForDisplay != nameTextField.stringValue else {
+			return
+		}
+		
+		account.renameFolder(folder, to: nameTextField.stringValue) { [weak self] result in
+			if case .failure(let error) = result {
+				self?.presentError(error)
+			} else {
+				self?.windowTitle = folder.nameForDisplay
+			}
+		}
+	}
+	
 }

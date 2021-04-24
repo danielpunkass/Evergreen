@@ -29,6 +29,18 @@ final class StatusesTable: DatabaseTable {
 	// MARK: - Creating/Updating
 
 	func ensureStatusesForArticleIDs(_ articleIDs: Set<String>, _ read: Bool, _ database: FMDatabase) -> ([String: ArticleStatus], Set<String>) {
+
+		#if DEBUG
+		// Check for missing statuses  — this asserts that all the passed-in articleIDs exist in the statuses table.
+		defer {
+			if let resultSet = self.selectRowsWhere(key: DatabaseKey.articleID, inValues: Array(articleIDs), in: database) {
+				let fetchedStatuses = resultSet.mapToSet(statusWithRow)
+				let fetchedArticleIDs = Set(fetchedStatuses.map{ $0.articleID })
+				assert(fetchedArticleIDs == articleIDs)
+			}
+		}
+		#endif
+
 		// Check cache.
 		let articleIDsMissingCachedStatus = articleIDsWithNoCachedStatus(articleIDs)
 		if articleIDsMissingCachedStatus.isEmpty {
@@ -43,21 +55,8 @@ final class StatusesTable: DatabaseTable {
 			// Create new statuses.
 			self.createAndSaveStatusesForArticleIDs(articleIDsNeedingStatus, read, database)
 		}
-			
+
 		return (statusesDictionary(articleIDs), articleIDsNeedingStatus)
-	}
-
-	func existingStatusesForArticleIDs(_ articleIDs: Set<String>, _ database: FMDatabase) -> [String: ArticleStatus] {
-		// Check cache.
-		let articleIDsMissingCachedStatus = articleIDsWithNoCachedStatus(articleIDs)
-		if articleIDsMissingCachedStatus.isEmpty {
-			return statusesDictionary(articleIDs)
-		}
-
-		// Check database.
-		fetchAndCacheStatusesForArticleIDs(articleIDsMissingCachedStatus, database)
-
-		return statusesDictionary(articleIDs)
 	}
 
 	// MARK: - Marking
@@ -103,6 +102,38 @@ final class StatusesTable: DatabaseTable {
 		return try fetchArticleIDs("select articleID from statuses where starred=1;")
 	}
 	
+	func fetchArticleIDsAsync(_ statusKey: ArticleStatus.Key, _ value: Bool, _ completion: @escaping ArticleIDsCompletionBlock) {
+		queue.runInDatabase { databaseResult in
+
+			func makeDatabaseCalls(_ database: FMDatabase) {
+				var sql = "select articleID from statuses where \(statusKey.rawValue)="
+				sql += value ? "1" : "0"
+				sql += ";"
+
+				guard let resultSet = database.executeQuery(sql, withArgumentsIn: nil) else {
+					DispatchQueue.main.async {
+						completion(.success(Set<String>()))
+					}
+					return
+				}
+
+				let articleIDs = resultSet.mapToSet{ $0.string(forColumnIndex: 0) }
+				DispatchQueue.main.async {
+					completion(.success(articleIDs))
+				}
+			}
+
+			switch databaseResult {
+			case .success(let database):
+				makeDatabaseCalls(database)
+			case .failure(let databaseError):
+				DispatchQueue.main.async {
+					completion(.failure(databaseError))
+				}
+			}
+		}
+	}
+
 	func fetchArticleIDsForStatusesWithoutArticlesNewerThan(_ cutoffDate: Date, _ completion: @escaping ArticleIDsCompletionBlock) {
 		queue.runInDatabase { databaseResult in
 			

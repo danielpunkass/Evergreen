@@ -15,6 +15,8 @@ import Account
 import RSCore
 import RSCoreResources
 import Secrets
+import OSLog
+import CrashReporter
 
 // If we're not going to import Sparkle, provide dummy protocols to make it easy
 // for AppDelegate to comply
@@ -47,6 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	
 	var refreshTimer: AccountRefreshTimer?
 	var syncTimer: ArticleStatusSyncTimer?
+	var lastRefreshInterval = AppDefaults.shared.refreshInterval
 	
 	var shuttingDown = false {
 		didSet {
@@ -59,6 +62,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		}
 	}
 
+	var isShutDownSyncDone = false
+	
 	@IBOutlet var debugMenuItem: NSMenuItem!
 	@IBOutlet var sortByOldestArticleOnTopMenuItem: NSMenuItem!
 	@IBOutlet var sortByNewestArticleOnTopMenuItem: NSMenuItem!
@@ -97,15 +102,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	private var keyboardShortcutsWindowController: WebViewWindowController?
 	private var inspectorWindowController: InspectorWindowController?
 	private var crashReportWindowController: CrashReportWindowController? // For testing only
-	private let log = Log()
 	private let appMovementMonitor = RSAppMovementMonitor()
 	#if !MAC_APP_STORE && !TEST
 	private var softwareUpdater: SPUUpdater!
+	private var crashReporter: PLCrashReporter!
 	#endif
 
 	override init() {
 		NSWindow.allowsAutomaticWindowTabbing = false
 		super.init()
+
+		#if !MAC_APP_STORE
+		let crashReporterConfig = PLCrashReporterConfig.defaultConfiguration()
+		crashReporter = PLCrashReporter(configuration: crashReporterConfig)
+		crashReporter.enable()
+		#endif
 
 		SecretsManager.provider = Secrets()
 		AccountManager.shared = AccountManager(accountsFolder: Platform.dataSubfolder(forApplication: nil, folderName: "Accounts")!)
@@ -119,22 +130,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	// MARK: - API
-	func logMessage(_ message: String, type: LogItem.ItemType) {
-
-		#if DEBUG
-		if type == .debug {
-			print("logMessage: \(message) - \(type)")
-		}
-		#endif
-
-		let logItem = LogItem(type: type, message: message)
-		log.add(logItem)
-	}
-
-	func logDebugMessage(_ message: String) {
-		logMessage(message, type: .debug)
-	}
-
 	func showAddFolderSheetOnWindow(_ window: NSWindow) {
 		addFolderWindowController = AddFolderWindowController()
 		addFolderWindowController!.runSheetOnWindow(window)
@@ -199,7 +194,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		AppDefaults.shared.registerDefaults()
 		let isFirstRun = AppDefaults.shared.isFirstRun
 		if isFirstRun {
-			logDebugMessage("Is first run.")
+			os_log(.debug, "Is first run.")
 		}
 		let localAccount = AccountManager.shared.defaultAccount
 
@@ -252,10 +247,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		UNUserNotificationCenter.current().delegate = self
 		userNotificationManager = UserNotificationManager()
 
+		#if DEBUG
+		refreshTimer!.update()
+		syncTimer!.update()
+		#else
+		DispatchQueue.main.async {
+			self.refreshTimer!.timedRefresh(nil)
+			self.syncTimer!.timedRefresh(nil)
+		}
+		#endif
+		
 		if AppDefaults.shared.showDebugMenu {
- 			refreshTimer!.update()
- 			syncTimer!.update()
-
   			// The Web Inspector uses SPI and can never appear in a MAC_APP_STORE build.
  			#if MAC_APP_STORE
  			let debugMenu = debugMenuItem.submenu!
@@ -266,16 +268,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
  			#endif
  		} else {
 			debugMenuItem.menu?.removeItem(debugMenuItem)
-			DispatchQueue.main.async {
-				self.refreshTimer!.timedRefresh(nil)
-				self.syncTimer!.timedRefresh(nil)
-			}
 		}
 
 		#if !MAC_APP_STORE
-			DispatchQueue.main.async {
-				CrashReporter.check(appName: "NetNewsWire")
-			}
+		DispatchQueue.main.async {
+			CrashReporter.check(crashReporter: self.crashReporter)
+		}
 		#endif
 		
 	}
@@ -318,6 +316,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	func applicationWillTerminate(_ notification: Notification) {
 		shuttingDown = true
 		saveState()
+		
+		AccountManager.shared.sendArticleStatusAll() {
+			self.isShutDownSyncDone = true
+		}
+		
+		let timeout = Date().addingTimeInterval(2)
+		while !isShutDownSyncDone && RunLoop.current.run(mode: .default, before: .distantFuture) && timeout > Date() { }
 	}
 
 	// MARK: Notifications
@@ -346,7 +351,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	@objc func userDefaultsDidChange(_ note: Notification) {
 		updateSortMenuItems()
 		updateGroupByFeedMenuItem()
-		refreshTimer?.update()
+		
+		if lastRefreshInterval != AppDefaults.shared.refreshInterval {
+			refreshTimer?.update()
+			lastRefreshInterval = AppDefaults.shared.refreshInterval
+		}
+		
 		updateDockBadge()
 	}
 	
@@ -359,8 +369,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	func createMainWindowController() -> MainWindowController {
 		let controller: MainWindowController
 		if #available(macOS 11.0, *) {
-			let storyboard = NSStoryboard(name: NSStoryboard.Name("MainWindow"), bundle: nil)
-			controller = storyboard.instantiateController(withIdentifier: "UnifiedWindowController") as! MainWindowController
+			controller = windowControllerWithName("UnifiedWindow") as! MainWindowController
 		} else {
 			controller = windowControllerWithName("MainWindow") as! MainWindowController
 		}
@@ -464,7 +473,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
     }
 	
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-		mainWindowController?.handle(response)
+		
+		let userInfo = response.notification.request.content.userInfo
+		
+		switch response.actionIdentifier {
+		case "MARK_AS_READ":
+			handleMarkAsRead(userInfo: userInfo)
+		case "MARK_AS_STARRED":
+			handleMarkAsStarred(userInfo: userInfo)
+		default:
+			mainWindowController?.handle(response)
+		}
 		completionHandler()
     }
 	
@@ -481,7 +500,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	// MARK: - Dock Badge
 	@objc func updateDockBadge() {
-		let label = unreadCount > 0 && !AppDefaults.shared.hideDockUnreadCount ? "\(unreadCount)" : ""
+		let label = unreadCount > 0 ? "\(unreadCount)" : ""
 		NSApplication.shared.dockTile.badgeLabel = label
 	}
 
@@ -598,7 +617,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@IBAction func openWebsite(_ sender: Any?) {
 
-		Browser.open("https://ranchero.com/netnewswire/", inBackground: false)
+		Browser.open("https://netnewswire.com/", inBackground: false)
 	}
 	
 	@IBAction func openReleaseNotes(_ sender: Any?) {
@@ -622,7 +641,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	@IBAction func openSlackGroup(_ sender: Any?) {
-		Browser.open("https://ranchero.com/netnewswire/slack", inBackground: false)
+		Browser.open("https://netnewswire.com/slack", inBackground: false)
 	}
 
 	@IBAction func openTechnotes(_ sender: Any?) {
@@ -632,7 +651,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@IBAction func showHelp(_ sender: Any?) {
 
-		Browser.open("https://ranchero.com/netnewswire/help/mac/5.1/en/", inBackground: false)
+		Browser.open("https://netnewswire.com/help/mac/6.0/en/", inBackground: false)
 	}
 
 	@IBAction func donateToAppCampForGirls(_ sender: Any?) {
@@ -640,7 +659,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	}
 
 	@IBAction func showPrivacyPolicy(_ sender: Any?) {
-		Browser.open("https://ranchero.com/netnewswire/privacypolicy", inBackground: false)
+		Browser.open("https://netnewswire.com/privacypolicy", inBackground: false)
 	}
 
 	@IBAction func gotoToday(_ sender: Any?) {
@@ -705,9 +724,11 @@ extension AppDelegate {
 	}
 
 	@IBAction func debugTestCrashReportSending(_ sender: Any?) {
-		#if DEBUG
-			CrashReporter.sendCrashLogText("This is a test. Hi, Brent.")
-		#endif
+		CrashReporter.sendCrashLogText("This is a test. Hi, Brent.")
+	}
+
+	@IBAction func forceCrash(_ sender: Any?) {
+		fatalError("This is a deliberate crash.")
 	}
 
 	@IBAction func openApplicationSupportFolder(_ sender: Any?) {
@@ -799,4 +820,48 @@ extension AppDelegate: NSWindowRestoration {
 		completionHandler(mainWindow, nil)
 	}
 	
+}
+
+// Handle Notification Actions
+
+private extension AppDelegate {
+	
+	func handleMarkAsRead(userInfo: [AnyHashable: Any]) {
+		guard let articlePathUserInfo = userInfo[UserInfoKey.articlePath] as? [AnyHashable : Any],
+			let accountID = articlePathUserInfo[ArticlePathKey.accountID] as? String,
+			let articleID = articlePathUserInfo[ArticlePathKey.articleID] as? String else {
+				return
+		}
+		
+		let account = AccountManager.shared.existingAccount(with: accountID)
+		guard account != nil else {
+			os_log(.debug, "No account found from notification.")
+			return
+		}
+		let article = try? account!.fetchArticles(.articleIDs([articleID]))
+		guard article != nil else {
+			os_log(.debug, "No article found from search using %@", articleID)
+			return
+		}
+		account!.markArticles(article!, statusKey: .read, flag: true) { _ in }
+	}
+	
+	func handleMarkAsStarred(userInfo: [AnyHashable: Any]) {
+		guard let articlePathUserInfo = userInfo[UserInfoKey.articlePath] as? [AnyHashable : Any],
+			let accountID = articlePathUserInfo[ArticlePathKey.accountID] as? String,
+			let articleID = articlePathUserInfo[ArticlePathKey.articleID] as? String else {
+				return
+		}
+		let account = AccountManager.shared.existingAccount(with: accountID)
+		guard account != nil else {
+			os_log(.debug, "No account found from notification.")
+			return
+		}
+		let article = try? account!.fetchArticles(.articleIDs([articleID]))
+		guard article != nil else {
+			os_log(.debug, "No article found from search using %@", articleID)
+			return
+		}
+		account!.markArticles(article!, statusKey: .starred, flag: true) { _ in }
+	}
 }

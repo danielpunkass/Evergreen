@@ -15,6 +15,7 @@ import os.log
 import Secrets
 
 public enum ReaderAPIAccountDelegateError: String, Error {
+	case unknown = "An unknown error occurred."
 	case invalidParameter = "There was an invalid parameter passed."
 	case invalidResponse = "There was an invalid response from the server."
 }
@@ -130,6 +131,29 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 		
 	}
 
+	func syncArticleStatus(for account: Account, completion: ((Result<Void, Error>) -> Void)? = nil) {
+		guard variant != .inoreader else {
+			completion?(.success(()))
+			return
+		}
+		
+		sendArticleStatus(for: account) { result in
+			switch result {
+			case .success:
+				self.refreshArticleStatus(for: account) { result in
+					switch result {
+					case .success:
+						completion?(.success(()))
+					case .failure(let error):
+						completion?(.failure(error))
+					}
+				}
+			case .failure(let error):
+				completion?(.failure(error))
+			}
+		}
+	}
+	
 	func sendArticleStatus(for account: Account, completion: @escaping ((Result<Void, Error>) -> Void)) {
 		os_log(.debug, log: log, "Sending article statuses...")
 
@@ -182,6 +206,8 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 		os_log(.debug, log: log, "Refreshing article statuses...")
 
 		let group = DispatchGroup()
+		var errorOccurred = false
+
 		group.enter()
 		caller.retrieveItemIDs(type: .unread) { result in
 			switch result {
@@ -190,6 +216,7 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 					group.leave()
 				}
 			case .failure(let error):
+				errorOccurred = true
 				os_log(.info, log: self.log, "Retrieving unread entries failed: %@.", error.localizedDescription)
 				group.leave()
 			}
@@ -204,6 +231,7 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 					group.leave()
 				}
 			case .failure(let error):
+				errorOccurred = true
 				os_log(.info, log: self.log, "Retrieving starred entries failed: %@.", error.localizedDescription)
 				group.leave()
 			}
@@ -212,7 +240,11 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 		
 		group.notify(queue: DispatchQueue.main) {
 			os_log(.debug, log: self.log, "Done refreshing article statuses.")
-			completion(.success(()))
+			if errorOccurred {
+				completion(.failure(ReaderAPIAccountDelegateError.unknown))
+			} else {
+				completion(.success(()))
+			}
 		}
 	}
 	
@@ -317,7 +349,7 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 		
 	}
 	
-	func createWebFeed(for account: Account, url: String, name: String?, container: Container, completion: @escaping (Result<WebFeed, Error>) -> Void) {
+	func createWebFeed(for account: Account, url: String, name: String?, container: Container, validateFeed: Bool, completion: @escaping (Result<WebFeed, Error>) -> Void) {
 		guard let url = URL(string: url) else {
 			completion(.failure(ReaderAPIAccountDelegateError.invalidParameter))
 			return
@@ -344,10 +376,6 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 						switch subResult {
 						case .created(let subscription):
 							self.createFeed(account: account, subscription: subscription, name: name, container: container, completion: completion)
-						case .alreadySubscribed:
-							DispatchQueue.main.async {
-								completion(.failure(AccountError.createErrorAlreadySubscribed))
-							}
 						case .notFound:
 							DispatchQueue.main.async {
 								completion(.failure(AccountError.createErrorNotFound))
@@ -484,7 +512,7 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 				}
 			}
 		} else {
-			createWebFeed(for: account, url: feed.url, name: feed.editedName, container: container) { result in
+			createWebFeed(for: account, url: feed.url, name: feed.editedName, container: container, validateFeed: true) { result in
 				switch result {
 				case .success:
 					completion(.success(()))
@@ -524,7 +552,7 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 		
 	}
 
-	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) {
+	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
 		account.update(articles, statusKey: statusKey, flag: flag) { result in
 			switch result {
 			case .success(let articles):
@@ -537,10 +565,11 @@ final class ReaderAPIAccountDelegate: AccountDelegate {
 						if let count = try? result.get(), count > 100 {
 							self.sendArticleStatus(for: account) { _ in }
 						}
+						completion(.success(()))
 					}
 				}
 			case .failure(let error):
-				os_log(.error, log: self.log, "Error marking article status: %@", error.localizedDescription)
+				completion(.failure(error))
 			}
 		}
 	}
@@ -619,7 +648,13 @@ private extension ReaderAPIAccountDelegate {
 		guard let tags = tags else { return }
 		assert(Thread.isMainThread)
 		
-		let folderTags = tags.filter{ $0.tagID.contains("/label/") }
+		let folderTags: [ReaderAPITag]
+		if variant == .inoreader {
+			folderTags = tags.filter{ $0.type == "folder" }
+		} else {
+			folderTags = tags.filter{ $0.tagID.contains("/label/") }
+		}
+		
 		guard !folderTags.isEmpty else { return }
 		
 		os_log(.debug, log: log, "Syncing folders with %ld tags.", folderTags.count)
@@ -827,30 +862,6 @@ private extension ReaderAPIAccountDelegate {
 			feed.folderRelationship = [folderExternalID: feedExternalID]
 		}
 	}
-
-	func decideBestFeedChoice(account: Account, url: String, name: String?, container: Container, choices: [ReaderAPISubscriptionChoice], completion: @escaping (Result<WebFeed, Error>) -> Void) {
-		
-		let feedSpecifiers: [FeedSpecifier] = choices.map { choice in
-			let source = url == choice.url ? FeedSpecifier.Source.UserEntered : FeedSpecifier.Source.HTMLLink
-			let specifier = FeedSpecifier(title: choice.name, urlString: choice.url, source: source)
-			return specifier
-		}
-
-		if let bestSpecifier = FeedSpecifier.bestFeed(in: Set(feedSpecifiers)) {
-			if let bestSubscription = choices.filter({ bestSpecifier.urlString == $0.url }).first {
-				createWebFeed(for: account, url: bestSubscription.url, name: name, container: container, completion: completion)
-			} else {
-				DispatchQueue.main.async {
-					completion(.failure(ReaderAPIAccountDelegateError.invalidParameter))
-				}
-			}
-		} else {
-			DispatchQueue.main.async {
-				completion(.failure(ReaderAPIAccountDelegateError.invalidParameter))
-			}
-		}
-		
-	}
 	
 	func createFeed( account: Account, subscription sub: ReaderAPISubscription, name: String?, container: Container, completion: @escaping (Result<WebFeed, Error>) -> Void) {
 		
@@ -1011,6 +1022,7 @@ private extension ReaderAPIAccountDelegate {
 	
 	func syncArticleReadState(account: Account, articleIDs: [String]?, completion: @escaping (() -> Void)) {
 		guard let articleIDs = articleIDs else {
+			completion()
 			return
 		}
 
@@ -1059,6 +1071,7 @@ private extension ReaderAPIAccountDelegate {
 	
 	func syncArticleStarredState(account: Account, articleIDs: [String]?, completion: @escaping (() -> Void)) {
 		guard let articleIDs = articleIDs else {
+			completion()
 			return
 		}
 

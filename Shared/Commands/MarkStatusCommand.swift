@@ -20,8 +20,9 @@ final class MarkStatusCommand: UndoableCommand {
 	let undoManager: UndoManager
 	let flag: Bool
 	let statusKey: ArticleStatus.Key
+	var completion: (() -> Void)? = nil
 
-	init?(initialArticles: [Article], statusKey: ArticleStatus.Key, flag: Bool, undoManager: UndoManager) {
+	init?(initialArticles: [Article], statusKey: ArticleStatus.Key, flag: Bool, undoManager: UndoManager, completion: (() -> Void)? = nil) {
         
         // Filter out articles that already have the desired status or can't be marked.
 		let articlesToMark = MarkStatusCommand.filteredArticles(initialArticles, statusKey, flag)
@@ -33,20 +34,19 @@ final class MarkStatusCommand: UndoableCommand {
 		self.flag = flag
 		self.statusKey = statusKey
  		self.undoManager = undoManager
+		self.completion = completion
 
 		let actionName = MarkStatusCommand.actionName(statusKey, flag)
 		self.undoActionName = actionName
 		self.redoActionName = actionName
     }
 
-	convenience init?(initialArticles: [Article], markingRead: Bool, undoManager: UndoManager) {
-
-		self.init(initialArticles: initialArticles, statusKey: .read, flag: markingRead, undoManager: undoManager)
+	convenience init?(initialArticles: [Article], markingRead: Bool, undoManager: UndoManager, completion: (() -> Void)? = nil) {
+		self.init(initialArticles: initialArticles, statusKey: .read, flag: markingRead, undoManager: undoManager, completion: completion)
 	}
 
-	convenience init?(initialArticles: [Article], markingStarred: Bool, undoManager: UndoManager) {
-
-		self.init(initialArticles: initialArticles, statusKey: .starred, flag: markingStarred, undoManager: undoManager)
+	convenience init?(initialArticles: [Article], markingStarred: Bool, undoManager: UndoManager, completion: (() -> Void)? = nil) {
+		self.init(initialArticles: initialArticles, statusKey: .starred, flag: markingStarred, undoManager: undoManager, completion: completion)
 	}
 
     func perform() {
@@ -63,8 +63,8 @@ final class MarkStatusCommand: UndoableCommand {
 private extension MarkStatusCommand {
     
 	func mark(_ statusKey: ArticleStatus.Key, _ flag: Bool) {
-        
-        markArticles(articles, statusKey: statusKey, flag: flag)
+        markArticles(articles, statusKey: statusKey, flag: flag, completion: completion)
+		completion = nil
     }
 
 	static private let markReadActionName = NSLocalizedString("Mark Read", comment: "command")

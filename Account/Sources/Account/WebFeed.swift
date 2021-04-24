@@ -77,7 +77,13 @@ public final class WebFeed: Feed, Renamable, Hashable {
 		}
 	}
 
-	public var name: String?
+	public var name: String? {
+		didSet {
+			if name != oldValue {
+				postDisplayNameDidChangeNotification()
+			}
+		}
+	}
 
 	public var authors: Set<Author>? {
 		get {
@@ -146,9 +152,14 @@ public final class WebFeed: Feed, Renamable, Hashable {
 	
 	public var isArticleExtractorAlwaysOn: Bool? {
 		get {
+            if isFeedProvider == true { return false } // not an option for FeedProviders
 			return metadata.isArticleExtractorAlwaysOn
 		}
 		set {
+            if isFeedProvider == true {
+                metadata.isArticleExtractorAlwaysOn = false
+                return
+            }
 			metadata.isArticleExtractorAlwaysOn = newValue
 		}
 	}
@@ -214,6 +225,42 @@ public final class WebFeed: Feed, Renamable, Hashable {
 			postUnreadCountDidChangeNotification()
 		}
 	}
+    
+    // MARK: - Feed Provider
+    public var isFeedProvider: Bool {
+        get {
+            guard let webfeedURL = URL(string: url),
+                  let components = URLComponents(url: webfeedURL, resolvingAgainstBaseURL: false) else {
+                return false
+            }
+            
+            if FeedProviderManager.shared.best(for: components) == nil {
+                return false
+            }
+            return true
+        }
+    }
+    
+    // MARK: - NotificationDisplayName
+    public var notificationDisplayName: String {
+        #if os(macOS)
+        if self.url.contains("twitter.com") {
+            return NSLocalizedString("Show notifications for new tweets", comment: "notifyNameDisplay / Twitter")
+        } else if self.url.contains("www.reddit.com") {
+            return NSLocalizedString("Show notifications for new posts", comment: "notifyNameDisplay / Reddit")
+        } else {
+            return NSLocalizedString("Show notifications for new articles", comment: "notifyNameDisplay / Default")
+        }
+        #else
+        if self.url.contains("twitter.com") {
+            return NSLocalizedString("Notify about new tweets", comment: "notifyNameDisplay / Twitter")
+        } else if self.url.contains("www.reddit.com") {
+            return NSLocalizedString("Notify about new posts", comment: "notifyNameDisplay / Reddit")
+        } else {
+            return NSLocalizedString("Notify about new articles", comment: "notifyNameDisplay / Default")
+        }
+        #endif
+    }
 
 	var metadata: WebFeedMetadata
 
@@ -235,6 +282,7 @@ public final class WebFeed: Feed, Renamable, Hashable {
 	public func dropConditionalGetInfo() {
 		conditionalGetInfo = nil
 		contentHash = nil
+		sinceToken = nil
 	}
 
 	// MARK: - Hashable

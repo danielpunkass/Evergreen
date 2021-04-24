@@ -18,10 +18,27 @@ function stripStylesFromElement(element, propertiesToStrip) {
 	}
 }
 
+// Strip inline styles that could harm readability.
 function stripStyles() {
 	document.getElementsByTagName("body")[0].querySelectorAll("style, link[rel=stylesheet]").forEach(element => element.remove());
 	// Removing "background" and "font" will also remove properties that would be reflected in them, e.g., "background-color" and "font-family"
-	document.getElementsByTagName("body")[0].querySelectorAll("[style]").forEach(element => stripStylesFromElement(element, ["color", "background", "font", "max-width", "max-height"]));
+	document.getElementsByTagName("body")[0].querySelectorAll("[style]").forEach(element => stripStylesFromElement(element, ["color", "background", "font", "max-width", "max-height", "position"]));
+}
+
+// Constrain the height of iframes whose heights are defined relative to the document body to be at most
+// 50% of the viewport width.
+function constrainBodyRelativeIframes() {
+	let iframes = document.getElementsByTagName("iframe");
+
+	for (iframe of iframes) {
+		if (iframe.offsetParent === document.body) {
+			let heightAttribute = iframe.style.height;
+
+			if (/%|vw|vh$/i.test(heightAttribute)) {
+				iframe.classList.add("nnw-constrained");
+			}
+		}
+	}
 }
 
 // Convert all Feedbin proxy images to be used as src, otherwise change image locations to be absolute if not already
@@ -29,7 +46,7 @@ function convertImgSrc() {
 	document.querySelectorAll("img").forEach(element => {
 		if (element.hasAttribute("data-canonical-src")) {
 			element.src = element.getAttribute("data-canonical-src")
-		} else if (!element.src.match(/^[a-z]+\:\/\//i)) {
+		} else if (!/^[a-z]+\:\/\//i.test(element.src)) {
 			element.src = new URL(element.src, document.baseURI).href;
 		}
 	});
@@ -55,6 +72,7 @@ function inlineVideos() {
 		element.setAttribute("playsinline", true);
 		if (!element.classList.contains("nnwAnimatedGIF")) {
 			element.setAttribute("controls", true);
+			element.removeAttribute("autoplay");
 		}
 	});
 }
@@ -114,6 +132,12 @@ function stopMediaPlayback() {
 	});
 }
 
+function updateTextSize(cssClass) {
+	var bodyElement = document.getElementById("bodyContainer");
+	bodyElement.classList.remove("smallText", "mediumText", "largeText", "xLargeText", "xxLargeText");
+	bodyElement.classList.add(cssClass);
+}
+
 function error() {
 	document.body.innerHTML = "error";
 }
@@ -131,13 +155,22 @@ function styleLocalFootnotes() {
 	}
 }
 
+// convert <img alt="📰" src="[...]" class="wp-smiley"> to a text node containing 📰
+function removeWpSmiley() {
+	for (const img of document.querySelectorAll("img.wp-smiley[alt]")) {
+		 img.parentNode.replaceChild(document.createTextNode(img.alt), img);
+	}
+}
+
 function processPage() {
 	wrapFrames();
 	wrapTables();
 	inlineVideos();
 	stripStyles();
+	constrainBodyRelativeIframes();
 	convertImgSrc();
 	flattenPreElements();
 	styleLocalFootnotes();
+	removeWpSmiley()
 	postRenderProcessing();
 }

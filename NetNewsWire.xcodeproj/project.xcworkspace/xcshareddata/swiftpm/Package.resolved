@@ -33,8 +33,8 @@
         "repositoryURL": "https://github.com/tid-kijyun/Kanna.git",
         "state": {
           "branch": null,
-          "revision": "4a80ebe93b6966d5083394fcaaaff57a2fcec935",
-          "version": "5.2.3"
+          "revision": "c657fb9f5827ef138068215c76ad0bb62bbc92da",
+          "version": "5.2.4"
         }
       },
       {
@@ -47,12 +47,21 @@
         }
       },
       {
+        "package": "PLCrashReporter",
+        "repositoryURL": "https://github.com/microsoft/plcrashreporter.git",
+        "state": {
+          "branch": null,
+          "revision": "de6b8f9db4b2a0aa859a5507550a70548e4da936",
+          "version": "1.8.1"
+        }
+      },
+      {
         "package": "RSCore",
         "repositoryURL": "https://github.com/Ranchero-Software/RSCore.git",
         "state": {
           "branch": null,
-          "revision": "1f72115989c05ca1e79fe694f25a17b9b731d0df",
-          "version": "1.0.0-beta3"
+          "revision": "665319af9428455e45c1d043156db85548b73f31",
+          "version": "1.0.5"
         }
       },
       {
@@ -60,8 +69,8 @@
         "repositoryURL": "https://github.com/Ranchero-Software/RSDatabase.git",
         "state": {
           "branch": null,
-          "revision": "3aa706f3adfc0b798a2b69cf536461c39db4d269",
-          "version": "1.0.0-beta1"
+          "revision": "a6c5f1622320f745cc9a0a910d1bed1e2eaf15e3",
+          "version": "1.0.0"
         }
       },
       {
@@ -69,8 +78,8 @@
         "repositoryURL": "https://github.com/Ranchero-Software/RSParser.git",
         "state": {
           "branch": null,
-          "revision": "21d57ffb7ae744cf70bf6ddfb7ad8b7c102e05cf",
-          "version": "2.0.0-beta2"
+          "revision": "11aa87cca4d621761ff0441120b35dbc1b3ae915",
+          "version": "2.0.1"
         }
       },
       {
@@ -78,8 +87,8 @@
         "repositoryURL": "https://github.com/Ranchero-Software/RSTree.git",
         "state": {
           "branch": null,
-          "revision": "979ed0eb610b6d95dc7adcf4620bd44205f512a6",
-          "version": "1.0.0-beta1"
+          "revision": "9d051f42cfc4faa991fd79cdb32e4cc8c545e334",
+          "version": "1.0.0"
         }
       },
       {
@@ -87,8 +96,17 @@
         "repositoryURL": "https://github.com/Ranchero-Software/RSWeb.git",
         "state": {
           "branch": null,
-          "revision": "dd9e2a24bfc7f2fa5f59a443f543fc95191c9788",
-          "version": "1.0.0-beta7"
+          "revision": "2f9ad98736c5c17dfb2be0b3cc06e71a49b061fa",
+          "version": "1.0.1"
+        }
+      },
+      {
+        "package": "RSSparkle",
+        "repositoryURL": "https://github.com/Ranchero-Software/Sparkle-Binary.git",
+        "state": {
+          "branch": null,
+          "revision": "67cd26321bdf4e77954cf6de7d9e6a20544f2030",
+          "version": "2.0.0"
         }
       },
       {

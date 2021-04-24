@@ -12,6 +12,10 @@ import RSWeb
 import Secrets
 
 class AccountsFeedWranglerWindowController: NSWindowController {
+	
+	@IBOutlet weak var signInTextField: NSTextField!
+	@IBOutlet weak var noAccountTextField: NSTextField!
+	@IBOutlet weak var createNewAccountButton: NSButton!
 	@IBOutlet weak var progressIndicator: NSProgressIndicator!
 	@IBOutlet weak var usernameTextField: NSTextField!
 	@IBOutlet weak var passwordTextField: NSSecureTextField!
@@ -30,9 +34,15 @@ class AccountsFeedWranglerWindowController: NSWindowController {
 		if let account = account, let credentials = try? account.retrieveCredentials(type: .basic) {
 			usernameTextField.stringValue = credentials.username
 			actionButton.title = NSLocalizedString("Update", comment: "Update")
+			signInTextField.stringValue = NSLocalizedString("Update your Feed Wrangler account credentials.", comment: "SignIn")
+			noAccountTextField.isHidden = true
+			createNewAccountButton.isHidden = true
 		} else {
 			actionButton.title = NSLocalizedString("Create", comment: "Create")
+			signInTextField.stringValue = NSLocalizedString("Sign in to your Feed Wrangler account.", comment: "SignIn")
 		}
+
+		usernameTextField.becomeFirstResponder()
 	}
 	
 	// MARK: API
@@ -80,10 +90,8 @@ class AccountsFeedWranglerWindowController: NSWindowController {
 					self.errorMessageLabel.stringValue = NSLocalizedString("Invalid email/password combination.", comment: "Credentials Error")
 					return
 				}
-				var newAccount = false
 				if self.account == nil {
 					self.account = AccountManager.shared.createAccount(type: .feedWrangler)
-					newAccount = true
 				}
 
 				do {
@@ -91,16 +99,16 @@ class AccountsFeedWranglerWindowController: NSWindowController {
 					try self.account?.removeCredentials(type: .feedWranglerToken)
 					try self.account?.storeCredentials(credentials)
 					try self.account?.storeCredentials(validatedCredentials)
-					if newAccount {
-						self.account?.refreshAll() { result in
-							switch result {
-							case .success:
-								break
-							case .failure(let error):
-								NSApplication.shared.presentError(error)
-							}
+
+					self.account?.refreshAll() { result in
+						switch result {
+						case .success:
+							break
+						case .failure(let error):
+							NSApplication.shared.presentError(error)
 						}
 					}
+					
 					self.hostWindow?.endSheet(self.window!, returnCode: NSApplication.ModalResponse.OK)
 				} catch {
 					self.errorMessageLabel.stringValue = NSLocalizedString("Keychain error while storing credentials.", comment: "Credentials Error")
@@ -113,4 +121,9 @@ class AccountsFeedWranglerWindowController: NSWindowController {
 			}
 		}
 	}
+	
+	@IBAction func createAccountWithProvider(_ sender: Any) {
+		NSWorkspace.shared.open(URL(string: "https://feedwrangler.net/users/new")!)
+	}
+	
 }

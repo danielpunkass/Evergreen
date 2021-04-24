@@ -8,6 +8,7 @@
 
 import Foundation
 import os.log
+import RSCore
 import RSParser
 import RSWeb
 import CloudKit
@@ -16,15 +17,15 @@ import SyncDatabase
 
 final class CloudKitArticlesZone: CloudKitZone {
 	
-	static var zoneID: CKRecordZone.ID {
-		return CKRecordZone.ID(zoneName: "Articles", ownerName: CKCurrentUserDefaultName)
-	}
+	var zoneID: CKRecordZone.ID
 	
 	var log = OSLog(subsystem: Bundle.main.bundleIdentifier!, category: "CloudKit")
 	
 	weak var container: CKContainer?
 	weak var database: CKDatabase?
 	var delegate: CloudKitZoneDelegate? = nil
+	
+	var compressionQueue = DispatchQueue(label: "Articles Zone Compression Queue")
 	
 	struct CloudKitArticle {
 		static let recordType = "Article"
@@ -34,7 +35,9 @@ final class CloudKitArticlesZone: CloudKitZone {
 			static let uniqueID = "uniqueID"
 			static let title = "title"
 			static let contentHTML = "contentHTML"
+			static let contentHTMLData = "contentHTMLData"
 			static let contentText = "contentText"
+			static let contentTextData = "contentTextData"
 			static let url = "url"
 			static let externalURL = "externalURL"
 			static let summary = "summary"
@@ -57,6 +60,8 @@ final class CloudKitArticlesZone: CloudKitZone {
 	init(container: CKContainer) {
 		self.container = container
 		self.database = container.privateCloudDatabase
+		self.zoneID = CKRecordZone.ID(zoneName: "Articles", ownerName: CKCurrentUserDefaultName)
+		migrateChangeToken()
 	}
 	
 	func refreshArticles(completion: @escaping ((Result<Void, Error>) -> Void)) {
@@ -95,7 +100,10 @@ final class CloudKitArticlesZone: CloudKitZone {
 			records.append(makeArticleRecord(saveArticle))
 		}
 
-		save(records, completion: completion)
+		compressionQueue.async {
+			let compressedRecords = self.compressArticleRecords(records)
+			self.save(compressedRecords, completion: completion)
+		}
 	}
 	
 	func deleteArticles(_ webFeedExternalID: String, completion: @escaping ((Result<Void, Error>) -> Void)) {
@@ -114,28 +122,29 @@ final class CloudKitArticlesZone: CloudKitZone {
 		var newRecords = [CKRecord]()
 		var deleteRecordIDs = [CKRecord.ID]()
 		
-		DispatchQueue.global(qos: .utility).async {
-			
-			for statusUpdate in statusUpdates {
-				switch statusUpdate.record {
-				case .all:
-					modifyRecords.append(self.makeStatusRecord(statusUpdate))
-					modifyRecords.append(self.makeArticleRecord(statusUpdate.article!))
-				case .new:
-					newRecords.append(self.makeStatusRecord(statusUpdate))
-					newRecords.append(self.makeArticleRecord(statusUpdate.article!))
-				case .delete:
-					deleteRecordIDs.append(CKRecord.ID(recordName: self.statusID(statusUpdate.articleID), zoneID: Self.zoneID))
-				case .statusOnly:
-					modifyRecords.append(self.makeStatusRecord(statusUpdate))
-					deleteRecordIDs.append(CKRecord.ID(recordName: self.articleID(statusUpdate.articleID), zoneID: Self.zoneID))
-				}
+		for statusUpdate in statusUpdates {
+			switch statusUpdate.record {
+			case .all:
+				modifyRecords.append(self.makeStatusRecord(statusUpdate))
+				modifyRecords.append(self.makeArticleRecord(statusUpdate.article!))
+			case .new:
+				newRecords.append(self.makeStatusRecord(statusUpdate))
+				newRecords.append(self.makeArticleRecord(statusUpdate.article!))
+			case .delete:
+				deleteRecordIDs.append(CKRecord.ID(recordName: self.statusID(statusUpdate.articleID), zoneID: zoneID))
+			case .statusOnly:
+				modifyRecords.append(self.makeStatusRecord(statusUpdate))
+				deleteRecordIDs.append(CKRecord.ID(recordName: self.articleID(statusUpdate.articleID), zoneID: zoneID))
 			}
-			
-			self.modify(recordsToSave: modifyRecords, recordIDsToDelete: deleteRecordIDs) { result in
+		}
+
+		compressionQueue.async {
+			let compressedModifyRecords = self.compressArticleRecords(modifyRecords)
+			self.modify(recordsToSave: compressedModifyRecords, recordIDsToDelete: deleteRecordIDs) { result in
 				switch result {
 				case .success:
-					self.saveIfNew(newRecords) { result in
+					let compressedNewRecords = self.compressArticleRecords(newRecords)
+					self.saveIfNew(compressedNewRecords) { result in
 						switch result {
 						case .success:
 							completion(.success(()))
@@ -148,6 +157,7 @@ final class CloudKitArticlesZone: CloudKitZone {
 				}
 			}
 		}
+		
 	}
 	
 }
@@ -178,7 +188,7 @@ private extension CloudKitArticlesZone {
 	}
 	
 	func makeStatusRecord(_ article: Article) -> CKRecord {
-		let recordID = CKRecord.ID(recordName: statusID(article.articleID), zoneID: Self.zoneID)
+		let recordID = CKRecord.ID(recordName: statusID(article.articleID), zoneID: zoneID)
 		let record = CKRecord(recordType: CloudKitArticleStatus.recordType, recordID: recordID)
 		if let webFeedExternalID = article.webFeed?.externalID {
 			record[CloudKitArticleStatus.Fields.webFeedExternalID] = webFeedExternalID
@@ -189,7 +199,7 @@ private extension CloudKitArticlesZone {
 	}
 	
 	func makeStatusRecord(_ statusUpdate: CloudKitArticleStatusUpdate) -> CKRecord {
-		let recordID = CKRecord.ID(recordName: statusID(statusUpdate.articleID), zoneID: Self.zoneID)
+		let recordID = CKRecord.ID(recordName: statusID(statusUpdate.articleID), zoneID: zoneID)
 		let record = CKRecord(recordType: CloudKitArticleStatus.recordType, recordID: recordID)
 		
 		if let webFeedExternalID = statusUpdate.article?.webFeed?.externalID {
@@ -203,10 +213,10 @@ private extension CloudKitArticlesZone {
 	}
 	
 	func makeArticleRecord(_ article: Article) -> CKRecord {
-		let recordID = CKRecord.ID(recordName: articleID(article.articleID), zoneID: Self.zoneID)
+		let recordID = CKRecord.ID(recordName: articleID(article.articleID), zoneID: zoneID)
 		let record = CKRecord(recordType: CloudKitArticle.recordType, recordID: recordID)
 
-		let articleStatusRecordID = CKRecord.ID(recordName: statusID(article.articleID), zoneID: Self.zoneID)
+		let articleStatusRecordID = CKRecord.ID(recordName: statusID(article.articleID), zoneID: zoneID)
 		record[CloudKitArticle.Fields.articleStatus] = CKRecord.Reference(recordID: articleStatusRecordID, action: .deleteSelf)
 		record[CloudKitArticle.Fields.webFeedURL] = article.webFeed?.url
 		record[CloudKitArticle.Fields.uniqueID] = article.uniqueID
@@ -239,5 +249,35 @@ private extension CloudKitArticlesZone {
 		return record
 	}
 
+	func compressArticleRecords(_ records: [CKRecord]) -> [CKRecord] {
+		var result = [CKRecord]()
+		
+		for record in records {
+			
+			if record.recordType == CloudKitArticle.recordType {
+				
+				if let contentHTML = record[CloudKitArticle.Fields.contentHTML] as? String {
+					let data = Data(contentHTML.utf8) as NSData
+					if let compressedData = try? data.compressed(using: .lzfse) {
+						record[CloudKitArticle.Fields.contentHTMLData] = compressedData as Data
+						record[CloudKitArticle.Fields.contentHTML] = nil
+					}
+				}
+				
+				if let contentText = record[CloudKitArticle.Fields.contentText] as? String {
+					let data = Data(contentText.utf8) as NSData
+					if let compressedData = try? data.compressed(using: .lzfse) {
+						record[CloudKitArticle.Fields.contentTextData] = compressedData as Data
+						record[CloudKitArticle.Fields.contentText] = nil
+					}
+				}
+				
+			}
+			
+			result.append(record)
+		}
+		
+		return result
+	}
 
 }

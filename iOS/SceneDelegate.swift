@@ -23,10 +23,16 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 		window!.tintColor = AppAssets.primaryAccentColor
 		updateUserInterfaceStyle()
 		window!.rootViewController = coordinator.start(for: window!.frame.size)
-
+		
 		coordinator.restoreWindowState(session.stateRestorationActivity)
 		
 		NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange), name: UserDefaults.didChangeNotification, object: nil)
+		
+		if let _ = connectionOptions.urlContexts.first?.url  {
+			window?.makeKeyAndVisible()
+			self.scene(scene, openURLContexts: connectionOptions.urlContexts)
+			return
+		}
 		
 		if let shortcutItem = connectionOptions.shortcutItem {
 			window!.makeKeyAndVisible()
@@ -42,7 +48,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 		
         if let userActivity = connectionOptions.userActivities.first ?? session.stateRestorationActivity {
 			coordinator.handle(userActivity)
-        }
+		}
 		
 		window!.makeKeyAndVisible()
     }
@@ -59,6 +65,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 	}
 	
 	func sceneDidEnterBackground(_ scene: UIScene) {
+		if #available(iOS 14, *) {
+			try? WidgetDataEncoder.shared.encodeWidgetData()
+		}
 		ArticleStringFormatter.emptyCaches()
 		appDelegate.prepareAccountsForBackground()
 	}
@@ -89,6 +98,73 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 		coordinator.cleanUp(conditional: conditional)
 	}
 	
+	// Handle Opening of URLs
+	
+	func scene(_ scene: UIScene, openURLContexts urlContexts: Set<UIOpenURLContext>) {
+		guard let context = urlContexts.first else { return }
+		
+		DispatchQueue.main.async {
+			let urlString = context.url.absoluteString
+			
+			// Handle the feed: and feeds: schemes
+			if urlString.starts(with: "feed:") || urlString.starts(with: "feeds:") {
+				let normalizedURLString = urlString.normalizedURL
+				if normalizedURLString.mayBeURL {
+					self.coordinator.showAddWebFeed(initialFeed: normalizedURLString, initialFeedName: nil)
+				}
+			}
+			
+			// Show Unread View or Article
+			if urlString.contains(WidgetDeepLink.unread.url.absoluteString) {
+				guard let comps = URLComponents(string: urlString ) else { return  }
+				let id = comps.queryItems?.first(where: { $0.name == "id" })?.value
+				if id != nil {
+					if AccountManager.shared.isSuspended {
+						AccountManager.shared.resumeAll()
+					}
+					self.coordinator.selectAllUnreadFeed() {
+						self.coordinator.selectArticleInCurrentFeed(id!)
+					}
+				} else {
+					self.coordinator.selectAllUnreadFeed()
+				}
+			}
+			
+			// Show Today View or Article
+			if urlString.contains(WidgetDeepLink.today.url.absoluteString) {
+				guard let comps = URLComponents(string: urlString ) else { return  }
+				let id = comps.queryItems?.first(where: { $0.name == "id" })?.value
+				if id != nil {
+					if AccountManager.shared.isSuspended {
+						AccountManager.shared.resumeAll()
+					}
+					self.coordinator.selectTodayFeed() {
+						self.coordinator.selectArticleInCurrentFeed(id!)
+					}
+				} else {
+					self.coordinator.selectTodayFeed()
+				}
+			}
+			
+			// Show Starred View or Article
+			if urlString.contains(WidgetDeepLink.starred.url.absoluteString) {
+				guard let comps = URLComponents(string: urlString ) else { return  }
+				let id = comps.queryItems?.first(where: { $0.name == "id" })?.value
+				if id != nil {
+					if AccountManager.shared.isSuspended {
+						AccountManager.shared.resumeAll()
+					}
+					self.coordinator.selectStarredFeed() {
+						self.coordinator.selectArticleInCurrentFeed(id!)
+					}
+				} else {
+					self.coordinator.selectStarredFeed()
+				}
+			}
+			
+		}
+	}
+	
 }
 
 private extension SceneDelegate {
@@ -114,11 +190,11 @@ private extension SceneDelegate {
 		DispatchQueue.main.async {
 			switch AppDefaults.userInterfaceColorPalette {
 			case .automatic:
-				self.window!.overrideUserInterfaceStyle = .unspecified
+				self.window?.overrideUserInterfaceStyle = .unspecified
 			case .light:
-				self.window!.overrideUserInterfaceStyle = .light
+				self.window?.overrideUserInterfaceStyle = .light
 			case .dark:
-				self.window!.overrideUserInterfaceStyle = .dark
+				self.window?.overrideUserInterfaceStyle = .dark
 			}
 		}
 	}

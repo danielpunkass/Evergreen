@@ -55,6 +55,7 @@ final class LocalAccountDelegate: AccountDelegate {
 		refreshProgress.addToNumberOfTasksAndRemaining(webFeeds.count)
 
 		let group = DispatchGroup()
+		var feedProviderError: Error? = nil
 		
 		for webFeed in webFeeds {
 			if let components = URLComponents(string: webFeed.url), let feedProvider = FeedProviderManager.shared.best(for: components) {
@@ -68,6 +69,7 @@ final class LocalAccountDelegate: AccountDelegate {
 						}
 					case .failure(let error):
 						os_log(.error, log: self.log, "Feed Provider refresh error: %@.", error.localizedDescription)
+						feedProviderError = error
 						self.refreshProgress.completeTask()
 						group.leave()
 					}
@@ -85,11 +87,19 @@ final class LocalAccountDelegate: AccountDelegate {
 		group.notify(queue: DispatchQueue.main) {
 			self.refreshProgress.clear()
 			account.metadata.lastArticleFetchEndTime = Date()
-			completion(.success(()))
+			if let error = feedProviderError {
+				completion(.failure(error))
+			} else {
+				completion(.success(()))
+			}
 		}
 		
 	}
 
+	func syncArticleStatus(for account: Account, completion: ((Result<Void, Error>) -> Void)? = nil) {
+		completion?(.success(()))
+	}
+	
 	func sendArticleStatus(for account: Account, completion: @escaping ((Result<Void, Error>) -> Void)) {
 		completion(.success(()))
 	}
@@ -140,7 +150,7 @@ final class LocalAccountDelegate: AccountDelegate {
 
 	}
 	
-	func createWebFeed(for account: Account, url urlString: String, name: String?, container: Container, completion: @escaping (Result<WebFeed, Error>) -> Void) {
+	func createWebFeed(for account: Account, url urlString: String, name: String?, container: Container, validateFeed: Bool, completion: @escaping (Result<WebFeed, Error>) -> Void) {
 		guard let url = URL(string: urlString), let urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
 			completion(.failure(LocalAccountDelegateError.invalidParameter))
 			return
@@ -203,8 +213,14 @@ final class LocalAccountDelegate: AccountDelegate {
 		completion(.success(()))
 	}
 
-	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) {
-		account.update(articles, statusKey: statusKey, flag: flag) { _ in }
+	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
+		account.update(articles, statusKey: statusKey, flag: flag) { result in
+			if case .failure(let error) = result {
+				completion(.failure(error))
+			} else {
+				completion(.success(()))
+			}
+		}
 	}
 
 	func accountDidInitialize(_ account: Account) {

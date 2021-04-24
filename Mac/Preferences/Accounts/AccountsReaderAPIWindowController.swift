@@ -21,8 +21,10 @@ class AccountsReaderAPIWindowController: NSWindowController {
 	@IBOutlet weak var usernameTextField: NSTextField!
 	@IBOutlet weak var apiURLTextField: NSTextField!
 	@IBOutlet weak var passwordTextField: NSSecureTextField!
+	@IBOutlet weak var createAccountButton: NSButton!
 	@IBOutlet weak var errorMessageLabel: NSTextField!
 	@IBOutlet weak var actionButton: NSButton!
+	@IBOutlet weak var noAccountTextField: NSTextField!
 	
 	var account: Account?
 	var accountType: AccountType?
@@ -38,19 +40,24 @@ class AccountsReaderAPIWindowController: NSWindowController {
 			switch accountType {
 			case .freshRSS:
 				titleImageView.image = AppAssets.accountFreshRSS
-				titleLabel.stringValue = NSLocalizedString("FreshRSS", comment: "FreshRSS")
+				titleLabel.stringValue = NSLocalizedString("Sign in to your FreshRSS account.", comment: "FreshRSS")
+				noAccountTextField.stringValue = NSLocalizedString("Don't have a FreshRSS instance?", comment: "No FreshRSS")
+				createAccountButton.title = NSLocalizedString("Find out more", comment: "No FreshRSS Button")
 			case .inoreader:
 				titleImageView.image = AppAssets.accountInoreader
-				titleLabel.stringValue = NSLocalizedString("InoReader", comment: "InoReader")
+				titleLabel.stringValue = NSLocalizedString("Sign in to your InoReader account.", comment: "InoReader")
 				gridView.row(at: 2).isHidden = true
+				noAccountTextField.stringValue = NSLocalizedString("Don't have an InoReader account?", comment: "No InoReader")
 			case .bazQux:
 				titleImageView.image = AppAssets.accountBazQux
-				titleLabel.stringValue = NSLocalizedString("BazQux", comment: "BazQux")
+				titleLabel.stringValue = NSLocalizedString("Sign in to your BazQux account.", comment: "BazQux")
 				gridView.row(at: 2).isHidden = true
+				noAccountTextField.stringValue = NSLocalizedString("Don't have a BazQux account?", comment: "No BazQux")
 			case .theOldReader:
 				titleImageView.image = AppAssets.accountTheOldReader
-				titleLabel.stringValue = NSLocalizedString("The Old Reader", comment: "The Old Reader")
+				titleLabel.stringValue = NSLocalizedString("Sign in to your The Old Reader account.", comment: "The Old Reader")
 				gridView.row(at: 2).isHidden = true
+				noAccountTextField.stringValue = NSLocalizedString("Don't have a The Old Reader account?", comment: "No OldReader")
 			default:
 				break
 			}
@@ -63,6 +70,8 @@ class AccountsReaderAPIWindowController: NSWindowController {
 		} else {
 			actionButton.title = NSLocalizedString("Create", comment: "Create")
 		}
+		
+		usernameTextField.becomeFirstResponder()
 	}
 	
 	// MARK: API
@@ -135,11 +144,8 @@ class AccountsReaderAPIWindowController: NSWindowController {
 					return
 				}
 				
-				
-				var newAccount = false
 				if self.account == nil {
 					self.account = AccountManager.shared.createAccount(type: self.accountType!)
-					newAccount = true
 				}
 				
 				do {
@@ -150,16 +156,15 @@ class AccountsReaderAPIWindowController: NSWindowController {
 					try self.account?.storeCredentials(credentials)
 					try self.account?.storeCredentials(validatedCredentials)
 					
-					if newAccount {
-						self.account?.refreshAll() { result in
-							switch result {
-							case .success:
-								break
-							case .failure(let error):
-								NSApplication.shared.presentError(error)
-							}
+					self.account?.refreshAll() { result in
+						switch result {
+						case .success:
+							break
+						case .failure(let error):
+							NSApplication.shared.presentError(error)
 						}
 					}
+					
 					self.hostWindow?.endSheet(self.window!, returnCode: NSApplication.ModalResponse.OK)
 				} catch {
 					self.errorMessageLabel.stringValue = NSLocalizedString("Keychain error while storing credentials.", comment: "Credentials Error")
@@ -172,5 +177,21 @@ class AccountsReaderAPIWindowController: NSWindowController {
 		}
 		
 	}
+	
+	@IBAction func createAccountWithProvider(_ sender: Any) {
+		switch accountType {
+		case .freshRSS:
+			NSWorkspace.shared.open(URL(string: "https://freshrss.org")!)
+		case .inoreader:
+			NSWorkspace.shared.open(URL(string: "https://www.inoreader.com")!)
+		case .bazQux:
+			NSWorkspace.shared.open(URL(string: "https://bazqux.com")!)
+		case .theOldReader:
+			NSWorkspace.shared.open(URL(string: "https://theoldreader.com")!)
+		default:
+			return
+		}
+	}
+	
     
 }

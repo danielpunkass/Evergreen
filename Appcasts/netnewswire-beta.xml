@@ -6,103 +6,50 @@
         <description>Most recent NetNewsWire changes with links to updates.</description>
         <language>en</language>
 
-<item>
-    <title>NetNewsWire 5.1.2</title>
-    <description><![CDATA[
-<p>Fixed a crashing bug in the timeline</p>
-<p>Fixed a background color bug in dark mode in the timeline</p>
-<p>Fixed a crashing bug updating the browser popup in Preferences</p>
-<p>Feedbin: fixed bug where credentials couldn’t be updated</p>
-<p>Feedly: fixed bug syncing feed name changes</p>
-<p>Feedly: fixed a bug adding a feed to a Feedly collection that has a + in its name</p>
-<p>On My Mac: increased performance downloading feeds in the On My Mac account</p>
-    ]]></description>
-    <pubDate>Sat, 31 Oct 2020 11:25:00 -0700</pubDate>
-    <enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-5.1.2/NetNewsWire5.1.2.zip" sparkle:version="3016" sparkle:shortVersionString="5.1.2" length="6583447" type="application/zip" />
-    <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
-</item>
+ 
+          <item>
+            <title>NetNewsWire 6.0.2</title>
+            <description><![CDATA[
+<p>Same as 6.0.2b1 — no changes other than version</p>
+			]]></description>
+            <pubDate>Tue, 20 Apr 2021 17:40:00 -0700</pubDate>
+            <enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-6.0.2/NetNewsWire6.0.2.zip" sparkle:version="6032" sparkle:shortVersionString="6.0.2" length="10453603" type="application/zip" />
+            <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
+        </item>
 
-<item>
-    <title>NetNewsWire 5.1.2b3</title>
-    <description><![CDATA[
-	<p>Fixed bug where Feedbin credentials couldn’t be updated</p>
-    ]]></description>
-    <pubDate>Mon, 29 Oct 2020 19:25:00 -0700</pubDate>
-    <enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-5.1.2beta3/NetNewsWire5.1.2b3.zip" sparkle:version="3015" sparkle:shortVersionString="5.1.2b3" length="6583415" type="application/zip" />
-    <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
-</item>
+          <item>
+            <title>NetNewsWire 6.0.2b1</title>
+            <description><![CDATA[
+<p>Inoreader sync: fixed (hopefully) cause of rate limit errors — now doing background sync of statuses much less often - note that this fix needs to be rolled out across all NetNewsWire users in order for it to have full effect</p>
+<p>Fixed regression with the L key — now works properly again</p>
+			]]></description>
+            <pubDate>Thu, 15 Apr 2021 19:15:00 -0700</pubDate>
+            <enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-6.0.2b1/NetNewsWire6.0.2b1.zip" sparkle:version="6031" sparkle:shortVersionString="6.0.2b1" length="10453628" type="application/zip" />
+            <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
+        </item>
 
-<item>
-    <title>NetNewsWire 5.1.2b2</title>
-    <description><![CDATA[
-<p>Fixed a crashing bug in the timeline</p>
-<p>Fixed a background color bug in dark mode in the timeline</p>
-<p>Fixed a crashing bug updating the browser popup in Preferences</p>
-<p>Feedly: fixed bug syncing feed name changes</p>
-    ]]></description>
-    <pubDate>Mon, 26 Oct 2020 20:45:00 -0700</pubDate>
-    <enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-5.1.2beta2/NetNewsWire5.1.2b2.zip" sparkle:version="3014" sparkle:shortVersionString="5.1.2b2" length="6583374" type="application/zip" />
-    <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
-</item>
+          <item>
+            <title>NetNewsWire 6.0.1</title>
+            <description><![CDATA[
+<p>Adjusted layout of the add account sheet so that it fits on smaller monitors</p>
+<p>Sidebar: properly scale the smart feed icons when sidebar is set to large size in System Preferences			</p>
+			]]></description>
+            <pubDate>Thu, 01 Apr 2021 20:22:00 -0700</pubDate>
+            <enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-6.0.1/NetNewsWire6.0.1.zip" sparkle:version="6030" sparkle:shortVersionString="6.0.1" length="10448727" type="application/zip" />
+            <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
+        </item>
 
-<item>
-    <title>NetNewsWire 5.1.2b1</title>
-    <description><![CDATA[
-    <p>Increased performance downloading feeds in the On My Mac account.</p>
-    <p>Fixed a bug adding a feed to a Feedly collection that has a + in its name</p>
-    ]]></description>
-    <pubDate>Sat, 17 Oct 2020 19:00:00 -0700</pubDate>
-    <enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-5.1.2beta1/NetNewsWire5.1.2b1.zip" sparkle:version="3013" sparkle:shortVersionString="5.1.2b1" length="658252" type="application/zip" />
-    <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
-</item>
-			
-<item>
-	<title>NetNewsWire 5.1.1</title>
-	<description><![CDATA[
-<p>Fixed a crash handling a specific type of weird URL</p>
-<p>Preferences: restored ability to set default RSS reader</p>
-<p>Fixed bug where o key wouldn’t mark older as read</p>
-<p>Fixed an Open System Preferences button in an alert that didn’t work</p>
-<p>Fixed a possible hang when adding a feed to Feedly (and the feed isn’t found)</p>
-<p>Fixed some UI issues to do with adding a Feedly account</p>
-<p>Fixed contrast in footnotes indicator</p>
-<p>Fixed bug where duplicate accounts (same username and service) could be made</p>
-<p>Fixed bug where open in Safari in background might not open in the background</p>
-	]]></description>
-	<pubDate>Mon, 05 Oct 2020 11:45:00 -0700</pubDate>
-	<enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-5.1.1/NetNewsWire5.1.1.zip" sparkle:version="3012" sparkle:shortVersionString="5.1.1" length="6582076" type="application/zip" />
-	<sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
-</item>
-
-<item>
-	<title>NetNewsWire 5.1.1a2</title>
-	<description><![CDATA[
-<p>Fixed a crash handling a specific type of really weird URL</p>
-<p>Fixed a possible hang when adding a feed to Feedly (and the feed isn’t found)</p>
-<p>Fixed some UI issues to do with adding a Feedly account</p>
-<p>Fixed contrast in footnotes indicator</p>
-<p>Fixed bug where duplicate accounts (same username and service) could be made</p>
-<p>Fixed bug where open in Safari in background might not open in the background</p>
-	]]></description>
-	<pubDate>Fri, 02 Oct 2020 16:20:00 -0700</pubDate>
-	<enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-5.1.1alpha2/NetNewsWire5.1.1a2.zip" sparkle:version="3011" sparkle:shortVersionString="5.1.1a2" length="6582098" type="application/zip" />
-	<sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
-</item>
-
-<item>
-	<title>NetNewsWire 5.1.1a1</title>
-	<description><![CDATA[
-<p>Preferences: restored ability to set default RSS reader</p>
-<p>Fixed bug where o key wouldn’t mark older as read</p>
-<p>Fixed a crash in the code that handles URLs with non-ASCII characters</p>
-<p>Fixed an Open System Preferences button in an alert that didn’t work</p>
-	]]></description>
-	<pubDate>Sat, 22 Sep 2020 20:20:00 -0700</pubDate>
-	<enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-5.1.1alpha1/NetNewsWire5.1.1a1.zip" sparkle:version="3010" sparkle:shortVersionString="5.1.1a1" length="6574415" type="application/zip" />
-	<sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
-</item>
-
-
+        <item>
+            <title>NetNewsWire 6.0.1b2</title>
+            <description><![CDATA[
+<p>Twitter: fixed a date parsing bug that could affect people in some locales, which would prevent Twitter feeds from working for them</p>
+<p>Feeds list: fixed bug where newly added feed would be called Untitled past the time when the app actually knows its name</p>
+<p>Fixed bug where next-unread command wouldn’t wrap around when you got to the bottom of the Feeds list</p>
+			]]></description>
+            <pubDate>Mon, 29 Mar 2021 20:55:00 -0700</pubDate>
+            <enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-6.0.1b2/NetNewsWire6.0.1b2.zip" sparkle:version="6029" sparkle:shortVersionString="6.0.1b2" length="10445067" type="application/zip" />
+            <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
+        </item>
 
 
     </channel>

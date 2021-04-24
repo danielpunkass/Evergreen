@@ -16,12 +16,15 @@ import RSWeb
 
 public enum RedditFeedProviderError: LocalizedError {
 	case rateLimitExceeded
+	case accessFailure(Error)
 	case unknown
 	
-	public var localizedDescription: String {
+	public var errorDescription: String? {
 		switch self {
 		case .rateLimitExceeded:
 			return NSLocalizedString("Reddit API rate limit has been exceeded.  Please wait a short time and try again.", comment: "Rate Limit")
+		case .accessFailure(let error):
+			return NSLocalizedString("An attempt to access your Reddit feed(s) failed.\n\nIf this problem persists, please deactivate and reactivate the Reddit extension to fix this problem.\n\n\(error.localizedDescription)", comment: "Reddit Access")
 		case .unknown:
 			return NSLocalizedString("A Reddit Feed Provider error has occurred.", comment: "Unknown error")
 		}
@@ -171,7 +174,7 @@ public final class RedditFeedProvider: FeedProvider, RedditFeedProviderTokenRefr
 	
 	public func refresh(_ webFeed: WebFeed, completion: @escaping (Result<Set<ParsedItem>, Error>) -> Void) {
 		guard let urlComponents = URLComponents(string: webFeed.url) else {
-			completion(.failure(TwitterFeedProviderError.unknown))
+			completion(.failure(RedditFeedProviderError.unknown))
 			return
 		}
 		
@@ -204,7 +207,11 @@ public final class RedditFeedProvider: FeedProvider, RedditFeedProviderTokenRefr
 					}
 				}
 			case .failure(let error):
-				completion(.failure(error))
+				if (error as? OAuthSwiftError)?.errorCode == -11 {
+					completion(.success(Set<ParsedItem>()))
+				} else {
+					completion(.failure(RedditFeedProviderError.accessFailure(error)))
+				}
 			}
 		}
 	}

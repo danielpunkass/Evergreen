@@ -95,11 +95,19 @@ struct AppAssets {
 	}()
 
 	static var filterActive: RSImage = {
-		return RSImage(named: "filterActive")!
+		if #available(macOS 11.0, *) {
+			return NSImage(systemSymbolName: "line.horizontal.3.decrease.circle.fill", accessibilityDescription: nil)!
+		} else {
+			return RSImage(named: "filterActive")!
+		}
 	}()
 
 	static var filterInactive: RSImage = {
-		return RSImage(named: "filterInactive")!
+		if #available(macOS 11.0, *) {
+			return NSImage(systemSymbolName: "line.horizontal.3.decrease.circle", accessibilityDescription: nil)!
+		} else {
+			return RSImage(named: "filterInactive")!
+		}
 	}()
 
 	static var iconLightBackgroundColor: NSColor = {
@@ -147,7 +155,7 @@ struct AppAssets {
 			let image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)!
 			let preferredColor = NSColor(named: "AccentColor")!
 			let coloredImage = image.tinted(with: preferredColor)
-			return IconImage(coloredImage, isSymbol: true, preferredColor: preferredColor.cgColor)
+			return IconImage(coloredImage, isSymbol: true, isBackgroundSupressed: true, preferredColor: preferredColor.cgColor)
 		} else {
 			return IconImage(RSImage(named: NSImage.folderName)!)
 		}
@@ -177,7 +185,7 @@ struct AppAssets {
 	
 	static var preferencesToolbarExtensionsImage: RSImage = {
 		if #available(macOS 11.0, *) {
-			return NSImage(named: "preferencesToolbarExtensions")!
+			return RSImage(named: "preferencesToolbarExtensions")!
 		} else {
 			return NSImage(contentsOfFile: "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/KEXT.icns")!
 		}
@@ -215,7 +223,7 @@ struct AppAssets {
 	}()
 	
 	static var searchFeedImage: IconImage = {
-		return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isSymbol: true)
+		return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isSymbol: true, isBackgroundSupressed: true)
 	}()
 	
 	@available(macOS 11.0, *)
@@ -243,12 +251,16 @@ struct AppAssets {
 			let image = NSImage(systemSymbolName: "star.fill", accessibilityDescription: nil)!
 			let preferredColor = NSColor(named: "StarColor")!
 			let coloredImage = image.tinted(with: preferredColor)
-			return IconImage(coloredImage, isSymbol: true, preferredColor: preferredColor.cgColor)
+			return IconImage(coloredImage, isSymbol: true, isBackgroundSupressed: true, preferredColor: preferredColor.cgColor)
 		} else {
-			return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isSymbol: true)
+			return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isBackgroundSupressed: true)
 		}
 	}()
 
+	static var timelineSeparatorColor: NSColor = {
+		return NSColor(named: "timelineSeparatorColor")!
+	}()
+	
 	static var timelineStarSelected: RSImage! = {
 		return RSImage(named: "timelineStar")?.tinted(with: .white)
 	}()
@@ -262,9 +274,9 @@ struct AppAssets {
 			let image = NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil)!
 			let preferredColor = NSColor.orange
 			let coloredImage = image.tinted(with: preferredColor)
-			return IconImage(coloredImage, isSymbol: true, preferredColor: preferredColor.cgColor)
+			return IconImage(coloredImage, isSymbol: true, isBackgroundSupressed: true, preferredColor: preferredColor.cgColor)
 		} else {
-			return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isSymbol: true)
+			return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isBackgroundSupressed: true)
 		}
 	}()
 
@@ -273,26 +285,48 @@ struct AppAssets {
 			let image = NSImage(systemSymbolName: "largecircle.fill.circle", accessibilityDescription: nil)!
 			let preferredColor = NSColor(named: "AccentColor")!
 			let coloredImage = image.tinted(with: preferredColor)
-			return IconImage(coloredImage, isSymbol: true, preferredColor: preferredColor.cgColor)
+			return IconImage(coloredImage, isSymbol: true, isBackgroundSupressed: true, preferredColor: preferredColor.cgColor)
 		} else {
-			return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isSymbol: true)
+			return IconImage(RSImage(named: NSImage.smartBadgeTemplateName)!, isBackgroundSupressed: true)
 		}
 	}()
 
 	static var swipeMarkReadImage: RSImage = {
-		return RSImage(named: "swipeMarkRead")!
+		if #available(OSX 11.0, *) {
+			return RSImage(systemSymbolName: "circle", accessibilityDescription: "Mark Read")!
+				.withSymbolConfiguration(.init(scale: .large))!
+		} else {
+			// TODO: remove swipeMarkRead asset when dropping support for macOS 10.15
+			return RSImage(named: "swipeMarkRead")!
+		}
 	}()
 
 	static var swipeMarkUnreadImage: RSImage = {
-		return RSImage(named: "swipeMarkUnread")!
+		if #available(OSX 11.0, *) {
+			return RSImage(systemSymbolName: "largecircle.fill.circle", accessibilityDescription: "Mark Unread")!
+				.withSymbolConfiguration(.init(scale: .large))!
+		} else {
+			// TODO: remove swipeMarkUnread asset when dropping support for macOS 10.15
+			return RSImage(named: "swipeMarkUnread")!
+		}
 	}()
 
 	static var swipeMarkStarredImage: RSImage = {
-		return RSImage(named: "swipeMarkStarred")!
+		if #available(OSX 11.0, *) {
+			return RSImage(systemSymbolName: "star.fill", accessibilityDescription: "Star")!
+				.withSymbolConfiguration(.init(scale: .large))!
+		} else {
+			return RSImage(named: "swipeMarkStarred")!
+		}
 	}()
 
 	static var swipeMarkUnstarredImage: RSImage = {
-		return RSImage(named: "swipeMarkUnstarred")!
+		if #available(OSX 11.0, *) {
+			return RSImage(systemSymbolName: "star", accessibilityDescription: "Unstar")!
+				.withSymbolConfiguration(.init(scale: .large))!
+		} else {
+			return RSImage(named: "swipeMarkUnstarred")!
+		}
 	}()
 	
 	static var starColor: NSColor = {

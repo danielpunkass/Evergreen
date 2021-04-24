@@ -7,10 +7,11 @@ let package = Package(
     products: [
         .library(
             name: "Articles",
+			type: .dynamic,
             targets: ["Articles"]),
     ],
     dependencies: [
-		.package(url: "https://github.com/Ranchero-Software/RSCore.git", .upToNextMajor(from: "1.0.0-beta1")),
+		.package(url: "https://github.com/Ranchero-Software/RSCore.git", .upToNextMajor(from: "1.0.0")),
     ],
     targets: [
         .target(

@@ -63,7 +63,7 @@ final class NewsBlurAccountDelegate: AccountDelegate {
 	}
 	
 	func refreshAll(for account: Account, completion: @escaping (Result<Void, Error>) -> ()) {
-		self.refreshProgress.addToNumberOfTasksAndRemaining(5)
+		self.refreshProgress.addToNumberOfTasksAndRemaining(4)
 
 		refreshFeeds(for: account) { result in
 			self.refreshProgress.completeTask()
@@ -80,31 +80,21 @@ final class NewsBlurAccountDelegate: AccountDelegate {
 
 							switch result {
 							case .success:
-								self.refreshStories(for: account) { result in
+								self.refreshMissingStories(for: account) { result in
 									self.refreshProgress.completeTask()
 
 									switch result {
 									case .success:
-										self.refreshMissingStories(for: account) { result in
-											self.refreshProgress.completeTask()
-
-											switch result {
-											case .success:
-												DispatchQueue.main.async {
-													completion(.success(()))
-												}
-
-											case .failure(let error):
-												DispatchQueue.main.async {
-													self.refreshProgress.clear()
-													let wrappedError = AccountError.wrappedError(error: error, account: account)
-													completion(.failure(wrappedError))
-												}
-											}
+										DispatchQueue.main.async {
+											completion(.success(()))
 										}
 
 									case .failure(let error):
-										completion(.failure(error))
+										DispatchQueue.main.async {
+											self.refreshProgress.clear()
+											let wrappedError = AccountError.wrappedError(error: error, account: account)
+											completion(.failure(wrappedError))
+										}
 									}
 								}
 
@@ -124,6 +114,24 @@ final class NewsBlurAccountDelegate: AccountDelegate {
 		}
 	}
 
+	func syncArticleStatus(for account: Account, completion: ((Result<Void, Error>) -> Void)? = nil) {
+		sendArticleStatus(for: account) { result in
+			switch result {
+			case .success:
+				self.refreshArticleStatus(for: account) { result in
+					switch result {
+					case .success:
+						completion?(.success(()))
+					case .failure(let error):
+						completion?(.failure(error))
+					}
+				}
+			case .failure(let error):
+				completion?(.failure(error))
+			}
+		}
+	}
+	
 	func sendArticleStatus(for account: Account, completion: @escaping (Result<Void, Error>) -> ()) {
 		os_log(.debug, log: log, "Sending story statuses...")
 
@@ -207,8 +215,9 @@ final class NewsBlurAccountDelegate: AccountDelegate {
 		caller.retrieveUnreadStoryHashes { result in
 			switch result {
 			case .success(let storyHashes):
-				self.syncStoryReadState(account: account, hashes: storyHashes)
-				group.leave()
+				self.syncStoryReadState(account: account, hashes: storyHashes) {
+					group.leave()
+				}
 			case .failure(let error):
 				errorOccurred = true
 				os_log(.info, log: self.log, "Retrieving unread stories failed: %@.", error.localizedDescription)
@@ -220,8 +229,9 @@ final class NewsBlurAccountDelegate: AccountDelegate {
 		caller.retrieveStarredStoryHashes { result in
 			switch result {
 			case .success(let storyHashes):
-				self.syncStoryStarredState(account: account, hashes: storyHashes)
-				group.leave()
+				self.syncStoryStarredState(account: account, hashes: storyHashes) {
+					group.leave()
+				}
 			case .failure(let error):
 				errorOccurred = true
 				os_log(.info, log: self.log, "Retrieving starred stories failed: %@.", error.localizedDescription)
@@ -246,7 +256,6 @@ final class NewsBlurAccountDelegate: AccountDelegate {
 		caller.retrieveUnreadStoryHashes { result in
 			switch result {
 			case .success(let storyHashes):
-				self.refreshProgress.completeTask()
 
 				if let count = storyHashes?.count, count > 0 {
 					self.refreshProgress.addToNumberOfTasksAndRemaining((count - 1) / 100 + 1)
@@ -414,7 +423,7 @@ final class NewsBlurAccountDelegate: AccountDelegate {
 		}
 	}
 
-	func createWebFeed(for account: Account, url: String, name: String?, container: Container, completion: @escaping (Result<WebFeed, Error>) -> ()) {
+	func createWebFeed(for account: Account, url: String, name: String?, container: Container, validateFeed: Bool, completion: @escaping (Result<WebFeed, Error>) -> ()) {
 		refreshProgress.addToNumberOfTasksAndRemaining(1)
 
 		let folderName = (container as? Folder)?.name
@@ -521,7 +530,7 @@ final class NewsBlurAccountDelegate: AccountDelegate {
 				}
 			}
 		} else {
-			createWebFeed(for: account, url: feed.url, name: feed.editedName, container: container) { result in
+			createWebFeed(for: account, url: feed.url, name: feed.editedName, container: container, validateFeed: true) { result in
 				switch result {
 				case .success:
 					completion(.success(()))
@@ -573,7 +582,7 @@ final class NewsBlurAccountDelegate: AccountDelegate {
 		}
 	}
 
-	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) {
+	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
 		account.update(articles, statusKey: statusKey, flag: flag) { result in
 			switch result {
 			case .success(let articles):
@@ -586,10 +595,11 @@ final class NewsBlurAccountDelegate: AccountDelegate {
 						if let count = try? result.get(), count > 100 {
 							self.sendArticleStatus(for: account) { _ in }
 						}
+						completion(.success(()))
 					}
 				}
 			case .failure(let error):
-				os_log(.error, log: self.log, "Error marking article status: %@", error.localizedDescription)
+				completion(.failure(error))
 			}
 		}
 	}

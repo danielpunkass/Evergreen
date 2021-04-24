@@ -12,7 +12,6 @@ import Secrets
 
 enum CreateReaderAPISubscriptionResult {
 	case created(ReaderAPISubscription)
-	case alreadySubscribed
 	case notFound
 }
 
@@ -118,7 +117,9 @@ final class ReaderAPICaller: NSObject {
 				var authData: [String: String] = [:]
 				rawData.split(separator: "\n").forEach({ (line: Substring) in
 					let items = line.split(separator: "=").map{String($0)}
-					authData[items[0]] = items[1]
+					if items.count == 2 {
+						authData[items[0]] = items[1]
+					}
 				})
 				
 				guard let authString = authData["Auth"] else {
@@ -182,9 +183,13 @@ final class ReaderAPICaller: NSObject {
 			return
 		}
 		
-		let url = baseURL
+		var url = baseURL
 			.appendingPathComponent(ReaderAPIEndpoints.tagList.rawValue)
 			.appendingQueryItem(URLQueryItem(name: "output", value: "json"))
+		
+		if variant == .inoreader {
+			url = url?.appendingQueryItem(URLQueryItem(name: "types", value: "1"))
+		}
 		
 		guard let callURL = url else {
 			completion(.failure(TransportError.noURL))
@@ -371,7 +376,7 @@ final class ReaderAPICaller: NSObject {
 
 						switch subResult?.numResults {
 						case 0:
-							completion(.success(.alreadySubscribed))
+							completion(.success(.notFound))
 						default:
 							guard let streamId = subResult?.streamId else {
 								completion(.failure(AccountError.createErrorNotFound))
@@ -758,13 +763,6 @@ private extension ReaderAPICaller {
 	func encodeForURLPath(_ pathComponent: String?) -> String? {
 		guard let pathComponent = pathComponent else { return nil }
 		return pathComponent.addingPercentEncoding(withAllowedCharacters: uriComponentAllowed)
-	}
-	
-	func storeConditionalGet(key: String, headers: [AnyHashable : Any]) {
-		if var conditionalGet = accountMetadata?.conditionalGetInfo {
-			conditionalGet[key] = HTTPConditionalGetInfo(headers: headers)
-			accountMetadata?.conditionalGetInfo = conditionalGet
-		}
 	}
 	
 	func addVariantHeaders(_ request: inout URLRequest) {

@@ -336,38 +336,41 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 
 			guard let self = self else { return nil }
 			
-			var actions = [UIAction]()
+			var menuElements = [UIMenuElement]()
+			
+			var markActions = [UIAction]()
 			if let action = self.toggleArticleReadStatusAction(article) {
-				actions.append(action)
+				markActions.append(action)
 			}
-			
-			actions.append(self.toggleArticleStarStatusAction(article))
-
+			markActions.append(self.toggleArticleStarStatusAction(article))
 			if let action = self.markAboveAsReadAction(article, indexPath: indexPath) {
-				actions.append(action)
+				markActions.append(action)
 			}
-
 			if let action = self.markBelowAsReadAction(article, indexPath: indexPath) {
-				actions.append(action)
+				markActions.append(action)
 			}
+			menuElements.append(UIMenu(title: "", options: .displayInline, children: markActions))
 			
+			var secondaryActions = [UIAction]()
 			if let action = self.discloseFeedAction(article) {
-				actions.append(action)
+				secondaryActions.append(action)
 			}
-			
 			if let action = self.markAllInFeedAsReadAction(article, indexPath: indexPath) {
-				actions.append(action)
+				secondaryActions.append(action)
+			}
+			if !secondaryActions.isEmpty {
+				menuElements.append(UIMenu(title: "", options: .displayInline, children: secondaryActions))
 			}
 			
 			if let action = self.openInBrowserAction(article) {
-				actions.append(action)
+				menuElements.append(UIMenu(title: "", options: .displayInline, children: [action]))
 			}
 			
 			if let action = self.shareAction(article, indexPath: indexPath) {
-				actions.append(action)
+				menuElements.append(UIMenu(title: "", options: .displayInline, children: [action]))
 			}
 			
-			return UIMenu(title: "", children: actions)
+			return UIMenu(title: "", children: menuElements)
 
 		})
 		
@@ -460,11 +463,14 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	}
 
 	@objc func userDefaultsDidChange(_ note: Notification) {
-		if numberOfTextLines != AppDefaults.shared.timelineNumberOfLines || iconSize != AppDefaults.shared.timelineIconSize {
-			numberOfTextLines = AppDefaults.shared.timelineNumberOfLines
-			iconSize = AppDefaults.shared.timelineIconSize
-			resetEstimatedRowHeight()
-			reloadAllVisibleCells()
+		DispatchQueue.main.async {
+			if self.numberOfTextLines != AppDefaults.shared.timelineNumberOfLines || self.iconSize != AppDefaults.shared.timelineIconSize {
+				self.numberOfTextLines = AppDefaults.shared.timelineNumberOfLines
+				self.iconSize = AppDefaults.shared.timelineIconSize
+				self.resetEstimatedRowHeight()
+				self.reloadAllVisibleCells()
+			}
+			self.updateToolbar()
 		}
 	}
 	
@@ -585,7 +591,14 @@ private extension MasterTimelineViewController {
 		title = coordinator.timelineFeed?.nameForDisplay ?? "Timeline"
 
 		if let titleView = navigationItem.titleView as? MasterTimelineTitleView {
-			titleView.iconView.iconImage = coordinator.timelineIconImage
+			let timelineIconImage = coordinator.timelineIconImage
+			titleView.iconView.iconImage = timelineIconImage
+			if let preferredColor = timelineIconImage?.preferredColor {
+				titleView.iconView.tintColor = UIColor(cgColor: preferredColor)
+			} else {
+				titleView.iconView.tintColor = nil
+			}
+			
 			titleView.label.text = coordinator.timelineFeed?.nameForDisplay
 			updateTitleUnreadCount()
 

@@ -807,24 +807,24 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		}
 	}
 	
-	func selectTodayFeed() {
+	func selectTodayFeed(completion: (() -> Void)? = nil) {
 		markExpanded(SmartFeedsController.shared)
 		self.ensureFeedIsAvailableToSelect(SmartFeedsController.shared.todayFeed) {
-			self.selectFeed(SmartFeedsController.shared.todayFeed, animations: [.navigation, .scroll])
+			self.selectFeed(SmartFeedsController.shared.todayFeed, animations: [.navigation, .scroll], completion: completion)
 		}
 	}
 
-	func selectAllUnreadFeed() {
+	func selectAllUnreadFeed(completion: (() -> Void)? = nil) {
 		markExpanded(SmartFeedsController.shared)
 		self.ensureFeedIsAvailableToSelect(SmartFeedsController.shared.unreadFeed) {
-			self.selectFeed(SmartFeedsController.shared.unreadFeed, animations: [.navigation, .scroll])
+			self.selectFeed(SmartFeedsController.shared.unreadFeed, animations: [.navigation, .scroll], completion: completion)
 		}
 	}
 
-	func selectStarredFeed() {
+	func selectStarredFeed(completion: (() -> Void)? = nil) {
 		markExpanded(SmartFeedsController.shared)
 		self.ensureFeedIsAvailableToSelect(SmartFeedsController.shared.starredFeed) {
-			self.selectFeed(SmartFeedsController.shared.starredFeed, animations: [.navigation, .scroll])
+			self.selectFeed(SmartFeedsController.shared.starredFeed, animations: [.navigation, .scroll], completion: completion)
 		}
 	}
 
@@ -997,13 +997,15 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		}
 	}
 	
-	func markAllAsRead(_ articles: [Article]) {
-		markArticlesWithUndo(articles, statusKey: .read, flag: true)
+	func markAllAsRead(_ articles: [Article], completion: (() -> Void)? = nil) {
+		markArticlesWithUndo(articles, statusKey: .read, flag: true, completion: completion)
 	}
 	
-	func markAllAsReadInTimeline() {
-		markAllAsRead(articles)
-		masterNavigationController.popViewController(animated: true)
+	func markAllAsReadInTimeline(completion: (() -> Void)? = nil) {
+		markAllAsRead(articles) {
+			self.masterNavigationController.popViewController(animated: true)
+			completion?()
+		}
 	}
 
 	func canMarkAboveAsRead(for article: Article) -> Bool {
@@ -1277,6 +1279,12 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	func toggleSidebar() {
 		rootSplitViewController.preferredDisplayMode = rootSplitViewController.displayMode == .allVisible ? .primaryHidden : .allVisible
 	}
+	
+	func selectArticleInCurrentFeed(_ articleID: String) {
+		if let article = self.articles.first(where: { $0.articleID == articleID }) {
+			self.selectArticle(article)
+		}
+	}
 }
 
 // MARK: UISplitViewControllerDelegate
@@ -1366,8 +1374,10 @@ extension SceneCoordinator: UINavigationControllerDelegate {
 
 private extension SceneCoordinator {
 
-	func markArticlesWithUndo(_ articles: [Article], statusKey: ArticleStatus.Key, flag: Bool) {
-		guard let undoManager = undoManager, let markReadCommand = MarkStatusCommand(initialArticles: articles, statusKey: statusKey, flag: flag, undoManager: undoManager) else {
+	func markArticlesWithUndo(_ articles: [Article], statusKey: ArticleStatus.Key, flag: Bool, completion: (() -> Void)? = nil) {
+		guard let undoManager = undoManager,
+			  let markReadCommand = MarkStatusCommand(initialArticles: articles, statusKey: statusKey, flag: flag, undoManager: undoManager, completion: completion) else {
+			completion?()
 			return
 		}
 		runCommand(markReadCommand)
@@ -2289,12 +2299,6 @@ private extension SceneCoordinator {
 			return true
 		}
 		return false
-	}
-	
-	func selectArticleInCurrentFeed(_ articleID: String) {
-		if let article = self.articles.first(where: { $0.articleID == articleID }) {
-			self.selectArticle(article)
-		}
 	}
 	
 }

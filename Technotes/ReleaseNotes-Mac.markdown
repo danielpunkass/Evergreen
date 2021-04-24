@@ -1,6 +1,134 @@
 # Mac Release Notes
 
-## 5.1.2 build 3016 - 31 Oct 2010
+### 6.0.1 build 6030 - 1 Apr 2021
+
+Adjusted layout of the add account sheet so that it fits on smaller monitors
+Sidebar: properly scale the smart feed icons when sidebar is set to large size in System Preferences
+
+### 6.0.1b2 build 6029 - 29 Mar 2021
+
+Twitter: fixed a date parsing bug that could affect people in some locales, which would prevent Twitter feeds from working for them
+Feeds list: fixed bug where newly added feed would be called Untitled past the time when the app actually knows its name
+Fixed bug where next-unread command wouldn’t wrap around when you got to the bottom of the Feeds list
+
+### 6.0.1b1 build 6028 - 28 Mar 2021
+
+Timeline: fix bug updating article display when an article with the same article ID appears more than once (which can happen when a person has multiple accounts)
+iCloud: won’t add feeds that aren’t parseable, which fixes an error upon trying to rename one of these feeds
+Feedbin: fixed a bug with read/unread status syncing
+
+### 6.0 build 6027 - 26 Mar 2021
+
+No code changes since 6.0b5
+Changed the feed URL for test builds back to the normal test build feed URL
+
+### 6.0b5 build 6026 - 25 Mar 2021
+
+Fixed a bug where sometimes the app wouldn’t automatically refresh after the Mac wakes from sleep
+Updated the Help book link to the 6.0 Mac help book website
+App now displays a helpful error message if you don’t have iCloud Drive enabled and were able to successfully add an iCloud Account
+
+### 6.0b4 build 6024 - 23 Mar 2021
+
+Feedly: Deleting a feed successfully no longer shows an alert and leaves the feed in the sidebar
+iCloud sync: fixed a bug where, in some circumstances, dragging a feed from elsewhere in the sidebar to the iCloud account could trigger the feed-finder
+NetNewsWire will now refresh on launch if you have the Debug menu enabled
+Article view: footnotes should now work with articles from a Feedly account
+
+### 6.0b3 build 6023 - 16 Mar 2021
+
+Article view: fixed bug where URL status field might not disappear when switching articles
+iCloud sync: dragging feeds from elsewhere in the sidebar to the iCloud account won’t trigger the feed-finding process since this is a better experience for migrating
+Syncing: fixed a bug authenticating with some sync services when the user has some special characters in their password
+Preferences: removed checkbox for showing unread count in the Dock — control this instead via System Preferences > Notifications > NetNewsWire > Badge app icon
+
+
+### 6.0b2 build 6022 - 13 Mar 2021
+
+Feeds list: when dragging feeds/folders from one account to another, the operation is now *always* copy, to avoid data loss due to misunderstanding that moving a feed between accounts does not move its read/starred statuses
+iCloud sync: refined logic to improve performance of large uploads
+Fixed a crashing bug that could happen when deleting an iCloud-synced folder
+Fixed a crashing bug, triggered by bad server data, that could happen when validating credentials with syncing systems that use the Reader API
+
+### 6.0b1 build 6012 - 7 Mar 2021
+
+Article view: fixed several layout edge cases, including with fullscreen
+Timeline: fixed a bug scrolling up via arrow key where a row might not be fully visible when it should be
+
+### 6.0a6 build 6011 - 6 Mar 2021
+
+Article view: make code and preformatted fonts and sizes follow Apple’s precedents more closely
+Article view: removed a stray line next to the timeline/article separator
+Debug menu: add Force Crash command (beware: works in production)
+Debug menu: allow Test Crash Log Sender to work in production
+
+### 6.0a5 build 6010 - 3 Mar 2021
+
+Performance boost: use compression with content synced in CloudKit
+Fixed bug where detail view title bar could be overlapped by toolbar when in full screen
+Fixed bug where add-feed window could block when syncing CloudKit statuses
+Added hidden pref to mark all as read in a feed when double-clicking on it in the sidebar and opening its home page (defaults write com.ranchero.NetNewsWire-Evergreen GruberFeedDoubleClickMarkAsRead -bool true)
+Switched the crash log catcher URL to our brand-new crash log catcher server
+
+### 6.0a4 build 6009 - 22 Feb 2021
+
+Fix a bug with keyboard shortcuts on Big Sur (for real this time)
+Change drag-and-drop behavior to default to copy when dragging between accounts
+Show a single error message when dragging feeds into an account and some of the feeds can’t be found
+
+### 6.0a3 build 6008 - 21 Feb 2021
+
+Use the new URL for the crash report catcher (so that we actually get crash logs again)
+Update other URLs to point to netnewswire.com when correct
+Fix a bug with keyboard shortcuts on Big Sur
+Show folders more quickly in the iCloud account when dragging a folder into that account
+
+### 6.0a2 build 6007 - 6 Feb 2021
+
+Fix regression in Preferences toolbar (placement of icons was wrong on Big Sur)
+Fix regression in Twitter support (it wasn’t working)
+
+### 6.0a1 build 6006 - 4 Feb 2021
+
+Feeds list: added contextual menu items for always showing reader view and for notifications
+Feeds list: now respects the size chosen in System Preferences > General > Sidebar icon size
+iCloud syncing: don’t inadvertently clear progress indicator when copying a folder and an error was encountered
+Notifications: don’t open app when closing a notification
+
+### 6.0d5 build 6005 - 22 Jan 2021
+
+Added some shadow to the app icon
+Fixed bug where iCloud account description was truncated in Catalina, in account setup
+Fixed bug with iCloud account where undoing deletes of read feeds left articles deleted
+Fixed bug connecting to Inoreader when username has a + character
+Fixed bug with NewsBlur when all feeds are in folders
+Fixed long beachball on quit that could happen with the iCloud account (due to a long sync)
+
+### 6.0d4 build 6004 - 16 Jan 2021
+
+* Big Sur app icon
+* Big Sur UI (when running on Big Sur)
+* App is now sandboxed
+* Syncing via iCloud
+* Syncing via BazQux, Inoreader, NewsBlur, The Old Reader, and FreshRSS
+* Special support for Twitter and Reddit feeds
+* Share extension, so you can send URLs to NetNewsWire
+* Preference to change article text size
+* Preference to set preferred browser
+* External link, when available, shows in article view
+* High resolution icons in the sidebar (when available)
+
+## 5.1.3 build 3018 - 9 Nov 2020
+
+* Fixed a crashing bug that could happen with empty titles in the timeline
+* Fixed a crashing bug that could happen when adding a feed
+
+### 5.1.3b1 build 3017 - 6 Nov 2020
+
+* Fixed a crashing bug that could happen with empty titles in the timeline
+* Fixed a crashing bug that could happen when adding a feed
+
+## 5.1.2 build 3016 - 31 Oct 2020
 
 * Fixed a crashing bug in the timeline
 * Fixed a background color bug in dark mode in the timeline

@@ -96,6 +96,7 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 												switch result {
 												case .success:
 													DispatchQueue.main.async {
+                                                        account.metadata.lastArticleFetchEndTime = Date()
 														completion(.success(()))
 													}
 												
@@ -146,6 +147,24 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 				completion(.failure(error))
 			}
 			
+		}
+	}
+	
+	func syncArticleStatus(for account: Account, completion: ((Result<Void, Error>) -> Void)? = nil) {
+		sendArticleStatus(for: account) { result in
+			switch result {
+			case .success:
+				self.refreshArticleStatus(for: account) { result in
+					switch result {
+					case .success:
+						completion?(.success(()))
+					case .failure(let error):
+						completion?(.failure(error))
+					}
+				}
+			case .failure(let error):
+				completion?(.failure(error))
+			}
 		}
 	}
 	
@@ -248,7 +267,7 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 		let group = DispatchGroup()
 		
 		group.enter()
-		caller.retrieveAllUnreadFeedItems { result in
+		caller.retrieveUnreadFeedItemIds { result in
 			switch result {
 			case .success(let items):
 				self.syncArticleReadState(account, items)
@@ -262,7 +281,7 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 		
 		// starred
 		group.enter()
-		caller.retrieveAllStarredFeedItems { result in
+		caller.retrieveStarredFeedItemIds { result in
 			switch result {
 			case .success(let items):
 				self.syncArticleStarredState(account, items)
@@ -296,7 +315,7 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 		fatalError()
 	}
 	
-	func createWebFeed(for account: Account, url: String, name: String?, container: Container, completion: @escaping (Result<WebFeed, Error>) -> Void) {
+	func createWebFeed(for account: Account, url: String, name: String?, container: Container, validateFeed: Bool, completion: @escaping (Result<WebFeed, Error>) -> Void) {
 		refreshProgress.addToNumberOfTasksAndRemaining(2)
 		
 		self.refreshCredentials(for: account) {
@@ -427,15 +446,33 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 		fatalError()
 	}
 	
-	func restoreWebFeed(for account: Account, feed: WebFeed, container: Container, completion: @escaping (Result<Void, Error>) -> Void) {
-		fatalError()
+	func restoreWebFeed(for account: Account, feed: WebFeed, container: Container, completion: @escaping (Result<Void, Error>) -> Void) {       
+        if let existingFeed = account.existingWebFeed(withURL: feed.url) {
+            account.addWebFeed(existingFeed, to: container) { result in
+                switch result {
+                case .success:
+                    completion(.success(()))
+                case .failure(let error):
+                    completion(.failure(error))
+                }
+            }
+        } else {
+			createWebFeed(for: account, url: feed.url, name: feed.editedName, container: container, validateFeed: true) { result in
+                switch result {
+                case .success:
+                    completion(.success(()))
+                case .failure(let error):
+                    completion(.failure(error))
+                }
+            }
+        }
 	}
 	
 	func restoreFolder(for account: Account, folder: Folder, completion: @escaping (Result<Void, Error>) -> Void) {
 		fatalError()
 	}
 	
-	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) {
+	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
 		account.update(articles, statusKey: statusKey, flag: flag) { result in
 			switch result {
 			case .success(let articles):
@@ -448,10 +485,11 @@ final class FeedWranglerAccountDelegate: AccountDelegate {
 						if let count = try? result.get(), count > 100 {
 							self.sendArticleStatus(for: account) { _ in }
 						}
+						completion(.success(()))
 					}
 				}
 			case .failure(let error):
-				os_log(.error, log: self.log, "Error marking article status: %@", error.localizedDescription)
+				completion(.failure(error))
 			}
 		}
 	}
@@ -535,7 +573,7 @@ private extension FeedWranglerAccountDelegate {
 		}
 	}
 	
-	func syncArticleReadState(_ account: Account, _ unreadFeedItems: [FeedWranglerFeedItem]) {
+	func syncArticleReadState(_ account: Account, _ unreadFeedItems: [FeedWranglerFeedItemId]) {
 		let unreadServerItemIDs = Set(unreadFeedItems.map { String($0.feedItemID) })
 		account.fetchUnreadArticleIDs { articleIDsResult in
 			guard let unreadLocalItemIDs = try? articleIDsResult.get() else {
@@ -548,7 +586,7 @@ private extension FeedWranglerAccountDelegate {
 		}
 	}
 	
-	func syncArticleStarredState(_ account: Account, _ starredFeedItems: [FeedWranglerFeedItem]) {
+	func syncArticleStarredState(_ account: Account, _ starredFeedItems: [FeedWranglerFeedItemId]) {
 		let starredServerItemIDs = Set(starredFeedItems.map { String($0.feedItemID) })
 		account.fetchStarredArticleIDs { articleIDsResult in
 			guard let starredLocalItemIDs = try? articleIDsResult.get() else {

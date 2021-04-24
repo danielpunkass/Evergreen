@@ -16,7 +16,7 @@ extension Notification.Name {
 	static let appleSideBarDefaultIconSizeChanged = Notification.Name("AppleSideBarDefaultIconSizeChanged")
 }
 
-protocol SidebarDelegate: class {
+protocol SidebarDelegate: AnyObject {
 	func sidebarSelectionDidChange(_: SidebarViewController, selectedObjects: [AnyObject]?)
 	func unreadCount(for: AnyObject) -> Int
 	func sidebarInvalidatedRestorationState(_: SidebarViewController)
@@ -24,8 +24,8 @@ protocol SidebarDelegate: class {
 
 @objc class SidebarViewController: NSViewController, NSOutlineViewDelegate, NSMenuDelegate, UndoableCommandRunner {
     
-	@IBOutlet var outlineView: SidebarOutlineView!
-
+	@IBOutlet weak var outlineView: NSOutlineView!
+	
 	weak var delegate: SidebarDelegate?
 
 	private let rebuildTreeAndRestoreSelectionQueue = CoalescingQueue(name: "Rebuild Tree Queue", interval: 1.0)
@@ -254,6 +254,11 @@ protocol SidebarDelegate: class {
 	@IBAction func doubleClickedSidebar(_ sender: Any?) {
 		guard outlineView.clickedRow == outlineView.selectedRow else {
 			return
+		}
+		if AppDefaults.shared.feedDoubleClickMarkAsRead, let articles = try? singleSelectedWebFeed?.fetchUnreadArticles() {
+			if let undoManager = undoManager, let markReadCommand = MarkStatusCommand(initialArticles: Array(articles), markingRead: true, undoManager: undoManager) {
+				runCommand(markReadCommand)
+			}
 		}
 		openInBrowser(sender)
 	}
@@ -633,20 +638,6 @@ private extension SidebarViewController {
 	func selectionDidChange(_ selectedObjects: [AnyObject]?) {
 		delegate?.sidebarSelectionDidChange(self, selectedObjects: selectedObjects)
 		delegate?.sidebarInvalidatedRestorationState(self)
-	}
-
-	func updateUnreadCounts(for objects: [AnyObject]) {
-		// On selection, update unread counts for folders and feeds.
-		// For feeds, actually fetch from database.
-
-		for object in objects {
-			if let feed = object as? WebFeed, let account = feed.account {
-				account.updateUnreadCounts(for: Set([feed]))
-			}
-			else if let folder = object as? Folder, let account = folder.account {
-				account.updateUnreadCounts(for: folder.flattenedWebFeeds())
-			}
-		}
 	}
 
 	func nodeForItem(_ item: AnyObject?) -> Node {

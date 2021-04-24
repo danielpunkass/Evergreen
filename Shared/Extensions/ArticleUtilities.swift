@@ -13,15 +13,24 @@ import Account
 
 // These handle multiple accounts.
 
-func markArticles(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) {
+func markArticles(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: (() -> Void)? = nil) {
 	
 	let d: [String: Set<Article>] = accountAndArticlesDictionary(articles)
 
+	let group = DispatchGroup()
+	
 	for (accountID, accountArticles) in d {
 		guard let account = AccountManager.shared.existingAccount(with: accountID) else {
 			continue
 		}
-		account.markArticles(accountArticles, statusKey: statusKey, flag: flag)
+		group.enter()
+		account.markArticles(accountArticles, statusKey: statusKey, flag: flag) { _ in
+			group.leave()
+		}
+	}
+	
+	group.notify(queue: .main) {
+		completion?()
 	}
 }
 
@@ -101,6 +110,23 @@ extension Article {
 		}
 		
 		return FaviconGenerator.favicon(webFeed)
+	}
+	
+	func iconImageUrl(webFeed: WebFeed) -> URL? {
+		if let image = iconImage() {
+			let fm = FileManager.default
+			var path = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+			let feedID = webFeed.webFeedID.replacingOccurrences(of: "/", with: "_")
+			#if os(macOS)
+			path.appendPathComponent(feedID + "_smallIcon.tiff")
+			#else
+			path.appendPathComponent(feedID + "_smallIcon.png")
+			#endif
+			fm.createFile(atPath: path.path, contents: image.image.dataRepresentation()!, attributes: nil)
+			return path
+		} else {
+			return nil
+		}
 	}
 	
 	func byline() -> String {

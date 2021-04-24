@@ -16,6 +16,7 @@ import SyncDatabase
 import os.log
 
 extension NewsBlurAccountDelegate {
+	
 	func refreshFeeds(for account: Account, completion: @escaping (Result<Void, Error>) -> Void) {
 		os_log(.debug, log: log, "Refreshing feeds...")
 
@@ -27,8 +28,6 @@ extension NewsBlurAccountDelegate {
 					self.syncFeeds(account, feeds)
 					self.syncFeedFolderRelationship(account, folders)
 				}
-
-				self.refreshProgress.completeTask()
 				completion(.success(()))
 			case .failure(let error):
 				completion(.failure(error))
@@ -147,16 +146,11 @@ extension NewsBlurAccountDelegate {
 
 		// Sync the folders
 		for (folderName, folderRelationships) in newsBlurFolderDict {
-			let newsBlurFolderFeedIDs = folderRelationships.map { String($0.feedID) }
-
-			// Handle account-level folder
-			if folderName == " " {
-				for feed in account.topLevelWebFeeds {
-					if !newsBlurFolderFeedIDs.contains(feed.webFeedID) {
-						account.removeWebFeed(feed)
-					}
-				}
+			guard folderName != " " else {
+				continue
 			}
+
+			let newsBlurFolderFeedIDs = folderRelationships.map { String($0.feedID) }
 
 			guard let folder = folderDict[folderName] else { return }
 
@@ -183,6 +177,22 @@ extension NewsBlurAccountDelegate {
 				}
 			}
 		}
+		
+		// Handle the account level feeds.  If there isn't the special folder, that means all the feeds are
+		// in folders and we need to remove them all from the account level.
+		if let folderRelationships = newsBlurFolderDict[" "] {
+			let newsBlurFolderFeedIDs = folderRelationships.map { String($0.feedID) }
+			for feed in account.topLevelWebFeeds {
+				if !newsBlurFolderFeedIDs.contains(feed.webFeedID) {
+					account.removeWebFeed(feed)
+				}
+			}
+		} else {
+			for feed in account.topLevelWebFeeds {
+				account.removeWebFeed(feed)
+			}
+		}
+		
 	}
 
 	func clearFolderRelationship(for feed: WebFeed, withFolderName folderName: String) {
@@ -306,8 +316,11 @@ extension NewsBlurAccountDelegate {
 		}
 	}
 
-	func syncStoryReadState(account: Account, hashes: [NewsBlurStoryHash]?) {
-		guard let hashes = hashes else { return }
+	func syncStoryReadState(account: Account, hashes: [NewsBlurStoryHash]?, completion: @escaping (() -> Void)) {
+		guard let hashes = hashes else {
+			completion()
+			return
+		}
 
 		database.selectPendingReadStatusArticleIDs() { result in
 			func process(_ pendingStoryHashes: Set<String>) {
@@ -320,13 +333,25 @@ extension NewsBlurAccountDelegate {
 						return
 					}
 
+					let group = DispatchGroup()
+					
 					// Mark articles as unread
 					let deltaUnreadArticleIDs = updatableNewsBlurUnreadStoryHashes.subtracting(currentUnreadArticleIDs)
-					account.markAsUnread(deltaUnreadArticleIDs)
+					group.enter()
+					account.markAsUnread(deltaUnreadArticleIDs) { _ in
+						group.leave()
+					}
 
 					// Mark articles as read
 					let deltaReadArticleIDs = currentUnreadArticleIDs.subtracting(updatableNewsBlurUnreadStoryHashes)
-					account.markAsRead(deltaReadArticleIDs)
+					group.enter()
+					account.markAsRead(deltaReadArticleIDs) { _ in
+						group.leave()
+					}
+					
+					group.notify(queue: DispatchQueue.main) {
+						completion()
+					}
 				}
 			}
 
@@ -339,8 +364,11 @@ extension NewsBlurAccountDelegate {
 		}
 	}
 
-	func syncStoryStarredState(account: Account, hashes: [NewsBlurStoryHash]?) {
-		guard let hashes = hashes else { return }
+	func syncStoryStarredState(account: Account, hashes: [NewsBlurStoryHash]?, completion: @escaping (() -> Void)) {
+		guard let hashes = hashes else {
+			completion()
+			return
+		}
 
 		database.selectPendingStarredStatusArticleIDs() { result in
 			func process(_ pendingStoryHashes: Set<String>) {
@@ -353,13 +381,25 @@ extension NewsBlurAccountDelegate {
 						return
 					}
 
+					let group = DispatchGroup()
+					
 					// Mark articles as starred
 					let deltaStarredArticleIDs = updatableNewsBlurUnreadStoryHashes.subtracting(currentStarredArticleIDs)
-					account.markAsStarred(deltaStarredArticleIDs)
+					group.enter()
+					account.markAsStarred(deltaStarredArticleIDs) { _ in
+						group.leave()
+					}
 
 					// Mark articles as unstarred
 					let deltaUnstarredArticleIDs = currentStarredArticleIDs.subtracting(updatableNewsBlurUnreadStoryHashes)
-					account.markAsUnstarred(deltaUnstarredArticleIDs)
+					group.enter()
+					account.markAsUnstarred(deltaUnstarredArticleIDs) { _ in
+						group.leave()
+					}
+
+					group.notify(queue: DispatchQueue.main) {
+						completion()
+					}
 				}
 			}
 

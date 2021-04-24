@@ -12,9 +12,9 @@ import RSCore
 import RSWeb
 import Articles
 
-protocol DetailWebViewControllerDelegate: class {
+protocol DetailWebViewControllerDelegate: AnyObject {
 	func mouseDidEnter(_: DetailWebViewController, link: String)
-	func mouseDidExit(_: DetailWebViewController, link: String)
+	func mouseDidExit(_: DetailWebViewController)
 }
 
 final class DetailWebViewController: NSViewController, WKUIDelegate {
@@ -39,6 +39,8 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 			return nil
 		}
 	}
+	
+	private var articleTextSize = AppDefaults.shared.articleTextSize
 
 	#if !MAC_APP_STORE
 		private var webInspectorEnabled: Bool {
@@ -61,16 +63,6 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 	}
 
 	override func loadView() {
-		// Wrap the webview in a box configured with the same background color that the web view uses
-		let box = NSBox(frame: .zero)
-		box.boxType = .custom
-		box.borderType = .noBorder
-		box.titlePosition = .noTitle
-		box.contentViewMargins = .zero
-		box.fillColor = NSColor(named: "webviewBackgroundColor")!
-
-		view = box
-		
 		let preferences = WKPreferences()
 		preferences.minimumFontSize = 12.0
 		preferences.javaScriptCanOpenWindowsAutomatically = false
@@ -94,16 +86,21 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 			webView.customUserAgent = userAgent
 		}
 
-		box.addSubview(webView)
+		view = webView
 
-		let constraints = [
-			webView.topAnchor.constraint(equalTo: view.topAnchor),
-			webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-			webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-		]
+		// Use the safe area layout guides if they are available.
+		if #available(OSX 11.0, *) {
+			// These constraints have been removed as they were unsatisfiable after removing NSBox.
+		} else {
+			let constraints = [
+				webView.topAnchor.constraint(equalTo: view.topAnchor),
+				webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+				webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+				webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+			]
+			NSLayoutConstraint.activate(constraints)
+		}
 
-		NSLayoutConstraint.activate(constraints)
 
 		// Hide the web view until the first reload (navigation) is complete (plus some delay) to avoid the awful white flash that happens on the initial display in dark mode.
 		// See bug #901.
@@ -118,7 +115,7 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 		NotificationCenter.default.addObserver(self, selector: #selector(webFeedIconDidBecomeAvailable(_:)), name: .WebFeedIconDidBecomeAvailable, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(avatarDidBecomeAvailable(_:)), name: .AvatarDidBecomeAvailable, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
 
 		webView.loadFileURL(ArticleRenderer.blank.url, allowingReadAccessTo: ArticleRenderer.blank.baseURL)
 	}
@@ -135,6 +132,13 @@ final class DetailWebViewController: NSViewController, WKUIDelegate {
 
 	@objc func faviconDidBecomeAvailable(_ note: Notification) {
 		reloadArticleImage()
+	}
+	
+	@objc func userDefaultsDidChange(_ note: Notification) {
+		if articleTextSize != AppDefaults.shared.articleTextSize {
+			articleTextSize = AppDefaults.shared.articleTextSize
+			webView.evaluateJavaScript("updateTextSize(\"\(articleTextSize.cssClass)\");")
+		}
 	}
 	
 	// MARK: Media Functions
@@ -174,8 +178,8 @@ extension DetailWebViewController: WKScriptMessageHandler {
 		if message.name == MessageName.mouseDidEnter, let link = message.body as? String {
 			delegate?.mouseDidEnter(self, link: link)
 		}
-		else if message.name == MessageName.mouseDidExit, let link = message.body as? String{
-			delegate?.mouseDidExit(self, link: link)
+		else if message.name == MessageName.mouseDidExit {
+			delegate?.mouseDidExit(self)
 		}
 	}
 }
@@ -231,6 +235,8 @@ private extension DetailWebViewController {
 	}
 
 	func reloadHTML() {
+		delegate?.mouseDidExit(self)
+		
 		let style = ArticleStylesManager.shared.currentStyle
 		let rendering: ArticleRenderer.Rendering
 

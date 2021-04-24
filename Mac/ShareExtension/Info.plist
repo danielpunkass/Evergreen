@@ -5,7 +5,7 @@
 	<key>OrganizationIdentifier</key>
 	<string>$(ORGANIZATION_IDENTIFIER)</string>
 	<key>AppGroup</key>
-	<string>group.$(ORGANIZATION_IDENTIFIER).NetNewsWire</string>
+	<string>group.$(ORGANIZATION_IDENTIFIER).NetNewsWire-Evergreen</string>
 	<key>AppIdentifierPrefix</key>
 	<string>$(AppIdentifierPrefix)</string>
 	<key>CFBundleDevelopmentRegion</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconFile</key>
-	<string>icon</string>
+	<string>icon.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -48,6 +48,6 @@
 		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
 	</dict>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2020 Ranchero Software. All rights reserved.</string>
+	<string>Copyright © 2020-2021 Ranchero Software. All rights reserved.</string>
 </dict>
 </plist>

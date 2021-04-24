@@ -30,6 +30,7 @@ final class AppDefaults {
 		static let timelineGroupByFeed = "timelineGroupByFeed"
 		static let detailFontSize = "detailFontSize"
 		static let openInBrowserInBackground = "openInBrowserInBackground"
+		static let articleTextSize = "articleTextSize"
 		static let refreshInterval = "refreshInterval"
 		static let addWebFeedAccountID = "addWebFeedAccountID"
 		static let addWebFeedFolderName = "addWebFeedFolderName"
@@ -42,7 +43,7 @@ final class AppDefaults {
 		static let showDebugMenu = "ShowDebugMenu"
 		static let timelineShowsSeparators = "CorreiaSeparators"
 		static let showTitleOnMainWindow = "KafasisTitleMode"
-		static let hideDockUnreadCount = "JustinMillerHideDockUnreadCount"
+		static let feedDoubleClickMarkAsRead = "GruberFeedDoubleClickMarkAsRead"
 
 		#if !MAC_APP_STORE
 			static let webInspectorEnabled = "WebInspectorEnabled"
@@ -193,12 +194,12 @@ final class AppDefaults {
 		return AppDefaults.bool(for: Key.showDebugMenu)
  	}
 
-	var hideDockUnreadCount: Bool {
+	var feedDoubleClickMarkAsRead: Bool {
 		get {
-			return AppDefaults.bool(for: Key.hideDockUnreadCount)
+			return AppDefaults.bool(for: Key.feedDoubleClickMarkAsRead)
 		}
 		set {
-			AppDefaults.setBool(for: Key.hideDockUnreadCount, newValue)
+			AppDefaults.setBool(for: Key.feedDoubleClickMarkAsRead, newValue)
 		}
 	}
 
@@ -242,6 +243,16 @@ final class AppDefaults {
 	
 	var timelineShowsSeparators: Bool {
 		return AppDefaults.bool(for: Key.timelineShowsSeparators)
+	}
+
+	var articleTextSize: ArticleTextSize {
+		get {
+			let rawValue = UserDefaults.standard.integer(forKey: Key.articleTextSize)
+			return ArticleTextSize(rawValue: rawValue) ?? ArticleTextSize.large
+		}
+		set {
+			UserDefaults.standard.set(newValue.rawValue, forKey: Key.articleTextSize)
+		}
 	}
 
 	var refreshInterval: RefreshInterval {
@@ -375,19 +386,6 @@ private extension AppDefaults {
 		}
 		else {
 			setInt(for: key, ComparisonResult.orderedDescending.rawValue)
-		}
-	}
-}
-
-// MARK: -
-extension UserDefaults {
-	/// This property exists so that it can conveniently be observed via KVO
-	@objc var CorreiaSeparators: Bool {
-		get {
-			return bool(forKey: AppDefaults.Key.timelineShowsSeparators)
-		}
-		set {
-			set(newValue, forKey: AppDefaults.Key.timelineShowsSeparators)
 		}
 	}
 }

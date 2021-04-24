@@ -10,7 +10,7 @@ import Foundation
 import RSWeb
 import Secrets
 
-protocol FeedlyAPICallerDelegate: class {
+protocol FeedlyAPICallerDelegate: AnyObject {
 	/// Implemented by the `FeedlyAccountDelegate` reauthorize the client with a fresh OAuth token so the client can retry the unauthorized request.
 	/// Pass `true` to the completion handler if the failing request should be retried with a fresh token or `false` if the unauthorized request should complete with the original failure error.
 	func reauthorizeFeedlyAPICaller(_ caller: FeedlyAPICaller, completionHandler: @escaping (Bool) -> ())
@@ -369,7 +369,9 @@ final class FeedlyAPICaller {
 			}
 		}
 		
-		send(request: request, resultType: [FeedlyFeed].self, dateDecoding: .millisecondsSince1970, keyDecoding: .convertFromSnakeCase) { result in
+        // `resultType` is optional because the Feedly API has gone from returning an array of removed feeds to returning `null`.
+        // https://developer.feedly.com/v3/collections/#remove-multiple-feeds-from-a-personal-collection
+		send(request: request, resultType: Optional<[FeedlyFeed]>.self, dateDecoding: .millisecondsSince1970, keyDecoding: .convertFromSnakeCase) { result in
 			switch result {
 			case .success((let httpResponse, _)):
 				if httpResponse.statusCode == 200 {

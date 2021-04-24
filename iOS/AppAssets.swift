@@ -101,6 +101,14 @@ struct AppAssets {
 		return UIImage(named: "disclosure")!
 	}()
 	
+	static var contextMenuReddit: UIImage = {
+		return UIImage(named: "contextMenuReddit")!
+	}()
+	
+	static var contextMenuTwitter: UIImage = {
+		return UIImage(named: "contextMenuTwitter")!
+	}()
+	
 	static var copyImage: UIImage = {
 		return UIImage(systemName: "doc.on.doc")!
 	}()
@@ -133,6 +141,10 @@ struct AppAssets {
 		UIImage(systemName: "line.horizontal.3.decrease.circle.fill")!
 	}()
 	
+	static var folderOutlinePlus: UIImage = {
+		UIImage(systemName: "folder.badge.plus")!
+	}()
+	
 	static var fullScreenBackgroundColor: UIColor = {
 		return UIColor(named: "fullScreenBackgroundColor")!
 	}()
@@ -154,7 +166,11 @@ struct AppAssets {
 	}()
 	
 	static var masterFolderImage: IconImage = {
-		return IconImage(UIImage(systemName: "folder.fill")!)
+		return IconImage(UIImage(systemName: "folder.fill")!, isSymbol: true, isBackgroundSupressed: true, preferredColor: AppAssets.secondaryAccentColor.cgColor)
+	}()
+	
+	static var masterFolderImageNonIcon: UIImage = {
+		return UIImage(systemName: "folder.fill")!.withRenderingMode(.alwaysOriginal).withTintColor(.secondaryLabel)
 	}()
 	
 	static var moreImage: UIImage = {
@@ -169,6 +185,10 @@ struct AppAssets {
 		return UIImage(systemName: "chevron.down.circle")!
 	}()
 	
+	static var plus: UIImage = {
+		UIImage(systemName: "plus")!
+	}()
+	
 	static var prevArticleImage: UIImage = {
 		return UIImage(systemName: "chevron.up")!
 	}()
@@ -177,8 +197,12 @@ struct AppAssets {
 		return UIImage(systemName: "arrow.turn.down.left")!
 	}()
 	
-	static var primaryAccentColor: UIColor = {
+	static var primaryAccentColor: UIColor {
 		return UIColor(named: "primaryAccentColor")!
+	}
+	
+	static var redditOriginal: UIImage = {
+		return UIImage(named: "redditWhite")!.withRenderingMode(.alwaysOriginal).withTintColor(.secondaryLabel)
 	}()
 	
 	static var safariImage: UIImage = {
@@ -186,12 +210,12 @@ struct AppAssets {
 	}()
 	
 	static var searchFeedImage: IconImage = {
-		return IconImage(UIImage(systemName: "magnifyingglass")!)
+		return IconImage(UIImage(systemName: "magnifyingglass")!, isSymbol: true)
 	}()
 	
-	static var secondaryAccentColor: UIColor = {
+	static var secondaryAccentColor: UIColor {
 		return UIColor(named: "secondaryAccentColor")!
-	}()
+	}
 	
 	static var sectionHeaderColor: UIColor = {
 		return UIColor(named: "sectionHeaderColor")!
@@ -217,10 +241,10 @@ struct AppAssets {
 		return UIImage(systemName: "star")!
 	}()
 	
-	static var starredFeedImage: IconImage = {
+	static var starredFeedImage: IconImage {
 		let image = UIImage(systemName: "star.fill")!
-		return IconImage(image, isSymbol: true, preferredColor: AppAssets.starColor.cgColor)
-	}()
+		return IconImage(image, isSymbol: true, isBackgroundSupressed: true, preferredColor: AppAssets.starColor.cgColor)
+	}
 
 	static var tickMarkColor: UIColor = {
 		return UIColor(named: "tickMarkColor")!
@@ -231,19 +255,23 @@ struct AppAssets {
 		return image.withTintColor(AppAssets.starColor, renderingMode: .alwaysOriginal)
 	}()
 	
-	static var todayFeedImage: IconImage = {
+	static var todayFeedImage: IconImage {
 		let image = UIImage(systemName: "sun.max.fill")!
-		return IconImage(image, isSymbol: true, preferredColor: UIColor.systemOrange.cgColor)
-	}()
+		return IconImage(image, isSymbol: true, isBackgroundSupressed: true, preferredColor: UIColor.systemOrange.cgColor)
+	}
 
 	static var trashImage: UIImage = {
 		return UIImage(systemName: "trash")!
 	}()
 	
-	static var unreadFeedImage: IconImage = {
-		let image = UIImage(systemName: "largecircle.fill.circle")!
-		return IconImage(image, isSymbol: true, preferredColor: AppAssets.secondaryAccentColor.cgColor)
+	static var twitterOriginal: UIImage = {
+		return UIImage(named: "twitterWhite")!.withRenderingMode(.alwaysOriginal).withTintColor(.secondaryLabel)
 	}()
+	
+	static var unreadFeedImage: IconImage {
+		let image = UIImage(systemName: "largecircle.fill.circle")!
+		return IconImage(image, isSymbol: true, isBackgroundSupressed: true, preferredColor: AppAssets.secondaryAccentColor.cgColor)
+	}
 	
 	static var vibrantTextColor: UIColor = {
 		return UIColor(named: "vibrantTextColor")!
@@ -252,6 +280,7 @@ struct AppAssets {
 	static var controlBackgroundColor: UIColor = {
 		return UIColor(named: "controlBackgroundColor")!
 	}()
+
 
 	static func image(for accountType: AccountType) -> UIImage? {
 		switch accountType {

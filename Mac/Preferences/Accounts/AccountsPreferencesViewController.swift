@@ -45,10 +45,7 @@ final class AccountsPreferencesViewController: NSViewController {
 		rTable.size.width = tableView.superview!.frame.size.width
 		tableView.frame = rTable
 		
-		// Set initial row selection
-		if sortedAccounts.count > 0 {
-			tableView.selectRow(0)
-		}
+		hideController()
 	}
 	
 	@IBAction func addAccount(_ sender: Any) {
@@ -78,6 +75,7 @@ final class AccountsPreferencesViewController: NSViewController {
 			if result == NSApplication.ModalResponse.alertFirstButtonReturn {
 				guard let self = self else { return }
 				AccountManager.shared.deleteAccount(self.sortedAccounts[self.tableView.selectedRow])
+				self.hideController()
 			}
 		}
 		
@@ -112,13 +110,17 @@ extension AccountsPreferencesViewController: NSTableViewDataSource {
 
 extension AccountsPreferencesViewController: NSTableViewDelegate {
 
-	private static let cellIdentifier = NSUserInterfaceItemIdentifier(rawValue: "AccountCell")
-
 	func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-		if let cell = tableView.makeView(withIdentifier: NSUserInterfaceItemIdentifier(rawValue: "Cell"), owner: nil) as? NSTableCellView {
+		if let cell = tableView.makeView(withIdentifier: NSUserInterfaceItemIdentifier(rawValue: "Cell"), owner: nil) as? AccountCell {
+
 			let account = sortedAccounts[row]
 			cell.textField?.stringValue = account.nameForDisplay
 			cell.imageView?.image = account.smallIcon?.image
+			
+			if account.type == .feedbin {
+				cell.isImageTemplateCapable = false
+			}
+			
 			return cell
 		}
 		return nil
@@ -194,7 +196,7 @@ extension AccountsPreferencesViewController: AccountsPreferencesAddAccountDelega
 		alert.messageText = NSLocalizedString("Waiting for access to Feedly",
 											  comment: "Alert title when adding a Feedly account and waiting for authorization from the user.")
 		
-		alert.informativeText = NSLocalizedString("Your default web browser will open the Feedly login for you to authorize access.",
+		alert.informativeText = NSLocalizedString("A web browser will open the Feedly login for you to authorize access.",
 												  comment: "Alert informative text when adding a Feedly account and waiting for authorization from the user.")
 		
 		alert.addButton(withTitle: NSLocalizedString("Cancel", comment: "Cancel"))
@@ -226,18 +228,38 @@ private extension AccountsPreferencesViewController {
 	
 	func showController(_ controller: NSViewController) {
 		hideController()
-		
+	
 		addChild(controller)
 		controller.view.translatesAutoresizingMaskIntoConstraints = false
 		detailView.addSubview(controller.view)
 		detailView.addFullSizeConstraints(forSubview: controller.view)
-		
 	}
 	
 	func hideController() {
 		if let controller = children.first {
 			children.removeAll()
 			controller.view.removeFromSuperview()
+		}
+		
+		if tableView.selectedRow == -1 {
+			var helpText = ""
+			if sortedAccounts.count == 0 {
+				helpText = NSLocalizedString("Add an account by clicking the + button.", comment: "Add Account Explainer")
+			} else {
+				helpText = NSLocalizedString("Select an account or add a new account by clicking the + button.", comment: "Add Account Explainer")
+			}
+			
+			let textHostingController = NSHostingController(rootView:
+										AddAccountHelpView(delegate: addAccountDelegate, helpText: helpText))
+			addChild(textHostingController)
+			textHostingController.view.translatesAutoresizingMaskIntoConstraints = false
+			detailView.addSubview(textHostingController.view)
+			detailView.addConstraints([
+										NSLayoutConstraint(item: textHostingController.view, attribute: .top, relatedBy: .equal, toItem: detailView, attribute: .top, multiplier: 1, constant: 1),
+										NSLayoutConstraint(item: textHostingController.view, attribute: .bottom, relatedBy: .equal, toItem: detailView, attribute: .bottom, multiplier: 1, constant: -deleteButton.frame.height),
+				NSLayoutConstraint(item: textHostingController.view, attribute: .width, relatedBy: .equal, toItem: detailView, attribute: .width, multiplier: 1, constant: 1)
+			])
+			
 		}
 	}
 	

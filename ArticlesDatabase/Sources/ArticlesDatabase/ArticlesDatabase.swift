@@ -102,16 +102,16 @@ public final class ArticlesDatabase {
 		return try articlesTable.fetchArticles(articleIDs: articleIDs)
 	}
 
-	public func fetchUnreadArticles(_ webFeedIDs: Set<String>) throws -> Set<Article> {
-		return try articlesTable.fetchUnreadArticles(webFeedIDs)
+	public func fetchUnreadArticles(_ webFeedIDs: Set<String>, _ limit: Int?) throws -> Set<Article> {
+		return try articlesTable.fetchUnreadArticles(webFeedIDs, limit)
 	}
 
-	public func fetchTodayArticles(_ webFeedIDs: Set<String>) throws -> Set<Article> {
-		return try articlesTable.fetchArticlesSince(webFeedIDs, todayCutoffDate())
+	public func fetchTodayArticles(_ webFeedIDs: Set<String>, _ limit: Int?) throws -> Set<Article> {
+		return try articlesTable.fetchArticlesSince(webFeedIDs, todayCutoffDate(), limit)
 	}
 
-	public func fetchStarredArticles(_ webFeedIDs: Set<String>) throws -> Set<Article> {
-		return try articlesTable.fetchStarredArticles(webFeedIDs)
+	public func fetchStarredArticles(_ webFeedIDs: Set<String>, _ limit: Int?) throws -> Set<Article> {
+		return try articlesTable.fetchStarredArticles(webFeedIDs, limit)
 	}
 
 	public func fetchArticlesMatching(_ searchString: String, _ webFeedIDs: Set<String>) throws -> Set<Article> {
@@ -136,16 +136,16 @@ public final class ArticlesDatabase {
 		articlesTable.fetchArticlesAsync(articleIDs: articleIDs, completion)
 	}
 
-	public func fetchUnreadArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
-		articlesTable.fetchUnreadArticlesAsync(webFeedIDs, completion)
+	public func fetchUnreadArticlesAsync(_ webFeedIDs: Set<String>, _ limit: Int?, _ completion: @escaping ArticleSetResultBlock) {
+		articlesTable.fetchUnreadArticlesAsync(webFeedIDs, limit, completion)
 	}
 
-	public func fetchTodayArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
-		articlesTable.fetchArticlesSinceAsync(webFeedIDs, todayCutoffDate(), completion)
+	public func fetchTodayArticlesAsync(_ webFeedIDs: Set<String>, _ limit: Int?, _ completion: @escaping ArticleSetResultBlock) {
+		articlesTable.fetchArticlesSinceAsync(webFeedIDs, todayCutoffDate(), limit, completion)
 	}
 
-	public func fetchedStarredArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
-		articlesTable.fetchStarredArticlesAsync(webFeedIDs, completion)
+	public func fetchedStarredArticlesAsync(_ webFeedIDs: Set<String>, _ limit: Int?, _ completion: @escaping ArticleSetResultBlock) {
+		articlesTable.fetchStarredArticlesAsync(webFeedIDs, limit, completion)
 	}
 
 	public func fetchArticlesMatchingAsync(_ searchString: String, _ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
@@ -222,14 +222,14 @@ public final class ArticlesDatabase {
 
 	// MARK: - Status
 
-	/// Fetch the articleIDs of unread articles in feeds specified by webFeedIDs.
-	public func fetchUnreadArticleIDsAsync(webFeedIDs: Set<String>, completion: @escaping ArticleIDsCompletionBlock) {
-		articlesTable.fetchUnreadArticleIDsAsync(webFeedIDs, completion)
+	/// Fetch the articleIDs of unread articles.
+	public func fetchUnreadArticleIDsAsync(completion: @escaping ArticleIDsCompletionBlock) {
+		articlesTable.fetchUnreadArticleIDsAsync(completion)
 	}
 	
-	/// Fetch the articleIDs of starred articles in feeds specified by webFeedIDs.
-	public func fetchStarredArticleIDsAsync(webFeedIDs: Set<String>, completion: @escaping ArticleIDsCompletionBlock) {
-		articlesTable.fetchStarredArticleIDsAsync(webFeedIDs, completion)
+	/// Fetch the articleIDs of starred articles.
+	public func fetchStarredArticleIDsAsync(completion: @escaping ArticleIDsCompletionBlock) {
+		articlesTable.fetchStarredArticleIDsAsync(completion)
 	}
 
 	/// Fetch articleIDs for articles that we should have, but don’t. These articles are either (starred) or (newer than the article cutoff date).

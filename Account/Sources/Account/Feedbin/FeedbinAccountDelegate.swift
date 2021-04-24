@@ -112,6 +112,24 @@ final class FeedbinAccountDelegate: AccountDelegate {
 		
 	}
 
+	func syncArticleStatus(for account: Account, completion: ((Result<Void, Error>) -> Void)? = nil) {
+		sendArticleStatus(for: account) { result in
+			switch result {
+			case .success:
+				self.refreshArticleStatus(for: account) { result in
+					switch result {
+					case .success:
+						completion?(.success(()))
+					case .failure(let error):
+						completion?(.failure(error))
+					}
+				}
+			case .failure(let error):
+				completion?(.failure(error))
+			}
+		}
+	}
+	
 	func sendArticleStatus(for account: Account, completion: @escaping ((Result<Void, Error>) -> Void)) {
 
 		os_log(.debug, log: log, "Sending article statuses...")
@@ -189,8 +207,9 @@ final class FeedbinAccountDelegate: AccountDelegate {
 		caller.retrieveUnreadEntries() { result in
 			switch result {
 			case .success(let articleIDs):
-				self.syncArticleReadState(account: account, articleIDs: articleIDs)
-				group.leave()
+				self.syncArticleReadState(account: account, articleIDs: articleIDs) {
+					group.leave()
+				}
 			case .failure(let error):
 				errorOccurred = true
 				os_log(.info, log: self.log, "Retrieving unread entries failed: %@.", error.localizedDescription)
@@ -203,8 +222,9 @@ final class FeedbinAccountDelegate: AccountDelegate {
 		caller.retrieveStarredEntries() { result in
 			switch result {
 			case .success(let articleIDs):
-				self.syncArticleStarredState(account: account, articleIDs: articleIDs)
-				group.leave()
+				self.syncArticleStarredState(account: account, articleIDs: articleIDs) {
+					group.leave()
+				}
 			case .failure(let error):
 				errorOccurred = true
 				os_log(.info, log: self.log, "Retrieving starred entries failed: %@.", error.localizedDescription)
@@ -368,7 +388,7 @@ final class FeedbinAccountDelegate: AccountDelegate {
 		
 	}
 	
-	func createWebFeed(for account: Account, url: String, name: String?, container: Container, completion: @escaping (Result<WebFeed, Error>) -> Void) {
+	func createWebFeed(for account: Account, url: String, name: String?, container: Container, validateFeed: Bool, completion: @escaping (Result<WebFeed, Error>) -> Void) {
 
 		refreshProgress.addToNumberOfTasksAndRemaining(1)
 		caller.createSubscription(url: url) { result in
@@ -494,7 +514,7 @@ final class FeedbinAccountDelegate: AccountDelegate {
 				}
 			}
 		} else {
-			createWebFeed(for: account, url: feed.url, name: feed.editedName, container: container) { result in
+			createWebFeed(for: account, url: feed.url, name: feed.editedName, container: container, validateFeed: true) { result in
 				switch result {
 				case .success:
 					completion(.success(()))
@@ -534,7 +554,7 @@ final class FeedbinAccountDelegate: AccountDelegate {
 		
 	}
 	
-	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool) {
+	func markArticles(for account: Account, articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
 		account.update(articles, statusKey: statusKey, flag: flag) { result in
 			switch result {
 			case .success(let articles):
@@ -547,10 +567,11 @@ final class FeedbinAccountDelegate: AccountDelegate {
 						if let count = try? result.get(), count > 100 {
 							self.sendArticleStatus(for: account) { _ in }
 						}
+						completion(.success(()))
 					}
 				}
 			case .failure(let error):
-				os_log(.error, log: self.log, "Error marking article status: %@", error.localizedDescription)
+				completion(.failure(error))
 			}
 		}
 	}
@@ -986,27 +1007,22 @@ private extension FeedbinAccountDelegate {
 	}
 
 	func decideBestFeedChoice(account: Account, url: String, name: String?, container: Container, choices: [FeedbinSubscriptionChoice], completion: @escaping (Result<WebFeed, Error>) -> Void) {
+		var orderFound = 0
 		
 		let feedSpecifiers: [FeedSpecifier] = choices.map { choice in
 			let source = url == choice.url ? FeedSpecifier.Source.UserEntered : FeedSpecifier.Source.HTMLLink
-			let specifier = FeedSpecifier(title: choice.name, urlString: choice.url, source: source)
+			orderFound = orderFound + 1
+			let specifier = FeedSpecifier(title: choice.name, urlString: choice.url, source: source, orderFound: orderFound)
 			return specifier
 		}
 
 		if let bestSpecifier = FeedSpecifier.bestFeed(in: Set(feedSpecifiers)) {
-			if let bestSubscription = choices.filter({ bestSpecifier.urlString == $0.url }).first {
-				createWebFeed(for: account, url: bestSubscription.url, name: name, container: container, completion: completion)
-			} else {
-				DispatchQueue.main.async {
-					completion(.failure(FeedbinAccountDelegateError.invalidParameter))
-				}
-			}
+			createWebFeed(for: account, url: bestSpecifier.urlString, name: name, container: container, validateFeed: true, completion: completion)
 		} else {
 			DispatchQueue.main.async {
 				completion(.failure(FeedbinAccountDelegateError.invalidParameter))
 			}
 		}
-		
 	}
 	
 	func createFeed( account: Account, subscription sub: FeedbinSubscription, name: String?, container: Container, completion: @escaping (Result<WebFeed, Error>) -> Void) {
@@ -1250,8 +1266,9 @@ private extension FeedbinAccountDelegate {
 		
 	}
 	
-	func syncArticleReadState(account: Account, articleIDs: [Int]?) {
+	func syncArticleReadState(account: Account, articleIDs: [Int]?, completion: @escaping (() -> Void)) {
 		guard let articleIDs = articleIDs else {
+			completion()
 			return
 		}
 
@@ -1267,13 +1284,26 @@ private extension FeedbinAccountDelegate {
 						return
 					}
 
+					let group = DispatchGroup()
+					
 					// Mark articles as unread
 					let deltaUnreadArticleIDs = updatableFeedbinUnreadArticleIDs.subtracting(currentUnreadArticleIDs)
-					account.markAsUnread(deltaUnreadArticleIDs)
+					group.enter()
+					account.markAsUnread(deltaUnreadArticleIDs) { _ in
+						group.leave()
+					}
 
 					// Mark articles as read
 					let deltaReadArticleIDs = currentUnreadArticleIDs.subtracting(updatableFeedbinUnreadArticleIDs)
-					account.markAsRead(deltaReadArticleIDs)
+					group.enter()
+					account.markAsRead(deltaReadArticleIDs) { _ in
+						group.leave()
+					}
+					
+					group.notify(queue: DispatchQueue.main) {
+						completion()
+					}
+					
 				}
 
 			}
@@ -1289,8 +1319,9 @@ private extension FeedbinAccountDelegate {
 		
 	}
 	
-	func syncArticleStarredState(account: Account, articleIDs: [Int]?) {
+	func syncArticleStarredState(account: Account, articleIDs: [Int]?, completion: @escaping (() -> Void)) {
 		guard let articleIDs = articleIDs else {
+			completion()
 			return
 		}
 
@@ -1299,20 +1330,32 @@ private extension FeedbinAccountDelegate {
 			func process(_ pendingArticleIDs: Set<String>) {
 				
 				let feedbinStarredArticleIDs = Set(articleIDs.map { String($0) } )
-				let updatableFeedbinUnreadArticleIDs = feedbinStarredArticleIDs.subtracting(pendingArticleIDs)
+				let updatableFeedbinStarredArticleIDs = feedbinStarredArticleIDs.subtracting(pendingArticleIDs)
 
 				account.fetchStarredArticleIDs { articleIDsResult in
 					guard let currentStarredArticleIDs = try? articleIDsResult.get() else {
 						return
 					}
 
+					let group = DispatchGroup()
+					
 					// Mark articles as starred
-					let deltaStarredArticleIDs = updatableFeedbinUnreadArticleIDs.subtracting(currentStarredArticleIDs)
-					account.markAsStarred(deltaStarredArticleIDs)
+					let deltaStarredArticleIDs = updatableFeedbinStarredArticleIDs.subtracting(currentStarredArticleIDs)
+					group.enter()
+					account.markAsStarred(deltaStarredArticleIDs) { _ in
+						group.leave()
+					}
 
 					// Mark articles as unstarred
-					let deltaUnstarredArticleIDs = currentStarredArticleIDs.subtracting(updatableFeedbinUnreadArticleIDs)
-					account.markAsUnstarred(deltaUnstarredArticleIDs)
+					let deltaUnstarredArticleIDs = currentStarredArticleIDs.subtracting(updatableFeedbinStarredArticleIDs)
+					group.enter()
+					account.markAsUnstarred(deltaUnstarredArticleIDs) { _ in
+						group.leave()
+					}
+
+					group.notify(queue: DispatchQueue.main) {
+						completion()
+					}
 				}
 								
 			}

@@ -13,6 +13,9 @@ import Secrets
 
 class AccountsFeedbinWindowController: NSWindowController {
 
+	@IBOutlet weak var signInTextField: NSTextField!
+	@IBOutlet weak var noAccountTextField: NSTextField!
+	@IBOutlet weak var createNewAccountButton: NSButton!
 	@IBOutlet weak var progressIndicator: NSProgressIndicator!
 	@IBOutlet weak var usernameTextField: NSTextField!
 	@IBOutlet weak var passwordTextField: NSSecureTextField!
@@ -31,9 +34,15 @@ class AccountsFeedbinWindowController: NSWindowController {
 		if let account = account, let credentials = try? account.retrieveCredentials(type: .basic) {
 			usernameTextField.stringValue = credentials.username
 			actionButton.title = NSLocalizedString("Update", comment: "Update")
+			signInTextField.stringValue = NSLocalizedString("Update your Feedbin account credentials.", comment: "SignIn")
+			noAccountTextField.isHidden = true
+			createNewAccountButton.isHidden = true
 		} else {
-			actionButton.title = NSLocalizedString("Add Account", comment: "Add Account")
+			actionButton.title = NSLocalizedString("Create", comment: "Add Account")
+			signInTextField.stringValue = NSLocalizedString("Sign in to your Feedbin account.", comment: "SignIn")
 		}
+
+		usernameTextField.becomeFirstResponder()
 	}
 	
 	// MARK: API
@@ -84,25 +93,23 @@ class AccountsFeedbinWindowController: NSWindowController {
 					return
 				}
 				
-				var newAccount = false
 				if self.account == nil {
 					self.account = AccountManager.shared.createAccount(type: .feedbin)
-					newAccount = true
 				}
 			
 				do {
 					try self.account?.removeCredentials(type: .basic)
 					try self.account?.storeCredentials(validatedCredentials)
-					if newAccount {
-						self.account?.refreshAll() { result in
-							switch result {
-							case .success:
-								break
-							case .failure(let error):
-								NSApplication.shared.presentError(error)
-							}
+
+					self.account?.refreshAll() { result in
+						switch result {
+						case .success:
+							break
+						case .failure(let error):
+							NSApplication.shared.presentError(error)
 						}
 					}
+					
 					self.hostWindow?.endSheet(self.window!, returnCode: NSApplication.ModalResponse.OK)
 				} catch {
 					self.errorMessageLabel.stringValue = NSLocalizedString("Keychain error while storing credentials.", comment: "Credentials Error")
@@ -117,5 +124,10 @@ class AccountsFeedbinWindowController: NSWindowController {
 		}
 		
 	}
+	
+	@IBAction func createAccountWithProvider(_ sender: Any) {
+		NSWorkspace.shared.open(URL(string: "https://feedbin.com/signup")!)
+	}
+	
     
 }

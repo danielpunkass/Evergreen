@@ -25,6 +25,8 @@ a:hover {
 	top: 45%;
 	left: 50%;
 	transform: translateX(-55%) translateY(-50%);
+	-webkit-user-select: none;
+	cursor: default;
 }
 
 :root {
@@ -86,10 +88,10 @@ body > .systemMessage {
 	border-radius: 4px;
 }
 .rightAlign {
-	text-align: right;
+	text-align: end;
 }
 .leftAlign {
-	text-align: left;
+	text-align: start;
 }
 
 .articleTitle a:link, .articleTitle a:visited {
@@ -98,7 +100,7 @@ body > .systemMessage {
 }
 
 .articleDateline {
-	margin-bottom: 25px;
+	margin-bottom: 5px;
 	font-weight: bold;
 }
 
@@ -107,7 +109,7 @@ body > .systemMessage {
 }
 
 .articleDatelineTitle {
-	margin-bottom: 25px;
+	margin-bottom: 5px;
 	font-weight: bold;
 }
 
@@ -115,9 +117,16 @@ body > .systemMessage {
 	color: var(--article-title-color);
 }
 
+.externalLink {
+	margin-bottom: 5px;
+	font-style: italic;
+}
+
 .articleBody {
+	margin-top: 20px;
 	line-height: 1.6em;
 }
+
 h1 {
 	line-height: 1.15em;
 	font-weight: bold;
@@ -130,7 +139,6 @@ pre {
 	margin: 0;
 	overflow: auto;
 	overflow-y: hidden;
-
 	word-wrap: normal;
 	word-break: normal;
 }
@@ -138,10 +146,16 @@ pre {
 pre {
 	line-height: 1.4286em;
 }
+
 code, pre {
 	font-family: "SF Mono", Menlo, "Courier New", Courier, monospace;
-	font-size: .8235em;
+	font-size: 1em;
 	-webkit-hyphens: none;
+}
+
+pre code {
+	letter-spacing: -.027em;
+	font-size: 0.9375em;
 }
 
 .nnw-overflow {
@@ -197,6 +211,10 @@ iframe {
 	margin: 0 auto;
 }
 
+iframe.nnw-constrained {
+	max-height: 50vw;
+}
+
 figure {
 	margin-bottom: 1em;
 	margin-top: 1em;
@@ -219,6 +237,10 @@ sub {
 	top: 0.2rem;
 }
 
+hr {
+	border: 1.5px solid var(--table-cell-border-color);
+}
+
 .iframeWrap {
 	position: relative;
 	display: block;
@@ -236,8 +258,8 @@ sub {
 blockquote {
 	margin-inline-start: 0;
 	margin-inline-end: 0;
-	padding-left: 15px;
-	border-left: 3px solid var(--block-quote-border-color);
+	padding-inline-start: 15px;
+	border-inline-start: 3px solid var(--block-quote-border-color);
 }
 
 /* Feed Specific */
@@ -246,6 +268,7 @@ blockquote {
 	border-top: 1px solid var(--header-table-border-color);
 }
 
+/* see removeWpSmiley; this rule is kept in case a wp-smiley is encountered without alt text */
 .wp-smiley {
    height: 1em;
    max-height: 1em;

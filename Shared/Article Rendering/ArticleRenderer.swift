@@ -152,9 +152,25 @@ private extension ArticleRenderer {
 		
 		let title = titleOrTitleLink()
 		d["title"] = title
-
+		
+		if let externalLink = article.externalURL, externalLink != article.preferredLink {
+			var displayLink = externalLink.strippingHTTPOrHTTPSScheme
+			if displayLink.count > 27 {
+				displayLink = displayLink.prefix(27).appending("...")
+			}
+			let regarding = NSLocalizedString("Link", comment: "Link")
+			let externalLinkString = "\(regarding): <a href=\"\(externalLink)\">\(displayLink)</a>"
+			d["external_link"] = externalLinkString
+		} else {
+			d["external_link"] = ""
+		}
+		
 		d["body"] = body
-
+		
+		#if os(macOS)
+		d["text_size_class"] = AppDefaults.shared.articleTextSize.cssClass
+		#endif
+		
 		var components = URLComponents()
 		components.scheme = Self.imageIconScheme
 		components.path = article.articleID
@@ -264,25 +280,11 @@ private extension ArticleRenderer {
 		var d = [String: String]()
 		let bodyFont = UIFont.preferredFont(forTextStyle: .body)
 		d["font-size"] = String(describing: bodyFont.pointSize)
-		
-		if let components = UIColor(named: "AccentColor")?.cgColor.components {
-			d["accent-r"] = String(Int(round(components[0] * 0xFF)))
-			d["accent-g"] = String(Int(round(components[1] * 0xFF)))
-			d["accent-b"] = String(Int(round(components[2] * 0xFF)))
-		}
-		
 		return d
 	}
 	#else
 	func styleSubstitutions() -> [String: String] {
-		var d = [String: String]()
-		
-		if #available(macOS 11.0, *) {
-			let bodyFont = NSFont.preferredFont(forTextStyle: .body)
-			d["font-size"] = String(describing: Int(round(bodyFont.pointSize * 1.33)))
-		}
-		
-		return d
+		return [String: String]()
 	}
 	#endif
 

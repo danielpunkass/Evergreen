@@ -12,7 +12,7 @@ import Articles
 import Account
 import os.log
 
-protocol TimelineDelegate: class  {
+protocol TimelineDelegate: AnyObject  {
 	func timelineSelectionDidChange(_: TimelineViewController, selectedArticles: [Article]?)
 	func timelineRequestedWebFeedSelection(_: TimelineViewController, webFeed: WebFeed)
 	func timelineInvalidatedRestorationState(_: TimelineViewController)
@@ -106,7 +106,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 				// When the array is the same — same articles, same order —
 				// but some data in some of the articles may have changed.
 				// Just reload visible cells in this case: don’t call reloadData.
-				articleRowMap = [String: Int]()
+				articleRowMap = [String: [Int]]()
 				reloadVisibleCells()
 				return
 			}
@@ -124,7 +124,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 				showFeedNames = .feed
 			}
 
-			articleRowMap = [String: Int]()
+			articleRowMap = [String: [Int]]()
 			tableView.reloadData()
 		}
 	}
@@ -141,7 +141,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 	private var fetchSerialNumber = 0
 	private let fetchRequestQueue = FetchRequestQueue()
 	private var exceptionArticleFetcher: ArticleFetcher?
-	private var articleRowMap = [String: Int]() // articleID: rowIndex
+	private var articleRowMap = [String: [Int]]() // articleID: rowIndex
 	private var cellAppearance: TimelineCellAppearance!
 	private var cellAppearanceWithIcon: TimelineCellAppearance!
 	private var showFeedNames: TimelineShowFeedName = .none {
@@ -194,7 +194,6 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 	convenience init(delegate: TimelineDelegate) {
 		self.init(nibName: "TimelineTableView", bundle: nil)
 		self.delegate = delegate
-		self.startObservingUserDefaults()
 	}
 	
 	override func viewDidLoad() {
@@ -207,6 +206,10 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		tableView.doubleAction = #selector(openArticleInBrowser(_:))
 		tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
 		tableView.keyboardDelegate = keyboardDelegate
+		
+		if #available(macOS 11.0, *) {
+			tableView.style = .inset
+		}
 		
 		if !didRegisterForNotifications {
 			NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
@@ -230,8 +233,8 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 
 	// MARK: - API
 	
-	func markAllAsRead() {
-		guard let undoManager = undoManager, let markReadCommand = MarkStatusCommand(initialArticles: articles, markingRead: true, undoManager: undoManager) else {
+	func markAllAsRead(completion: (() -> Void)? = nil) {
+		guard let undoManager = undoManager, let markReadCommand = MarkStatusCommand(initialArticles: articles, markingRead: true, undoManager: undoManager, completion: completion) else {
 			return
 		}
 		runCommand(markReadCommand)
@@ -938,7 +941,7 @@ extension TimelineViewController: NSTableViewDelegate {
 
 		switch edge {
 			case .leading:
-				let action = NSTableViewRowAction(style: .regular, title: "") { (action, row) in
+				let action = NSTableViewRowAction(style: .regular, title: article.status.read ? "Unread" : "Read") { (action, row) in
 					self.toggleArticleRead(article);
 					tableView.rowActionsVisible = false
 				}
@@ -946,7 +949,7 @@ extension TimelineViewController: NSTableViewDelegate {
 				return [action]
 
 			case .trailing:
-				let action = NSTableViewRowAction(style: .regular, title: "") { (action, row) in
+				let action = NSTableViewRowAction(style: .regular, title: article.status.starred ? "Unstar" : "Star") { (action, row) in
 					self.toggleArticleStarred(article);
 					tableView.rowActionsVisible = false
 				}
@@ -965,18 +968,6 @@ extension TimelineViewController: NSTableViewDelegate {
 // MARK: - Private
 
 private extension TimelineViewController {
-
-	func startObservingUserDefaults() {
-		assert(timelineShowsSeparatorsObserver == nil)
-		timelineShowsSeparatorsObserver = UserDefaults.standard.observe(\UserDefaults.CorreiaSeparators) { [weak self] (_, _) in
-			guard let self = self, self.isViewLoaded else { return }
-			self.tableView.enumerateAvailableRowViews { (rowView, index) in
-				if let cellView = rowView.view(atColumn: 0) as? TimelineTableCellView {
-					cellView.timelineShowsSeparatorsDefaultDidChange()
-				}
-			}
-		}
-	}
 	
 	func fetchAndReplacePreservingSelection() {
 		if let article = oneSelectedArticle, let account = article.account {
@@ -1066,20 +1057,25 @@ private extension TimelineViewController {
 		restoreSelection(savedSelection)
 	}
 
-	func row(for articleID: String) -> Int? {
+	func rows(for articleID: String) -> [Int]? {
 		updateArticleRowMapIfNeeded()
 		return articleRowMap[articleID]
 	}
 
-	func row(for article: Article) -> Int? {
-		return row(for: article.articleID)
+	func rows(for article: Article) -> [Int]? {
+		return rows(for: article.articleID)
 	}
 
 	func updateArticleRowMap() {
-		var rowMap = [String: Int]()
+		var rowMap = [String: [Int]]()
 		var index = 0
 		articles.forEach { (article) in
-			rowMap[article.articleID] = index
+			if var indexes = rowMap[article.articleID] {
+				indexes.append(index)
+				rowMap[article.articleID] = indexes
+			} else {
+				rowMap[article.articleID] = [index]
+			}
 			index += 1
 		}
 		articleRowMap = rowMap
@@ -1095,11 +1091,11 @@ private extension TimelineViewController {
 		var indexes = IndexSet()
 
 		articleIDs.forEach { (articleID) in
-			guard let oneIndex = row(for: articleID) else {
+			guard let rowsIndex = rows(for: articleID) else {
 				return
 			}
-			if oneIndex != NSNotFound {
-				indexes.insert(oneIndex)
+			for rowIndex in rowsIndex {
+				indexes.insert(rowIndex)
 			}
 		}
 
