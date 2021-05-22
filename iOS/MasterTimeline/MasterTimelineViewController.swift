@@ -19,15 +19,7 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	
 	private var refreshProgressView: RefreshProgressView?
 
-	@IBOutlet weak var markAllAsReadButton: UIBarButtonItem! {
-		didSet {
-			if #available(iOS 14, *) {
-				markAllAsReadButton.primaryAction = nil
-			} else {
-				markAllAsReadButton.action = #selector(MasterTimelineViewController.markAllAsRead(_:))
-			}
-		}
-	}
+	@IBOutlet weak var markAllAsReadButton: UIBarButtonItem!
 
 	private var filterButton: UIBarButtonItem!
 	private var firstUnreadButton: UIBarButtonItem!
@@ -471,13 +463,15 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	}
 
 	@objc func userDefaultsDidChange(_ note: Notification) {
-		if numberOfTextLines != AppDefaults.shared.timelineNumberOfLines || iconSize != AppDefaults.shared.timelineIconSize {
-			numberOfTextLines = AppDefaults.shared.timelineNumberOfLines
-			iconSize = AppDefaults.shared.timelineIconSize
-			resetEstimatedRowHeight()
-			reloadAllVisibleCells()
+		DispatchQueue.main.async {
+			if self.numberOfTextLines != AppDefaults.shared.timelineNumberOfLines || self.iconSize != AppDefaults.shared.timelineIconSize {
+				self.numberOfTextLines = AppDefaults.shared.timelineNumberOfLines
+				self.iconSize = AppDefaults.shared.timelineIconSize
+				self.resetEstimatedRowHeight()
+				self.reloadAllVisibleCells()
+			}
+			self.updateToolbar()
 		}
-		updateToolbar()
 	}
 	
 	@objc func contentSizeCategoryDidChange(_ note: Notification) {
@@ -664,25 +658,6 @@ private extension MasterTimelineViewController {
 				setToolbarItems(items, animated: false)
 			}
 		}
-		
-		if #available(iOS 14, *) {
-			let title = NSLocalizedString("Mark All as Read", comment: "Mark All as Read")
-			var markAsReadAction: UIAction!
-			
-			if AppDefaults.shared.confirmMarkAllAsRead {
-				markAsReadAction = UIAction(title: title, image: AppAssets.markAllAsReadImage, discoverabilityTitle: "in \(self.title!)") { [weak self] action in
-					self?.coordinator.markAllAsReadInTimeline()
-				}
-				let settingsAction = UIAction(title: NSLocalizedString("Settings", comment: "Settings"), image: UIImage(systemName: "gear")!, discoverabilityTitle: NSLocalizedString("You can turn this confirmation off in Settings.", comment: "You can turn this confirmation off in Settings.")) { [weak self] action in
-					self?.coordinator.showSettings(scrollToArticlesSection: true)
-				}
-				markAllAsReadButton.menu = UIMenu(title: NSLocalizedString(title, comment: title), image: nil, identifier: nil, children: [settingsAction, markAsReadAction])
-				markAllAsReadButton.action = nil
-			} else {
-				markAllAsReadButton.action = #selector(MasterTimelineViewController.markAllAsRead(_:))
-			}
-		}
-		
 	}
 	
 	func updateTitleUnreadCount() {

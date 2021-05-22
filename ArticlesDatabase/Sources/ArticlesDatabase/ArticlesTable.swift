@@ -75,32 +75,32 @@ final class ArticlesTable: DatabaseTable {
 
 	// MARK: - Fetching Unread Articles
 
-	func fetchUnreadArticles(_ webFeedIDs: Set<String>) throws -> Set<Article> {
-		return try fetchArticles{ self.fetchUnreadArticles(webFeedIDs, $0) }
+	func fetchUnreadArticles(_ webFeedIDs: Set<String>, _ limit: Int?) throws -> Set<Article> {
+		return try fetchArticles{ self.fetchUnreadArticles(webFeedIDs, limit, $0) }
 	}
 
-	func fetchUnreadArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
-		fetchArticlesAsync({ self.fetchUnreadArticles(webFeedIDs, $0) }, completion)
+	func fetchUnreadArticlesAsync(_ webFeedIDs: Set<String>, _ limit: Int?, _ completion: @escaping ArticleSetResultBlock) {
+		fetchArticlesAsync({ self.fetchUnreadArticles(webFeedIDs, limit, $0) }, completion)
 	}
 
 	// MARK: - Fetching Today Articles
 
-	func fetchArticlesSince(_ webFeedIDs: Set<String>, _ cutoffDate: Date) throws -> Set<Article> {
-		return try fetchArticles{ self.fetchArticlesSince(webFeedIDs, cutoffDate, $0) }
+	func fetchArticlesSince(_ webFeedIDs: Set<String>, _ cutoffDate: Date, _ limit: Int?) throws -> Set<Article> {
+		return try fetchArticles{ self.fetchArticlesSince(webFeedIDs, cutoffDate, limit, $0) }
 	}
 
-	func fetchArticlesSinceAsync(_ webFeedIDs: Set<String>, _ cutoffDate: Date, _ completion: @escaping ArticleSetResultBlock) {
-		fetchArticlesAsync({ self.fetchArticlesSince(webFeedIDs, cutoffDate, $0) }, completion)
+	func fetchArticlesSinceAsync(_ webFeedIDs: Set<String>, _ cutoffDate: Date, _ limit: Int?, _ completion: @escaping ArticleSetResultBlock) {
+		fetchArticlesAsync({ self.fetchArticlesSince(webFeedIDs, cutoffDate, limit, $0) }, completion)
 	}
 
 	// MARK: - Fetching Starred Articles
 
-	func fetchStarredArticles(_ webFeedIDs: Set<String>) throws -> Set<Article> {
-		return try fetchArticles{ self.fetchStarredArticles(webFeedIDs, $0) }
+	func fetchStarredArticles(_ webFeedIDs: Set<String>, _ limit: Int?) throws -> Set<Article> {
+		return try fetchArticles{ self.fetchStarredArticles(webFeedIDs, limit, $0) }
 	}
 
-	func fetchStarredArticlesAsync(_ webFeedIDs: Set<String>, _ completion: @escaping ArticleSetResultBlock) {
-		fetchArticlesAsync({ self.fetchStarredArticles(webFeedIDs, $0) }, completion)
+	func fetchStarredArticlesAsync(_ webFeedIDs: Set<String>, _ limit: Int?, _ completion: @escaping ArticleSetResultBlock) {
+		fetchArticlesAsync({ self.fetchStarredArticles(webFeedIDs, limit, $0) }, completion)
 	}
 
 	// MARK: - Fetching Search Articles
@@ -145,19 +145,36 @@ final class ArticlesTable: DatabaseTable {
 	}
 
 	// MARK: - Fetching Articles for Indexer
+	private func articleSearchInfosQuery(with placeholders: String) -> String {
+		return """
+        SELECT
+            art.articleID,
+            art.title,
+            art.contentHTML,
+            art.contentText,
+            art.summary,
+            art.searchRowID,
+            (SELECT GROUP_CONCAT(name, ' ')
+                FROM authorsLookup as autL
+                JOIN authors as aut ON autL.authorID = aut.authorID
+                WHERE art.articleID = autL.articleID
+                GROUP BY autl.articleID) as authors
+        FROM articles as art
+        WHERE articleID in \(placeholders);
+        """
+	}
 
 	func fetchArticleSearchInfos(_ articleIDs: Set<String>, in database: FMDatabase) -> Set<ArticleSearchInfo>? {
 		let parameters = articleIDs.map { $0 as AnyObject }
 		let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(articleIDs.count))!
-		let sql = "select articleID, title, contentHTML, contentText, summary, searchRowID from articles where articleID in \(placeholders);";
-
-		if let resultSet = database.executeQuery(sql, withArgumentsIn: parameters) {
+		if let resultSet = database.executeQuery(self.articleSearchInfosQuery(with: placeholders), withArgumentsIn: parameters) {
 			return resultSet.mapToSet { (row) -> ArticleSearchInfo? in
 				let articleID = row.string(forColumn: DatabaseKey.articleID)!
 				let title = row.string(forColumn: DatabaseKey.title)
 				let contentHTML = row.string(forColumn: DatabaseKey.contentHTML)
 				let contentText = row.string(forColumn: DatabaseKey.contentText)
 				let summary = row.string(forColumn: DatabaseKey.summary)
+				let authorsNames = row.string(forColumn: DatabaseKey.authors)
 
 				let searchRowIDObject = row.object(forColumnName: DatabaseKey.searchRowID)
 				var searchRowID: Int? = nil
@@ -165,7 +182,7 @@ final class ArticlesTable: DatabaseTable {
 					searchRowID = Int(row.longLongInt(forColumn: DatabaseKey.searchRowID))
 				}
 
-				return ArticleSearchInfo(articleID: articleID, title: title, contentHTML: contentHTML, contentText: contentText, summary: summary, searchRowID: searchRowID)
+				return ArticleSearchInfo(articleID: articleID, title: title, contentHTML: contentHTML, contentText: contentText, summary: summary, authorsNames: authorsNames, searchRowID: searchRowID)
 			}
 		}
 		return nil
@@ -779,14 +796,17 @@ private extension ArticlesTable {
 		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 	}
 
-	func fetchUnreadArticles(_ webFeedIDs: Set<String>, _ database: FMDatabase) -> Set<Article> {
+	func fetchUnreadArticles(_ webFeedIDs: Set<String>, _ limit: Int?, _ database: FMDatabase) -> Set<Article> {
 		// select * from articles natural join statuses where feedID in ('http://ranchero.com/xml/rss.xml') and read=0
 		if webFeedIDs.isEmpty {
 			return Set<Article>()
 		}
 		let parameters = webFeedIDs.map { $0 as AnyObject }
 		let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(webFeedIDs.count))!
-		let whereClause = "feedID in \(placeholders) and read=0"
+		var whereClause = "feedID in \(placeholders) and read=0"
+		if let limit = limit {
+			whereClause.append(" order by coalesce(datePublished, dateModified, dateArrived) desc limit \(limit)")
+		}
 		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 	}
 
@@ -804,7 +824,7 @@ private extension ArticlesTable {
 		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 	}
 
-	func fetchArticlesSince(_ webFeedIDs: Set<String>, _ cutoffDate: Date, _ database: FMDatabase) -> Set<Article> {
+	func fetchArticlesSince(_ webFeedIDs: Set<String>, _ cutoffDate: Date, _ limit: Int?, _ database: FMDatabase) -> Set<Article> {
 		// select * from articles natural join statuses where feedID in ('http://ranchero.com/xml/rss.xml') and (datePublished > ? || (datePublished is null and dateArrived > ?)
 		//
 		// datePublished may be nil, so we fall back to dateArrived.
@@ -813,18 +833,24 @@ private extension ArticlesTable {
 		}
 		let parameters = webFeedIDs.map { $0 as AnyObject } + [cutoffDate as AnyObject, cutoffDate as AnyObject]
 		let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(webFeedIDs.count))!
-		let whereClause = "feedID in \(placeholders) and (datePublished > ? or (datePublished is null and dateArrived > ?))"
+		var whereClause = "feedID in \(placeholders) and (datePublished > ? or (datePublished is null and dateArrived > ?))"
+		if let limit = limit {
+			whereClause.append(" order by coalesce(datePublished, dateModified, dateArrived) desc limit \(limit)")
+		}
 		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 	}
 
-	func fetchStarredArticles(_ webFeedIDs: Set<String>, _ database: FMDatabase) -> Set<Article> {
+	func fetchStarredArticles(_ webFeedIDs: Set<String>, _ limit: Int?, _ database: FMDatabase) -> Set<Article> {
 		// select * from articles natural join statuses where feedID in ('http://ranchero.com/xml/rss.xml') and starred=1;
 		if webFeedIDs.isEmpty {
 			return Set<Article>()
 		}
 		let parameters = webFeedIDs.map { $0 as AnyObject }
 		let placeholders = NSString.rs_SQLValueList(withPlaceholders: UInt(webFeedIDs.count))!
-		let whereClause = "feedID in \(placeholders) and starred=1"
+		var whereClause = "feedID in \(placeholders) and starred=1"
+		if let limit = limit {
+			whereClause.append(" order by coalesce(datePublished, dateModified, dateArrived) desc limit \(limit)")
+		}
 		return fetchArticlesWithWhereClause(database, whereClause: whereClause, parameters: parameters)
 		}
 

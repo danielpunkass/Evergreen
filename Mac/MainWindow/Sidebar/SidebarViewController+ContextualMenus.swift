@@ -230,7 +230,7 @@ private extension SidebarViewController {
 		}
 		menu.addItem(NSMenuItem.separator())
 		
-		let notificationText = NSLocalizedString("Show Notifications for New Articles", comment: "Show Notifications for New Articles")
+		let notificationText = webFeed.notificationDisplayName.capitalized
 		
 		let notificationMenuItem = menuItem(notificationText, #selector(toggleNotificationsFromContextMenu(_:)), webFeed)
 		if webFeed.isNotifyAboutNewArticles == nil || webFeed.isNotifyAboutNewArticles! == false {
@@ -240,15 +240,20 @@ private extension SidebarViewController {
 		}
 		menu.addItem(notificationMenuItem)
 		
-		let articleExtractorText = NSLocalizedString("Always Use Reader View", comment: "Always Use Reader View")
-		let articleExtractorMenuItem = menuItem(articleExtractorText, #selector(toggleArticleExtractorFromContextMenu(_:)), webFeed)
 		
-		if webFeed.isArticleExtractorAlwaysOn == nil || webFeed.isArticleExtractorAlwaysOn! == false {
-			articleExtractorMenuItem.state = .off
-		} else {
-			articleExtractorMenuItem.state = .on
+		if !webFeed.isFeedProvider {
+			let articleExtractorText = NSLocalizedString("Always Use Reader View", comment: "Always Use Reader View")
+			let articleExtractorMenuItem = menuItem(articleExtractorText, #selector(toggleArticleExtractorFromContextMenu(_:)), webFeed)
+			
+			if webFeed.isArticleExtractorAlwaysOn == nil || webFeed.isArticleExtractorAlwaysOn! == false {
+				articleExtractorMenuItem.state = .off
+			} else {
+				articleExtractorMenuItem.state = .on
+			}
+			menu.addItem(articleExtractorMenuItem)
 		}
-		menu.addItem(articleExtractorMenuItem)
+		
+		
 		menu.addItem(NSMenuItem.separator())
 		
 		menu.addItem(renameMenuItem(webFeed))

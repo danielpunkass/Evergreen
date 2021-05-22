@@ -12,18 +12,6 @@ import Articles
 import RSCore
 import Account
 
-public enum SidebarOutlineDataSourceError: LocalizedError {
-	case createErrorNotFound([String])
-	
-	public var errorDescription: String? {
-		switch self {
-		case .createErrorNotFound(let feedNames):
-			let message = NSLocalizedString("The following feeds could not be added because they could not be found:\n", comment: "Not found")
-			return "\(message)\(feedNames.joined(separator: ", "))"
-		}
-	}
-}
-
 @objc final class SidebarOutlineDataSource: NSObject, NSOutlineViewDataSource {
 
 	let treeController: TreeController

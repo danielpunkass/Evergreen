@@ -1062,6 +1062,7 @@ private extension MainWindowController {
 			return false
 		}
 		
+
 		if #available(macOS 11.0, *) {
 
 			guard let toolbarItem = item as? NSToolbarItem, let toolbarButton = toolbarItem.view as? ArticleExtractorButton else {
@@ -1069,6 +1070,15 @@ private extension MainWindowController {
 					menuItem.state = isShowingExtractedArticle ? .on : .off
 				}
 				return currentLink != nil
+			}
+			
+			if let webfeed = currentTimelineViewController?.selectedArticles.first?.webFeed {
+				if webfeed.isFeedProvider {
+					toolbarButton.isEnabled = false
+					return false
+				} else {
+					toolbarButton.isEnabled = true
+				}
 			}
 
 			guard let state = articleExtractor?.state else {
@@ -1092,6 +1102,15 @@ private extension MainWindowController {
 					menuItem.state = isShowingExtractedArticle ? .on : .off
 				}
 				return currentLink != nil
+			}
+			
+			if let webfeed = currentTimelineViewController?.selectedArticles.first?.webFeed {
+				if webfeed.isFeedProvider {
+					toolbarButton.isEnabled = false
+					return false
+				} else {
+					toolbarButton.isEnabled = true
+				}
 			}
 			
 			toolbarButton.state = isShowingExtractedArticle ? .on : .off
