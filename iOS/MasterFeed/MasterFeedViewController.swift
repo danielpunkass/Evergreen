@@ -41,7 +41,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 	override var canBecomeFirstResponder: Bool {
 		return true
 	}
-	
+
 	override func viewDidLoad() {
 
 		super.viewDidLoad()
@@ -85,6 +85,12 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 		super.viewWillAppear(animated)
 	}
 	
+	override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+		IconImageCache.shared.emptyCache()
+		super.traitCollectionDidChange(previousTraitCollection)
+		reloadAllVisibleCells()
+	}
+
 	// MARK: Notifications
 	
 	@objc func unreadCountDidChange(_ note: Notification) {
@@ -842,38 +848,12 @@ private extension MasterFeedViewController {
 	}
 	
 	func configureIcon(_ cell: MasterFeedTableViewCell, _ identifier: MasterFeedTableViewIdentifier) {
-		cell.iconImage = imageFor(identifier)
+		guard let feedID = identifier.feedID else {
+			return
+		}
+		cell.iconImage = IconImageCache.shared.imageFor(feedID)
 	}
 
-	func imageFor(_ identifier: MasterFeedTableViewIdentifier) -> IconImage? {
-		guard let feedID = identifier.feedID else { return nil }
-		
-		if let smartFeed = SmartFeedsController.shared.find(by: feedID) {
-			return smartFeed.smallIcon
-		}
-		
-		guard let feed = AccountManager.shared.existingFeed(with: feedID) else { return nil }
-		
-		if let webFeed = feed as? WebFeed {
-			
-			let feedIconImage = appDelegate.webFeedIconDownloader.icon(for: webFeed)
-			if feedIconImage != nil {
-				return feedIconImage
-			}
-			
-			if let faviconImage = appDelegate.faviconDownloader.faviconAsIcon(for: webFeed) {
-				return faviconImage
-			}
-			
-		}
-		
-		if let smallIconProvider = feed as? SmallIconProvider {
-			return smallIconProvider.smallIcon
-		}
-		
-		return nil
-	}
-	
 	func nameFor(_ node: Node) -> String {
 		if let displayNameProvider = node.representedObject as? DisplayNameProvider {
 			return displayNameProvider.nameForDisplay
@@ -1211,9 +1191,20 @@ private extension MasterFeedViewController {
 		guard let identifier = dataSource.itemIdentifier(for: indexPath), identifier.unreadCount > 0 else {
 			return nil
 		}
-
+		
+		var smartFeed: Feed?
+		if identifier.isPsuedoFeed {
+			if SmartFeedsController.shared.todayFeed.feedID == identifier.feedID {
+				smartFeed = SmartFeedsController.shared.todayFeed
+			} else if SmartFeedsController.shared.unreadFeed.feedID == identifier.feedID {
+				smartFeed = SmartFeedsController.shared.unreadFeed
+			} else if SmartFeedsController.shared.starredFeed.feedID == identifier.feedID  {
+				smartFeed = SmartFeedsController.shared.starredFeed
+			}
+		}
+		
 		guard let feedID = identifier.feedID,
-			  let feed = AccountManager.shared.existingFeed(with: feedID),
+			  let feed = smartFeed ?? AccountManager.shared.existingFeed(with: feedID),
 			  feed.unreadCount > 0,
 			  let contentView = self.tableView.cellForRow(at: indexPath)?.contentView else {
 			return nil
@@ -1241,8 +1232,11 @@ private extension MasterFeedViewController {
 		let title = NSString.localizedStringWithFormat(localizedMenuText as NSString, account.nameForDisplay) as String
 		let action = UIAction(title: title, image: AppAssets.markAllAsReadImage) { [weak self] action in
 			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: title, sourceType: contentView) { [weak self] in
-				if let articles = try? account.fetchArticles(.unread()) {
-					self?.coordinator.markAllAsRead(Array(articles))
+				// If you don't have this delay the screen flashes when it executes this code
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+					if let articles = try? account.fetchArticles(.unread()) {
+						self?.coordinator.markAllAsRead(Array(articles))
+					}
 				}
 			}
 		}
@@ -1349,13 +1343,12 @@ private extension MasterFeedViewController {
 			ActivityManager.cleanUp(feed)
 		}
 		
-		pushUndoableCommand(deleteCommand)
-		deleteCommand.perform()
-		
 		if indexPath == coordinator.currentFeedIndexPath {
 			coordinator.selectFeed(indexPath: nil)
 		}
 		
+		pushUndoableCommand(deleteCommand)
+		deleteCommand.perform()
 	}
 	
 }

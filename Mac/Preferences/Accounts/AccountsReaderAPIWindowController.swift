@@ -43,6 +43,7 @@ class AccountsReaderAPIWindowController: NSWindowController {
 				titleLabel.stringValue = NSLocalizedString("Sign in to your FreshRSS account.", comment: "FreshRSS")
 				noAccountTextField.stringValue = NSLocalizedString("Don't have a FreshRSS instance?", comment: "No FreshRSS")
 				createAccountButton.title = NSLocalizedString("Find out more", comment: "No FreshRSS Button")
+				apiURLTextField.placeholderString = NSLocalizedString("fresh.rss.net/api/greader.php", comment: "FreshRSS API Helper")
 			case .inoreader:
 				titleImageView.image = AppAssets.accountInoreader
 				titleLabel.stringValue = NSLocalizedString("Sign in to your InoReader account.", comment: "InoReader")
@@ -71,6 +72,7 @@ class AccountsReaderAPIWindowController: NSWindowController {
 			actionButton.title = NSLocalizedString("Create", comment: "Create")
 		}
 		
+		enableAutofill()
 		usernameTextField.becomeFirstResponder()
 	}
 	
@@ -193,5 +195,12 @@ class AccountsReaderAPIWindowController: NSWindowController {
 		}
 	}
 	
+	// MARK: Autofill
+	func enableAutofill() {
+		if #available(macOS 11, *) {
+			usernameTextField.contentType = .username
+			passwordTextField.contentType = .password
+		}
+	}
     
 }
